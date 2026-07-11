@@ -16,6 +16,7 @@ pub struct Tabs {
     pub(crate) url: Entity<InputState>,
     pub(crate) query_params: Vec<Entity<QueryParams>>,
     pub(crate) pending: bool,
+    pub(crate) dirty: bool,
 }
 
 pub fn add_tab(
@@ -52,6 +53,7 @@ pub fn add_tab(
         url,
         query_params: vec![],
         pending: false,
+        dirty: false,
     }
 }
 
@@ -68,6 +70,7 @@ pub fn render_new_tab_button(_api: &ApiClient, cx: &mut Context<ApiClient>) -> i
                 .ghost()
                 .small()
                 .icon(IconName::Plus)
+                .tooltip("Add Tab")
                 .on_click(cx.listener(|this: &mut ApiClient, _event, window, cx| {
                     let tab = add_tab(window, cx, "new", "GET".to_string());
                     this.active_tab = Some(tab.id);

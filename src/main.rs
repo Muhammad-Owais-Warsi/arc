@@ -12,6 +12,7 @@ use gpui_component::select::{Select, SelectEvent, SelectState};
 use gpui_component::sidebar::{
     Sidebar, SidebarCollapsible, SidebarGroup, SidebarHeader, SidebarMenu, SidebarMenuItem,
 };
+use gpui_component::tab::{Tab, TabBar};
 use gpui_component::{button::*, *};
 use std::path::PathBuf;
 
@@ -31,6 +32,7 @@ pub(crate) struct ApiClient {
     pub(crate) scroll_handle: ScrollHandle,
     pub(crate) theme: Entity<SelectState<Vec<SharedString>>>,
     pub(crate) sidebar_collapsed: bool,
+    pub(crate) selected_editor_config: usize,
 }
 
 impl ApiClient {
@@ -93,8 +95,6 @@ impl ApiClient {
             if let SelectEvent::Confirm(Some(name)) = event {
                 let registry = ThemeRegistry::global(cx);
                 if let Some(theme_config) = registry.themes().get(name).cloned() {
-                    use gpui_component::{Theme, ThemeRegistry};
-
                     let mode = theme_config.mode;
                     let theme = Theme::global_mut(cx);
                     if mode.is_dark() {
@@ -116,6 +116,7 @@ impl ApiClient {
             scroll_handle: ScrollHandle::new(),
             theme,
             sidebar_collapsed: false,
+            selected_editor_config: 0,
         };
 
         let tab = add_tab(window, cx, "get_req", "GET".to_string());
@@ -221,7 +222,27 @@ impl ApiClient {
                     ),
             )
     }
-    fn render_editor(&self, _cx: &Context<Self>) -> impl IntoElement {
+
+    fn render_editor_config(&mut self, cx: &mut Context<Self>) -> impl IntoElement {
+        div().w_full().child(
+            TabBar::new("request-tabs")
+                // .gap_10()
+                .with_variant(tab::TabVariant::Underline)
+                .selected_index(self.selected_editor_config)
+                .child(Tab::new().label("Params"))
+                .child(Tab::new().label("Authorization"))
+                .child(Tab::new().label("Headers"))
+                .child(Tab::new().label("Body"))
+                .child(Tab::new().label("Settings"))
+                .on_click(
+                    cx.listener(move |this: &mut ApiClient, idx: &usize, _window, cx| {
+                        this.selected_editor_config = *idx
+                    }),
+                ),
+        )
+    }
+
+    fn render_editor(&self, cx: &mut Context<Self>) -> impl IntoElement {
         let Some(tab) = self
             .active_tab
             .and_then(|id| self.tabs.iter().find(|t| t.id == id))
@@ -234,6 +255,14 @@ impl ApiClient {
             .gap(rems(0.5))
             .child(div().w(px(110.)).child(Select::new(&tab.method)))
             .child(div().flex_1().child(Input::new(&tab.url)))
+            .child(
+                Button::new("save")
+                    .secondary()
+                    .label("Save")
+                    .when(tab.dirty, |this| {
+                        this.child(div().size_2().rounded_full().bg(cx.theme().primary))
+                    }),
+            )
             .child(Button::new("send").primary().label("Send"))
     }
 }
@@ -264,7 +293,12 @@ impl Render for ApiClient {
                             .px(px(24.))
                             .pt(rems(1.))
                             .child(self.render_editor(cx))
-                            .child(query_params::render_query_params_section(self, cx)),
+                            .child(self.render_editor_config(cx))
+                            .child(match self.selected_editor_config {
+                                0 => query_params::render_query_params_section(self, cx)
+                                    .into_any_element(),
+                                _ => div().into_any_element(),
+                            }),
                     )
                     .child(self.render_footer(cx)),
             )
@@ -276,10 +310,6 @@ fn main() {
 
     app.run(move |cx| {
         gpui_component::init(cx);
-
-        if let Ok(content) = std::fs::read_to_string("./themes/ayu.json") {
-            let _ = ThemeRegistry::global_mut(cx).load_themes_from_str(&content);
-        }
 
         let theme_name = SharedString::from("Ayu Dark");
         let default_theme = theme_name.clone();

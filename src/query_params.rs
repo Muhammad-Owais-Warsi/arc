@@ -2,10 +2,8 @@ use crate::ApiClient;
 use gpui::*;
 use gpui_component::button::{Button, ButtonVariants};
 use gpui_component::checkbox::Checkbox;
-use gpui_component::input::{Input, InputState};
-use gpui_component::table::{
-    Table, TableBody, TableCaption, TableCell, TableHead, TableHeader, TableRow,
-};
+use gpui_component::input::{Input, InputEvent, InputState};
+use gpui_component::table::{Table, TableBody, TableCell, TableHead, TableHeader, TableRow};
 use gpui_component::{IconName, Sizable, h_flex, v_flex};
 
 pub struct QueryParams {
@@ -20,18 +18,56 @@ fn new_query_param(
     cx: &mut Context<ApiClient>,
     tab_id: usize,
 ) {
-    let qp = cx.new(|cx| QueryParams {
-        key: cx.new(|cx| InputState::new(window, cx)),
-        value: cx.new(|cx| InputState::new(window, cx)),
+    let key_input_state = cx.new(|cx| InputState::new(window, cx));
+
+    let key_input_state_sub = key_input_state.clone();
+
+    let value_input_state = cx.new(|cx| InputState::new(window, cx));
+    let value_input_state_sub = value_input_state.clone();
+
+    let qp = cx.new(|_cx| QueryParams {
+        key: key_input_state,
+        value: value_input_state,
         active: true,
     });
+
+    let tab_id_for_key = tab_id;
+    cx.subscribe_in(
+        &key_input_state_sub,
+        window,
+        move |this: &mut ApiClient, _, event, _window, cx| {
+            if let InputEvent::Change = event {
+                if let Some(tab) = this.tabs.iter_mut().find(|t| t.id == tab_id_for_key) {
+                    tab.dirty = true;
+                    cx.notify();
+                }
+            }
+        },
+    )
+    .detach();
+
+    let tab_id_for_key = tab_id;
+    cx.subscribe_in(
+        &value_input_state_sub,
+        window,
+        move |this: &mut ApiClient, _, event, _window, cx| {
+            if let InputEvent::Change = event {
+                if let Some(tab) = this.tabs.iter_mut().find(|t| t.id == tab_id_for_key) {
+                    tab.dirty = true;
+                    cx.notify();
+                }
+            }
+        },
+    )
+    .detach();
+
     if let Some(tab) = api.tabs.iter_mut().find(|t| t.id == tab_id) {
         tab.query_params.push(qp);
     }
 }
 
 pub fn render_query_params_section(
-    api: &ApiClient,
+    api: &mut ApiClient,
     cx: &mut Context<ApiClient>,
 ) -> impl IntoElement {
     let Some(tab) = api
@@ -47,12 +83,12 @@ pub fn render_query_params_section(
         .child(
             h_flex()
                 .items_center()
-                .gap(rems(0.5))
-                .child(div().flex_1().child(TableCaption::new().child("Query Parameters")))
+                .child(div().flex_1())
                 .child(
                     Button::new("add-qp")
                         .small()
                         .icon(IconName::Plus)
+                        .tooltip("Add Query Param")
                         .ghost()
                         .on_click(
                             cx.listener(move |this: &mut ApiClient, _event, window, cx| {
