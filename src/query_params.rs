@@ -102,7 +102,7 @@ pub fn render_query_params_section(
         .child(
             Table::new()
                 .child(
-                    TableHeader::new().child(
+                    TableHeader::new().w_full().child(
                         TableRow::new()
                             .child(TableHead::new().w(rems(2.5)).child(""))
                             .child(TableHead::new().flex_1().child("Key"))

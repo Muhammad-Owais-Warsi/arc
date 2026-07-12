@@ -18,6 +18,8 @@ pub struct Tabs {
     pub(crate) pending: bool,
     pub(crate) dirty: bool,
     pub(crate) selected_editor_config: usize,
+    pub(crate) show_response_panel: bool,
+    pub(crate) response_body: Option<String>,
 }
 
 pub fn add_tab(
@@ -56,6 +58,8 @@ pub fn add_tab(
         pending: false,
         dirty: false,
         selected_editor_config: 0,
+        show_response_panel: false,
+        response_body: None,
     }
 }
 
@@ -98,17 +102,15 @@ pub fn render_editor_config(api: &mut ApiClient, cx: &mut Context<ApiClient>) ->
 }
 
 pub fn render_new_tab_button(_api: &ApiClient, cx: &mut Context<ApiClient>) -> impl IntoElement {
-    div()
-        // .border_l_1()
-        .border_color(cx.theme().border)
+    h_flex()
         .h_full()
-        .px_2()
         .items_center()
         .justify_center()
+        .px_2()
         .child(
             Button::new("add-tab")
                 .ghost()
-                .small()
+                .xsmall()
                 .icon(IconName::Plus)
                 .tooltip("Add Tab")
                 .on_click(cx.listener(|this: &mut ApiClient, _event, window, cx| {
@@ -159,8 +161,9 @@ pub fn render_tab_bar(api: &ApiClient, cx: &mut Context<ApiClient>) -> impl Into
     let sidebar_collapsed = api.sidebar_collapsed;
 
     TabBar::new("tabs")
+        .min_h(px(32.)) // floor height, doesn't clip taller Tab content when tabs exist
         .prefix(
-            h_flex().px(px(8.)).child(
+            h_flex().px(px(8.)).items_center().child(
                 SidebarToggleButton::new()
                     .collapsed(sidebar_collapsed)
                     .on_click(cx.listener(move |this: &mut ApiClient, _, _window, cx| {

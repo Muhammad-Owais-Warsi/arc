@@ -1,7 +1,10 @@
 mod helpers;
+mod http;
+// mod http;
 mod query_params;
 mod tabs;
 use crate::helpers::build_method_tag;
+use crate::http::send_get;
 use crate::tabs::{Tabs, add_tab, render_editor_config, render_tab_bar};
 use gpui::prelude::FluentBuilder;
 use gpui::*;
@@ -13,7 +16,6 @@ use gpui_component::select::{Select, SelectEvent, SelectState};
 use gpui_component::sidebar::{
     Sidebar, SidebarCollapsible, SidebarGroup, SidebarHeader, SidebarMenu, SidebarMenuItem,
 };
-use gpui_component::tab::{Tab, TabBar};
 use gpui_component::{button::*, *};
 use std::path::PathBuf;
 
@@ -33,10 +35,19 @@ pub(crate) struct ApiClient {
     pub(crate) scroll_handle: ScrollHandle,
     pub(crate) theme: Entity<SelectState<Vec<SharedString>>>,
     pub(crate) sidebar_collapsed: bool,
-    pub(crate) show_response_panel: bool,
 }
 
 impl ApiClient {
+    // fn active_tab(&self) -> Option<&Tabs> {
+    //     self.active_tab
+    //         .and_then(|id| self.tabs.iter().find(|t| t.id == id))
+    // }
+
+    // fn active_tab_mut(&mut self) -> Option<&mut Tabs> {
+    //     self.active_tab
+    //         .and_then(move |id| self.tabs.iter_mut().find(|t| t.id == id))
+    // }
+
     fn new(window: &mut Window, cx: &mut Context<Self>, default_theme: SharedString) -> Self {
         let nodes = vec![Node {
             path: "/api".into(),
@@ -117,8 +128,6 @@ impl ApiClient {
             scroll_handle: ScrollHandle::new(),
             theme,
             sidebar_collapsed: false,
-            // selected_editor_config: 0,
-            show_response_panel: false,
         };
 
         let tab = add_tab(window, cx, "get_req", "GET".to_string());
@@ -217,7 +226,12 @@ impl ApiClient {
                             .icon(IconName::PanelBottom)
                             .tooltip("Reponse")
                             .on_click(cx.listener(|this: &mut ApiClient, _, _window, cx| {
-                                this.show_response_panel = !this.show_response_panel;
+                                if let Some(tab) = this
+                                    .active_tab
+                                    .and_then(|id| this.tabs.iter_mut().find(|t| t.id == id))
+                                {
+                                    tab.show_response_panel = !tab.show_response_panel;
+                                }
                                 cx.notify();
                             })),
                     )
@@ -238,6 +252,11 @@ impl ApiClient {
             return div().child("No tab open");
         };
 
+        // pull out owned/cloneable pieces before the closure needs them
+        let tab_id = tab.id;
+        let url_entity = tab.url.clone();
+        let is_dirty = tab.dirty;
+
         h_flex()
             .w_full()
             .gap(rems(0.5))
@@ -247,111 +266,164 @@ impl ApiClient {
                 Button::new("save")
                     .secondary()
                     .label("Save")
-                    .when(tab.dirty, |this| {
+                    .when(is_dirty, |this| {
                         this.child(div().size_2().rounded_full().bg(cx.theme().primary))
                     }),
             )
-            .child(Button::new("send").primary().label("Send"))
+            .child(
+                Button::new("send")
+                    .primary()
+                    .label("Send")
+                    .on_click(cx.listener(move |this: &mut ApiClient, _, _window, cx| {
+                        let url = url_entity.read(cx).value().to_string();
+
+                        // Open the response panel immediately
+                        if let Some(tab) = this.tabs.iter_mut().find(|t| t.id == tab_id) {
+                            tab.show_response_panel = true;
+                            tab.response_body = None; // Optional: clear previous response
+                        }
+                        cx.notify();
+
+                        cx.spawn(async move |this, cx| {
+                            let result = http::send_get(&url).await;
+
+                            this.update(cx, |this, _cx| {
+                                if let Some(tab) = this.tabs.iter_mut().find(|t| t.id == tab_id) {
+                                    tab.response_body = result.ok();
+                                }
+                            })
+                            .ok();
+                        })
+                        .detach();
+                    })),
+            )
     }
 }
 
 impl Render for ApiClient {
     fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
-        let show_response = self.show_response_panel;
+        let show_response = self
+            .active_tab
+            .and_then(|id| self.tabs.iter().find(|t| t.id == id))
+            .map(|t| t.show_response_panel)
+            .unwrap_or(false);
 
-        let editor_content = div()
-            .size_full()
-            .min_h(px(0.)) // critical: lets this shrink instead of overflowing when response panel opens
-            .v_flex()
-            .gap(px(16.))
-            .child(
-                div()
-                    .flex_none()
+        let has_tab = self.active_tab.is_some();
+
+        let main_content = if has_tab {
+            let editor_content = div()
+                .size_full()
+                .min_h(px(0.))
+                .v_flex()
+                .gap(px(16.))
+                .child(
+                    div()
+                        .flex_none()
+                        .v_flex()
+                        .px(px(24.))
+                        .pt(rems(1.0))
+                        .child(self.render_editor(cx)),
+                )
+                .child(render_editor_config(self, cx))
+                .child(
+                    div().flex_1().overflow_y_scrollbar().px(px(24.)).child(
+                        match self
+                            .active_tab
+                            .and_then(|id| self.tabs.iter().find(|t| t.id == id))
+                            .map(|t| t.selected_editor_config)
+                            .unwrap_or(0)
+                        {
+                            0 => query_params::render_query_params_section(self, cx)
+                                .into_any_element(),
+                            _ => div().into_any_element(),
+                        },
+                    ),
+                );
+            if show_response {
+                let response_content = div()
+                    .w_full()
+                    .h_full()
+                    .min_h(px(0.)) // <- add this
                     .v_flex()
-                    .px(px(24.))
-                    .pt(rems(1.0))
-                    .child(self.render_editor(cx)),
-            )
-            .child(render_editor_config(self, cx))
-            .child(
-                div().flex_1().overflow_y_scrollbar().px(px(24.)).child(
-                    match self
-                        .active_tab
-                        .and_then(|id| self.tabs.iter().find(|t| t.id == id))
-                        .map(|t| t.selected_editor_config)
-                        .unwrap_or(0)
-                    {
-                        0 => query_params::render_query_params_section(self, cx).into_any_element(),
-                        _ => div().into_any_element(),
-                    },
-                ),
-            );
-
-        let response_content = div()
-            .w_full()
-            .h_full()
-            .v_flex()
-            .border_t_1()
-            .border_color(cx.theme().border)
-            .bg(cx.theme().background)
-            .child(
-                h_flex()
-                    .w_full()
-                    .flex_none()
-                    .px(px(24.))
-                    .py_2()
-                    .items_center()
-                    .justify_between()
-                    .border_b_1()
+                    .border_t_1()
                     .border_color(cx.theme().border)
-                    .child(div().text_sm().font_semibold().child("Response"))
+                    .bg(cx.theme().background)
                     .child(
-                        Button::new("close-response")
-                            .ghost()
-                            .tooltip("Close Response")
-                            .small()
-                            .icon(IconName::Close)
-                            .on_click(cx.listener(|this: &mut ApiClient, _, _window, cx| {
-                                this.show_response_panel = false;
-                                cx.notify();
-                            })),
-                    ),
-            )
-            .child(
-                div()
-                    .w_full()
-                    .flex_1()
-                    .overflow_y_scrollbar()
-                    .px(px(24.))
-                    .pt(rems(1.0))
-                    .child(
+                        h_flex()
+                            .w_full()
+                            .flex_none()
+                            .px(px(24.))
+                            .py_2()
+                            .items_center()
+                            .justify_between()
+                            .border_b_1()
+                            .border_color(cx.theme().border)
+                            .child(div().text_sm().font_semibold().child("Response"))
+                            .child(
+                                Button::new("close-response")
+                                    .ghost()
+                                    .tooltip("Close Response")
+                                    .small()
+                                    .icon(IconName::Close)
+                                    .on_click(cx.listener(
+                                        |this: &mut ApiClient, _, _window, cx| {
+                                            if let Some(tab) = this.active_tab.and_then(|id| {
+                                                this.tabs.iter_mut().find(|t| t.id == id)
+                                            }) {
+                                                tab.show_response_panel = false;
+                                            }
+                                            cx.notify();
+                                        },
+                                    )),
+                            ),
+                    )
+                    .child({
+                        let body = self
+                            .active_tab
+                            .and_then(|id| self.tabs.iter().find(|t| t.id == id))
+                            .and_then(|t| t.response_body.as_deref())
+                            .map(|b| &b[..b.len().min(10)])
+                            .unwrap_or("No response yet");
                         div()
-                            .text_sm()
-                            .text_color(cx.theme().muted_foreground)
-                            .child("No response yet. Send a request to see results here."),
-                    ),
-            );
-
-        // Both panels must live under ONE v_resizable, or the single
-        // registered panel just expands to fill 100% of the parent
-        // instead of respecting `.size(...)`.
-        let main_content = if show_response {
-            v_resizable("editor-response-split")
-                .child(
-                    resizable_panel()
-                        .size(px(500.))
-                        .size_range(px(200.)..px(4000.))
-                        .child(editor_content),
-                )
-                .child(
-                    resizable_panel()
-                        .size(px(280.))
-                        .size_range(px(100.)..px(600.))
-                        .child(response_content),
-                )
-                .into_any_element()
+                            .w_full()
+                            .flex_1()
+                            .min_h(px(0.)) // <- also add here — this is the actual scroll region
+                            .overflow_y_scrollbar()
+                            .px(px(24.))
+                            .pt(rems(1.0))
+                            .child(
+                                div()
+                                    .text_sm()
+                                    .text_color(cx.theme().muted_foreground)
+                                    .child(body.to_string()),
+                            )
+                    });
+                v_resizable("editor-response-split")
+                    .child(
+                        resizable_panel()
+                            .size(px(500.))
+                            .size_range(px(200.)..px(4000.))
+                            .child(editor_content),
+                    )
+                    .child(
+                        resizable_panel()
+                            .size(px(280.))
+                            .size_range(px(100.)..px(600.))
+                            .child(response_content),
+                    )
+                    .into_any_element()
+            } else {
+                editor_content.into_any_element()
+            }
         } else {
-            editor_content.into_any_element()
+            div()
+                .size_full()
+                .flex()
+                .items_center()
+                .justify_center()
+                .text_color(cx.theme().muted_foreground)
+                .child("No tab open")
+                .into_any_element()
         };
 
         div()

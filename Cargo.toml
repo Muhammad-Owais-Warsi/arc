@@ -10,3 +10,6 @@ gpui-component = { git = "https://github.com/longbridge/gpui-component" }
 # Optional, for default bundled assets
 gpui-component-assets = { git = "https://github.com/longbridge/gpui-component" }
 anyhow = "1.0"
+reqwest = { version = "0.13", features = ["json"] }
+tokio = { version = "1", features = ["full"] }
+serde = { version = "1.0", features = ["derive"] }
