@@ -413,6 +413,8 @@ impl Render for ApiClient {
                         }) {
                             Input::new(&response_panel_state)
                                 .flex_1()
+
+                                // .disabled(true) // think about this
                                 .appearance(false)
                                 .into_any_element()
                         } else {

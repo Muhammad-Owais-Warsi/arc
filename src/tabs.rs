@@ -51,9 +51,9 @@ pub fn add_tab(
     let response_panel_state = cx.new(|cx| {
         InputState::new(window, cx)
             .code_editor("json")
-            .line_number(false)
-            .searchable(true)
-            .show_whitespaces(true)
+            .line_number(true)
+            // .searchable(true)
+            // .show_whitespaces(true)
             .default_value("")
     });
 
