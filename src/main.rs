@@ -2,16 +2,13 @@ mod actions;
 mod fs;
 mod helpers;
 mod http;
-// mod http;
 mod query_params;
 mod tabs;
 use crate::helpers::{build_method_tag, next_id, read_dir_to_nodes};
-use crate::http::send_get;
 use crate::query_params::query_params_from_json;
 use crate::tabs::{Tabs, add_tab, render_editor_config, render_tab_bar};
 use gpui::prelude::FluentBuilder;
 use gpui::*;
-// use gpui::{Action, actions};
 use gpui_component::Theme;
 use gpui_component::input::Input;
 use gpui_component::menu::ContextMenu;
@@ -21,30 +18,34 @@ use gpui_component::select::{Select, SelectEvent, SelectState};
 use gpui_component::sidebar::{
     Sidebar, SidebarCollapsible, SidebarGroup, SidebarHeader, SidebarMenu, SidebarMenuItem,
 };
+use gpui_component::tab::Tab;
 use gpui_component::{button::*, *};
+use std::collections::HashMap;
 use std::path::PathBuf;
 
 #[derive(Clone)]
 struct Workspace {
     name: String,
     path: String,
-    nodes: Vec<Node>,
+    nodes: HashMap<usize, Node>,
+    root_id: Vec<usize>,
 }
 
 #[derive(Clone)]
 pub struct Node {
-    path: String,
-    name: String,
-    method: String,
-    children: Vec<Node>,
-    is_file: bool,
+    pub id: usize,
+    pub path: String,
+    pub name: String,
+    pub method: String,
+    pub children: Vec<usize>,
+    pub is_file: bool,
 }
 
 pub(crate) struct ApiClient {
     pub(crate) workspaces: Vec<Workspace>,
-    pub(crate) selected_workspace: String,
-    pub(crate) tabs: Vec<Entity<Tabs>>,
-    pub(crate) active_tab_index: Option<usize>,
+    pub(crate) selected_workspace: usize,
+    pub(crate) tabs: HashMap<usize, Entity<Tabs>>,
+    pub(crate) active_tab_id: Option<usize>,
     pub(crate) scroll_handle: ScrollHandle,
     pub(crate) theme: Entity<SelectState<Vec<SharedString>>>,
     pub(crate) sidebar_collapsed: bool,
@@ -91,19 +92,19 @@ impl ApiClient {
 
         let home = dirs::home_dir().unwrap_or_else(|| PathBuf::from("."));
         let workspace_path = home.join("projects").join("react-app");
+        let tree = read_dir_to_nodes(&workspace_path);
         let workspace = Workspace {
             name: "react-app".into(),
             path: workspace_path.to_string_lossy().to_string(),
-            nodes: read_dir_to_nodes(&workspace_path),
+            nodes: tree.nodes,
+            root_id: tree.root_ids,
         };
-
-        // let selected_workspace = workspace.clone();
 
         Self {
             workspaces: vec![workspace],
-            selected_workspace: workspace_path.to_string_lossy().to_string(), // for now hardcoded
-            tabs: Vec::new(),
-            active_tab_index: None,
+            selected_workspace: 0,
+            tabs: HashMap::new(),
+            active_tab_id: None,
             scroll_handle: ScrollHandle::new(),
             theme,
             sidebar_collapsed: false,
@@ -112,18 +113,22 @@ impl ApiClient {
 
     fn render_node(
         &self,
-        node: &Node,
+        node_id: usize,
         cx: &mut Context<Self>,
-        active_path: Option<&String>,
+        active_node_id: Option<usize>,
     ) -> SidebarMenuItem {
+        let ws = &self.workspaces[self.selected_workspace];
+        let Some(node) = ws.nodes.get(&node_id) else {
+            return SidebarMenuItem::new("???".to_string());
+        };
+
         let is_file = node.is_file;
         let name = node.name.clone();
         let method = node.method.clone();
 
         let method_for_suffix = method.clone();
-        let method_for_click = method.clone();
-        let name_for_click = name.clone();
-        let path_for_click = node.path.clone();
+        let node_id_for_click = node_id;
+        let node_id_for_menu = node_id;
 
         let mut item = SidebarMenuItem::new(name.clone())
             .suffix(move |_, _| {
@@ -133,15 +138,29 @@ impl ApiClient {
                     div()
                 }
             })
-            .active(active_path == Some(&node.path));
+            .active(active_node_id == Some(node_id));
 
         if !is_file {
-            let parent = node.path.clone();
             item = item.context_menu(move |menu, _window, _cx| {
-                menu.menu(
+                menu.menu_with_icon(
                     "Create File",
+                    IconName::File,
                     Box::new(actions::CreateFile {
-                        parent: parent.clone(),
+                        parent_id: node_id_for_menu,
+                    }),
+                )
+            });
+        }
+
+        if is_file {
+            let rename_node_id = node_id;
+            item = item.context_menu(move |menu, _window, _cx| {
+                menu.menu_with_icon(
+                    "Rename",
+                    IconName::Redo,
+                    Box::new(actions::RenameFile {
+                        node_id: rename_node_id,
+                        new_name: "renamed.json".to_string(),
                     }),
                 )
             });
@@ -150,25 +169,26 @@ impl ApiClient {
         if is_file {
             item = item.on_click(
                 cx.listener(move |this: &mut ApiClient, _event, window, cx| {
-                    if let Some(idx) = this.tabs.iter().position(|t| t.read(cx).path == path_for_click)
-                    {
-                        this.active_tab_index = Some(idx);
+                    if this.tabs.contains_key(&node_id_for_click) {
+                        this.active_tab_id = Some(node_id_for_click);
                         cx.notify();
                         return;
                     }
-                    let tab = add_tab(window, cx, &name_for_click, method_for_click.clone());
 
-                    tab.update(cx, |tab, _cx| {
-                        tab.path = path_for_click.clone();
-                    });
+                let ws = &this.workspaces[this.selected_workspace];
+                let (file_path, file_method) = ws
+                    .nodes
+                    .get(&node_id_for_click)
+                    .map(|n| (n.path.clone(), n.method.clone()))
+                    .unwrap_or_default();
 
-                    if let Ok(content) = std::fs::read_to_string(&path_for_click) {
+                    let tab = add_tab(window, cx, node_id_for_click, file_method);
+
+                    if let Ok(content) = std::fs::read_to_string(&file_path) {
                         if let Ok(value) = serde_json::from_str::<serde_json::Value>(&content) {
                             if let Some(url) = value.get("url").and_then(|v| v.as_str()) {
                                 let url = url.to_string();
-
                                 let url_entity = tab.read(cx).url.clone();
-
                                 url_entity.update(cx, |input, cx| input.set_value(url, window, cx));
                             }
 
@@ -181,8 +201,8 @@ impl ApiClient {
                         }
                     }
 
-                    this.tabs.push(tab);
-                    this.active_tab_index = Some(this.tabs.len() - 1);
+                    this.tabs.insert(node_id_for_click, tab);
+                    this.active_tab_id = Some(node_id_for_click);
                     cx.notify();
                 }),
             );
@@ -192,36 +212,24 @@ impl ApiClient {
             item
         } else {
             let mut children = Vec::new();
-
-            for child in &node.children {
-                children.push(self.render_node(child, cx, active_path));
+            for &child_id in &node.children {
+                children.push(self.render_node(child_id, cx, active_node_id));
             }
-
             item.children(children)
         }
     }
 
     fn render_sidebar(&self, cx: &mut Context<Self>) -> impl IntoElement {
-        let active_path = self.active_tab_index
-            .and_then(|i| self.tabs.get(i))
-            .map(|t| t.read(cx).path.clone());
+        let active_node_id = self.active_tab_id;
+
+        let ws = &self.workspaces[self.selected_workspace];
 
         Sidebar::new("api-sidebar")
             .collapsible(SidebarCollapsible::Icon)
             .collapsed(self.sidebar_collapsed)
-            .children(
-                self.workspaces
-                    .iter()
-                    .find(|ws| ws.path == self.selected_workspace)
-                    .into_iter()
-                    .map(|ws| {
-                        SidebarGroup::new(&ws.name).child(SidebarMenu::new().children(
-                            ws.nodes.iter().map(|child| {
-                                Self::render_node(self, child, cx, active_path.as_ref())
-                            }),
-                        ))
-                    }),
-            )
+            .child(SidebarGroup::new(&ws.name).child(SidebarMenu::new().children(
+                ws.root_id.iter().map(|&id| self.render_node(id, cx, active_node_id)),
+            )))
     }
 
     fn render_footer(&mut self, cx: &mut Context<Self>) -> impl IntoElement {
@@ -245,7 +253,8 @@ impl ApiClient {
                         .icon(IconName::PanelBottom)
                         .tooltip("Response")
                         .on_click(cx.listener(|this: &mut ApiClient, _, _window, cx| {
-                            if let Some(tab) = this.active_tab_index.and_then(|i| this.tabs.get(i)) {
+                            if let Some(tab) = this.active_tab_id.and_then(|id| this.tabs.get(&id))
+                            {
                                 tab.update(cx, |tab, _cx| {
                                     tab.show_response_panel = !tab.show_response_panel;
                                 })
@@ -265,7 +274,7 @@ impl ApiClient {
     }
 
     fn render_editor(&self, cx: &mut Context<Self>) -> impl IntoElement {
-        let Some(tab) = self.active_tab_index.and_then(|i| self.tabs.get(i)) else {
+        let Some(tab) = self.active_tab_id.and_then(|id| self.tabs.get(&id)) else {
             return div().child("No tab open");
         };
 
@@ -275,8 +284,6 @@ impl ApiClient {
         let url = tab_state.url.clone();
         let is_dirty = tab_state.dirty;
         let response_panel = tab_state.response_panel.clone();
-
-        drop(tab_state); // <-- important
 
         h_flex()
             .w_full()
@@ -298,7 +305,7 @@ impl ApiClient {
                 cx.listener(move |this: &mut ApiClient, _, _window, cx| {
                     let url = url.read(cx).value().to_string();
 
-                    if let Some(tab) = this.active_tab_index.and_then(|i| this.tabs.get(i)) {
+                    if let Some(tab) = this.active_tab_id.and_then(|id| this.tabs.get(&id)) {
                         tab.update(cx, |tab, _cx| {
                             tab.show_response_panel = true;
                         });
@@ -336,10 +343,11 @@ impl ApiClient {
 
 impl Render for ApiClient {
     fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
-        let has_tab = self.active_tab_index.is_some();
+        let has_tab = self.active_tab_id.is_some();
 
-        let show_response = self.active_tab_index
-            .and_then(|i| self.tabs.get(i))
+        let show_response = self
+            .active_tab_id
+            .and_then(|id| self.tabs.get(&id))
             .map(|t| t.read(cx).show_response_panel)
             .unwrap_or(false);
 
@@ -361,8 +369,8 @@ impl Render for ApiClient {
                 .child(
                     div().flex_1().overflow_y_scrollbar().px(px(24.)).child(
                         match self
-                            .active_tab_index
-                            .and_then(|i| self.tabs.get(i))
+                            .active_tab_id
+                            .and_then(|id| self.tabs.get(&id))
                             .map(|tab| tab.read(cx).selected_editor_config)
                             .unwrap_or(0)
                         {
@@ -376,7 +384,7 @@ impl Render for ApiClient {
                 let response_content = div()
                     .w_full()
                     .h_full()
-                    .min_h(px(0.)) // <- add this
+                    .min_h(px(0.))
                     .v_flex()
                     .border_t_1()
                     .border_color(cx.theme().border)
@@ -400,7 +408,9 @@ impl Render for ApiClient {
                                     .icon(IconName::Close)
                                     .on_click(cx.listener(
                                         |this: &mut ApiClient, _, _window, cx| {
-                                            if let Some(tab) = this.active_tab_index.and_then(|i| this.tabs.get(i)) {
+                                            if let Some(tab) =
+                                                this.active_tab_id.and_then(|id| this.tabs.get(&id))
+                                            {
                                                 tab.update(cx, |tab, _cx| {
                                                     tab.show_response_panel = false;
                                                 })
@@ -412,13 +422,12 @@ impl Render for ApiClient {
                     )
                     .child({
                         if let Some(response_panel_state) = self
-                            .active_tab_index
-                            .and_then(|i| self.tabs.get(i))
+                            .active_tab_id
+                            .and_then(|id| self.tabs.get(&id))
                             .map(|t| t.read(cx).response_panel.clone())
                         {
                             Input::new(&response_panel_state)
                                 .flex_1()
-                                // .disabled(true) // think about this
                                 .appearance(false)
                                 .into_any_element()
                         } else {
@@ -457,6 +466,7 @@ impl Render for ApiClient {
             .size_full()
             .flex()
             .on_action(cx.listener(Self::handle_create_file))
+            .on_action(cx.listener(Self::handle_rename))
             .child(self.render_sidebar(cx))
             .child(
                 div()

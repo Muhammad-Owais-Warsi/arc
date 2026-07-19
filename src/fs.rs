@@ -1,6 +1,7 @@
 use serde::Serialize;
 use std::{fs::OpenOptions, io};
 
+
 #[derive(Serialize)]
 struct FileContent {
     name: String,
@@ -25,4 +26,10 @@ pub fn create_file(name: &str, parent_dir: &str) -> io::Result<String> {
     serde_json::to_writer_pretty(file, &content).map_err(io::Error::other)?;
 
     Ok(path)
+}
+
+pub fn rename_file(old_path: &str, new_path: &str) -> io::Result<String> {
+    std::fs::rename(old_path, new_path)?;
+
+    Ok(new_path.to_string())
 }

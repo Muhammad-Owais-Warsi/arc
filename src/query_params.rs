@@ -107,7 +107,7 @@ pub fn render_query_params_section(
     api: &mut ApiClient,
     cx: &mut Context<ApiClient>,
 ) -> impl IntoElement {
-    let Some(tab) = api.active_tab_index.and_then(|i| api.tabs.get(i)).cloned() else {
+    let Some(tab) = api.active_tab_id.and_then(|id| api.tabs.get(&id)).cloned() else {
         return div();
     };
 

@@ -11,8 +11,7 @@ use gpui_component::{ActiveTheme as _, button::*, *};
 #[derive(Clone)]
 pub struct Tabs {
     pub(crate) id: usize,
-    pub(crate) name: String,
-    pub(crate) path: String,
+    pub(crate) node_id: usize,
     pub(crate) method: Entity<SelectState<Vec<String>>>,
     pub(crate) url: Entity<InputState>,
     pub(crate) query_params: Vec<Entity<QueryParams>>,
@@ -26,7 +25,7 @@ pub struct Tabs {
 pub fn add_tab(
     window: &mut Window,
     cx: &mut Context<ApiClient>,
-    name: &str,
+    node_id: usize,
     method: String,
 ) -> Entity<Tabs> {
     let id = next_id();
@@ -53,15 +52,12 @@ pub fn add_tab(
         InputState::new(window, cx)
             .code_editor("json")
             .line_number(true)
-            // .searchable(true)
-            // .show_whitespaces(true)
             .default_value("")
     });
 
     let tab = Tabs {
         id,
-        name: name.into(),
-        path: String::new(),
+        node_id,
         method: method.clone(),
         url: url.clone(),
         query_params: vec![],
@@ -100,13 +96,10 @@ pub fn add_tab(
                 method_tab_clone.update(cx, |tab, cx| {
                     tab.dirty = true;
 
-                    let path = tab.path.clone();
-
-                    if !path.is_empty() {
-                        for ws in &mut this.workspaces {
-                            if update_node_method(&mut ws.nodes, &path, &new_method) {
-                                break;
-                            }
+                    let node_id = tab.node_id;
+                    for ws in &mut this.workspaces {
+                        if update_node_method(&mut ws.nodes, node_id, &new_method) {
+                            break;
                         }
                     }
 
@@ -122,8 +115,8 @@ pub fn add_tab(
 
 pub fn render_editor_config(api: &mut ApiClient, cx: &mut Context<ApiClient>) -> impl IntoElement {
     let selected = api
-        .active_tab_index
-        .and_then(|i| api.tabs.get(i))
+        .active_tab_id
+        .and_then(|id| api.tabs.get(&id))
         .map(|tab| tab.read(cx).selected_editor_config)
         .unwrap_or(0);
 
@@ -144,7 +137,7 @@ pub fn render_editor_config(api: &mut ApiClient, cx: &mut Context<ApiClient>) ->
                     .child(Tab::new().label("Settings"))
                     .on_click(cx.listener(
                         move |this: &mut ApiClient, idx: &usize, _window, cx| {
-                            if let Some(tab) = this.active_tab_index.and_then(|i| this.tabs.get(i))
+                            if let Some(tab) = this.active_tab_id.and_then(|id| this.tabs.get(&id))
                             {
                                 tab.update(cx, |tab, _cx| {
                                     tab.selected_editor_config = *idx;
@@ -170,19 +163,25 @@ pub fn render_new_tab_button(_api: &ApiClient, cx: &mut Context<ApiClient>) -> i
                 .icon(IconName::Plus)
                 .tooltip("Add Tab")
                 .on_click(cx.listener(|this: &mut ApiClient, _event, window, cx| {
-                    let tab = add_tab(window, cx, "Untitled", "GET".to_string());
-                    this.tabs.push(tab);
-                    this.active_tab_index = Some(this.tabs.len() - 1);
+                    let tab_key = next_id();
+                    let tab = add_tab(window, cx, tab_key, "GET".to_string());
+                    this.tabs.insert(tab_key, tab);
+                    this.active_tab_id = Some(tab_key);
                     cx.notify();
                 })),
         )
 }
 
-pub fn render_tab(api: &ApiClient, cx: &mut Context<ApiClient>, tab: Entity<Tabs>) -> Tab {
-    let tab_to_close = tab.clone();
+pub fn render_tab(api: &ApiClient, cx: &mut Context<ApiClient>, node_id: usize, tab: &Entity<Tabs>) -> Tab {
     let tab_state = tab.read(cx);
-    let id = tab_state.id;
-    let name = tab_state.name.clone();
+    let tab_id = tab_state.id;
+
+    let node_name = api
+        .workspaces
+        .iter()
+        .find_map(|ws| ws.nodes.get(&node_id))
+        .map(|n| n.name.clone())
+        .unwrap_or_else(|| "Untitled".to_string());
 
     let method = tab_state
         .method
@@ -191,19 +190,21 @@ pub fn render_tab(api: &ApiClient, cx: &mut Context<ApiClient>, tab: Entity<Tabs
         .map(String::as_str)
         .unwrap_or("");
 
+    let close_node_id = node_id;
+
     Tab::default()
         .px_1()
         .prefix(div().mr_1().child(build_method_tag(method)))
-        .label(name)
+        .label(node_name)
         .suffix(
-            Button::new(("close-tab", id))
+            Button::new(("close-tab", tab_id))
                 .ghost()
                 .xsmall()
                 .icon(IconName::Close)
                 .on_click(
                     cx.listener(move |this: &mut ApiClient, _: &ClickEvent, _window, cx| {
-                        this.tabs.retain(|t| t != &tab_to_close);
-                        this.active_tab_index = Some(this.tabs.len() - 1);
+                        this.tabs.remove(&close_node_id);
+                        this.active_tab_id = this.tabs.keys().next().copied();
                         cx.notify();
                     }),
                 ),
@@ -211,7 +212,11 @@ pub fn render_tab(api: &ApiClient, cx: &mut Context<ApiClient>, tab: Entity<Tabs
 }
 
 pub fn render_tab_bar(api: &ApiClient, cx: &mut Context<ApiClient>) -> impl IntoElement {
-    let selected = api.active_tab_index.unwrap_or(0);
+    let tab_ids: Vec<usize> = api.tabs.keys().copied().collect();
+    let selected = api
+        .active_tab_id
+        .and_then(|id| tab_ids.iter().position(|&k| k == id))
+        .unwrap_or(0);
 
     let sidebar_collapsed = api.sidebar_collapsed;
 
@@ -230,13 +235,16 @@ pub fn render_tab_bar(api: &ApiClient, cx: &mut Context<ApiClient>) -> impl Into
         .selected_index(selected)
         .on_click(
             cx.listener(move |this: &mut ApiClient, idx: &usize, _window, cx| {
-                if *idx < this.tabs.len() {
-                    this.active_tab_index = Some(*idx);
+                let tab_ids: Vec<usize> = this.tabs.keys().copied().collect();
+                if let Some(&id) = tab_ids.get(*idx) {
+                    this.active_tab_id = Some(id);
                     cx.notify();
                 }
             }),
         )
         .track_scroll(&api.scroll_handle)
         .suffix(render_new_tab_button(api, cx))
-        .children(api.tabs.iter().map(|tab| render_tab(api, cx, tab.clone())))
+        .children(api.tabs.iter().map(|(&node_id, tab)| {
+            render_tab(api, cx, node_id, tab)
+        }))
 }

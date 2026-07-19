@@ -2,6 +2,7 @@ use crate::Node;
 use gpui::*;
 use gpui_component::tag::Tag;
 use gpui_component::{ColorName, Sizable};
+use std::collections::HashMap;
 use std::sync::atomic::{AtomicUsize, Ordering};
 
 pub fn build_method_tag(method: &str) -> impl IntoElement {
@@ -47,27 +48,10 @@ pub fn next_id() -> usize {
     COUNTER.fetch_add(1, Ordering::Relaxed)
 }
 
-pub fn find_node_mut<'a>(nodes: &'a mut [Node], path: &str) -> Option<&'a mut Node> {
-    for node in nodes.iter_mut() {
-        if node.path == path {
-            return Some(node);
-        }
-        if let Some(found) = find_node_mut(&mut node.children, path) {
-            return Some(found);
-        }
-    }
-    None
-}
-
-pub fn update_node_method(nodes: &mut [Node], path: &str, method: &str) -> bool {
-    for node in nodes.iter_mut() {
-        if node.path == path {
-            node.method = method.to_string();
-            return true;
-        }
-        if update_node_method(&mut node.children, path, method) {
-            return true;
-        }
+pub fn update_node_method(nodes: &mut HashMap<usize, Node>, id: usize, method: &str) -> bool {
+    if let Some(node) = nodes.get_mut(&id) {
+        node.method = method.to_string();
+        return true;
     }
     false
 }
@@ -86,10 +70,16 @@ pub fn read_request_method(path: &std::path::Path) -> String {
         .to_uppercase()
 }
 
-pub fn read_dir_to_nodes(dir: &std::path::Path) -> Vec<Node> {
-    let mut entries: Vec<Node> = Vec::new();
+pub struct DirTree {
+    pub root_ids: Vec<usize>,
+    pub nodes: HashMap<usize, Node>,
+}
+
+pub fn read_dir_to_nodes(dir: &std::path::Path) -> DirTree {
+    let mut nodes: HashMap<usize, Node> = HashMap::new();
+    let mut root_ids: Vec<usize> = Vec::new();
     let Ok(raw) = std::fs::read_dir(dir) else {
-        return entries;
+        return DirTree { root_ids, nodes };
     };
     for entry in raw.flatten() {
         let file_type = entry.file_type().ok();
@@ -97,22 +87,36 @@ pub fn read_dir_to_nodes(dir: &std::path::Path) -> Vec<Node> {
         let path = entry.path();
 
         if file_type.map_or(false, |ft| ft.is_dir()) {
-            entries.push(Node {
-                path: path.to_string_lossy().to_string(),
-                name: name.clone(),
-                method: String::new(),
-                is_file: false,
-                children: read_dir_to_nodes(&path),
-            });
+            let id = next_id();
+            let child = read_dir_to_nodes(&path);
+            nodes.extend(child.nodes);
+            nodes.insert(
+                id,
+                Node {
+                    id,
+                    path: path.to_string_lossy().to_string(),
+                    name: name.clone(),
+                    method: String::new(),
+                    is_file: false,
+                    children: child.root_ids,
+                },
+            );
+            root_ids.push(id);
         } else if file_type.map_or(false, |ft| ft.is_file()) {
-            entries.push(Node {
-                path: path.to_string_lossy().to_string(),
-                name,
-                method: read_request_method(&path),
-                is_file: true,
-                children: vec![],
-            });
+            let id = next_id();
+            nodes.insert(
+                id,
+                Node {
+                    id,
+                    path: path.to_string_lossy().to_string(),
+                    name,
+                    method: read_request_method(&path),
+                    is_file: true,
+                    children: vec![],
+                },
+            );
+            root_ids.push(id);
         }
     }
-    entries
+    DirTree { root_ids, nodes }
 }
