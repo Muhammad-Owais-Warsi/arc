@@ -1,12 +1,11 @@
 use crate::ApiClient;
-use crate::tabs::Tabs;
+use crate::Node;
 use gpui::*;
 use gpui_component::button::{Button, ButtonVariants};
 use gpui_component::checkbox::Checkbox;
 use gpui_component::input::{Input, InputEvent, InputState};
 use gpui_component::table::{Table, TableBody, TableCell, TableHead, TableHeader, TableRow};
 use gpui_component::{IconName, Sizable, h_flex, v_flex};
-use serde::Serialize;
 
 pub struct QueryParams {
     pub key: Entity<InputState>,
@@ -17,7 +16,7 @@ pub struct QueryParams {
 fn build_query_param_entity(
     window: &mut Window,
     cx: &mut Context<ApiClient>,
-    tab: Entity<Tabs>,
+    tab: Entity<Node>,
     key: &str,
     value: &str,
     active: bool,
@@ -40,8 +39,8 @@ fn build_query_param_entity(
         window,
         move |this: &mut ApiClient, _, event, _window, cx| {
             if let InputEvent::Change = event {
-                key_tab.update(cx, |tab, cx| {
-                    tab.dirty = true;
+                key_tab.update(cx, |node, cx| {
+                    node.set_dirty(true);
                     cx.notify();
                 })
             }
@@ -56,8 +55,8 @@ fn build_query_param_entity(
         window,
         move |this: &mut ApiClient, _, event, _window, cx| {
             if let InputEvent::Change = event {
-                value_tab.update(cx, |tab, cx| {
-                    tab.dirty = true;
+                value_tab.update(cx, |node, cx| {
+                    node.set_dirty(true);
                     cx.notify();
                 })
             }
@@ -72,12 +71,12 @@ fn new_query_param(
     _api: &mut ApiClient,
     window: &mut Window,
     cx: &mut Context<ApiClient>,
-    tab: Entity<Tabs>,
+    tab: Entity<Node>,
 ) {
     let qp = build_query_param_entity(window, cx, tab.clone(), "", "", true);
 
-    tab.update(cx, |tab, _cx| {
-        tab.query_params.push(qp);
+    tab.update(cx, |node, _cx| {
+        node.query_params_mut().push(qp);
     });
 }
 
@@ -85,7 +84,7 @@ fn new_query_param(
 pub fn query_params_from_json(
     window: &mut Window,
     cx: &mut Context<ApiClient>,
-    tab: Entity<Tabs>,
+    tab: Entity<Node>,
     value: &serde_json::Value,
 ) -> Vec<Entity<QueryParams>> {
     let Some(items) = value.get("query_params").and_then(|v| v.as_array()) else {
@@ -119,7 +118,6 @@ pub fn render_query_params_section(
                 .child(div().flex_1())
                 .child(
                     Button::new("add-qp")
-
                         .label("Add Param")
                         .icon(IconName::Plus)
                         .tooltip("Add Query Param")
@@ -133,7 +131,9 @@ pub fn render_query_params_section(
                         }),
                 ),
         )
-        .child(
+        .child({
+            let query_params = tab.read(cx).query_params().clone();
+
             Table::new()
                 .child(
                     TableHeader::new().w_full().child(
@@ -145,7 +145,7 @@ pub fn render_query_params_section(
                     ),
                 )
                 .child(
-                    TableBody::new().children(tab.read(cx).query_params.iter().enumerate().map(
+                    TableBody::new().children(query_params.into_iter().enumerate().map(
                         |(i, entity)| {
                             let entity = entity.clone();
                             let (key, value, active) = {
@@ -178,8 +178,8 @@ pub fn render_query_params_section(
                                                 let tab = tab.clone();
 
                                                     cx.listener(move |_this: &mut ApiClient, _: &ClickEvent, _window, cx| {
-                                                        tab.update(cx, |tab, _cx| {
-                                                            tab.query_params
+                                                        tab.update(cx, |node, _cx| {
+                                                            node.query_params_mut()
                                                                 .retain(|q| q.entity_id() != entity.entity_id());
                                                         });
 
@@ -190,6 +190,6 @@ pub fn render_query_params_section(
                                 )
                         },
                     )),
-                ),
-        )
+                )
+        })
 }

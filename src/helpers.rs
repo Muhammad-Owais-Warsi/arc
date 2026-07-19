@@ -1,4 +1,4 @@
-use crate::Node;
+use crate::NodeData;
 use gpui::*;
 use gpui_component::tag::Tag;
 use gpui_component::{ColorName, Sizable};
@@ -81,6 +81,7 @@ pub fn read_dir_to_nodes(dir: &std::path::Path) -> DirTree {
     let Ok(raw) = std::fs::read_dir(dir) else {
         return DirTree { root_ids, nodes };
     };
+
     for entry in raw.flatten() {
         let file_type = entry.file_type().ok();
         let name = entry.file_name().to_string_lossy().to_string();

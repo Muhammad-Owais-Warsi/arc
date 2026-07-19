@@ -19,7 +19,7 @@ impl ApiClient {
     pub fn handle_create_file(
         &mut self,
         action: &CreateFile,
-        _window: &mut Window,
+        window: &mut Window,
         cx: &mut Context<Self>,
     ) {
         let Some(ws) = self.workspaces.get_mut(self.selected_workspace) else {
@@ -38,8 +38,6 @@ impl ApiClient {
                     id,
                     name: "new.json".to_string(),
                     path,
-                    method: "GET".to_string(),
-                    children: vec![],
                     is_file: true,
                 };
 
