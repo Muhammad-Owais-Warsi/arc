@@ -1,4 +1,4 @@
-use crate::Node;
+use crate::project_panel::Node;
 use gpui::*;
 use gpui_component::tag::Tag;
 use gpui_component::{ColorName, Sizable};

@@ -1,5 +1,4 @@
-use crate::ApiClient;
-use crate::tabs::Tabs;
+use crate::tabs::{TabManager, Tabs};
 use gpui::*;
 use gpui_component::button::{Button, ButtonVariants};
 use gpui_component::checkbox::Checkbox;
@@ -15,7 +14,7 @@ pub struct QueryParams {
 
 fn build_query_param_entity(
     window: &mut Window,
-    cx: &mut Context<ApiClient>,
+    cx: &mut Context<TabManager>,
     tab: Entity<Tabs>,
     key: &str,
     value: &str,
@@ -37,7 +36,7 @@ fn build_query_param_entity(
     cx.subscribe_in(
         &key_input_state_sub,
         window,
-        move |_this: &mut ApiClient, _, event, _window, cx| {
+        move |_this: &mut TabManager, _, event, _window, cx| {
             if let InputEvent::Change = event {
                 key_tab.update(cx, |tab, cx| {
                     tab.dirty = true;
@@ -53,7 +52,7 @@ fn build_query_param_entity(
     cx.subscribe_in(
         &value_input_state_sub,
         window,
-        move |_this: &mut ApiClient, _, event, _window, cx| {
+        move |_this: &mut TabManager, _, event, _window, cx| {
             if let InputEvent::Change = event {
                 value_tab.update(cx, |tab, cx| {
                     tab.dirty = true;
@@ -68,9 +67,9 @@ fn build_query_param_entity(
 }
 
 fn new_query_param(
-    _api: &mut ApiClient,
+    _api: &mut TabManager,
     window: &mut Window,
-    cx: &mut Context<ApiClient>,
+    cx: &mut Context<TabManager>,
     tab: Entity<Tabs>,
 ) {
     let qp = build_query_param_entity(window, cx, tab.clone(), "", "", true);
@@ -82,7 +81,7 @@ fn new_query_param(
 
 pub fn query_params_from_json(
     window: &mut Window,
-    cx: &mut Context<ApiClient>,
+    cx: &mut Context<TabManager>,
     tab: Entity<Tabs>,
     value: &serde_json::Value,
 ) -> Vec<Entity<QueryParams>> {
@@ -102,8 +101,8 @@ pub fn query_params_from_json(
 }
 
 pub fn render_query_params_section(
-    api: &mut ApiClient,
-    cx: &mut Context<ApiClient>,
+    api: &mut TabManager,
+    cx: &mut Context<TabManager>,
 ) -> impl IntoElement {
     let Some(tab) = api.active_tab_id.and_then(|id| api.tabs.get(&id)).cloned() else {
         return div();
@@ -123,7 +122,7 @@ pub fn render_query_params_section(
                         .ghost()
                         .on_click({
                             let tab = tab.clone();
-                            cx.listener(move |this: &mut ApiClient, _event, window, cx| {
+                            cx.listener(move |this: &mut TabManager, _event, window, cx| {
                                 new_query_param(this, window, cx, tab.clone());
                                 cx.notify();
                             })
@@ -156,7 +155,7 @@ pub fn render_query_params_section(
                                     TableCell::new().w(rems(2.5)).child(
                                         Checkbox::new(format!("qp-{i}")).checked(active).on_click({
                                             let entity = entity.clone();
-                                            cx.listener(move |_this: &mut ApiClient, checked: &bool, _window, cx| {
+                                            cx.listener(move |_this: &mut TabManager, checked: &bool, _window, cx| {
                                                 entity.update(cx, |qp, _cx| qp.active = *checked);
                                                 cx.notify();
                                             })
@@ -175,7 +174,7 @@ pub fn render_query_params_section(
                                                 let entity = entity.clone();
                                                 let tab = tab.clone();
 
-                                                    cx.listener(move |_this: &mut ApiClient, _: &ClickEvent, _window, cx| {
+                                                    cx.listener(move |_this: &mut TabManager, _: &ClickEvent, _window, cx| {
                                                         tab.update(cx, |tab, _cx| {
                                                             tab.query_params
                                                                 .retain(|q| q.entity_id() != entity.entity_id());
