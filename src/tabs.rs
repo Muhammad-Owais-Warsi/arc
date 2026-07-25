@@ -58,23 +58,32 @@ impl TabManager {
 
         cx.subscribe_in(&panel, window, {
             let tm = tm.clone();
-            move |_api, _, event, window, cx| {
-                let ProjectPanelEvent::FileActivated {
+            move |_api, _, event, window, cx| match event {
+                ProjectPanelEvent::FileActivated {
                     node_id,
                     name,
                     path,
                     method,
-                } = event;
-                tm.update(cx, |this, cx| {
-                    this.activate_tab(
-                        *node_id,
-                        name.clone(),
-                        path.clone(),
-                        method.clone(),
-                        window,
-                        cx,
-                    );
-                });
+                } => {
+                    tm.update(cx, |this, cx| {
+                        this.activate_tab(
+                            *node_id,
+                            name.clone(),
+                            path.clone(),
+                            method.clone(),
+                            window,
+                            cx,
+                        );
+                    });
+                }
+                ProjectPanelEvent::FileRenamed { node_id, new_name } => {
+                    tm.update(cx, |this, cx| {
+                        if let Some(tab) = this.tabs.get(node_id) {
+                            tab.update(cx, |t, _| t.name = new_name.clone());
+                            cx.notify();
+                        }
+                    });
+                }
             }
         })
         .detach();

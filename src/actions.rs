@@ -10,5 +10,6 @@ pub struct CreateFile {
 #[action(namespace = fs, no_json)]
 pub struct RenameFile {
     pub node_id: usize,
+    pub node_name: String,
     pub new_name: String,
 }

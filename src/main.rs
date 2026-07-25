@@ -71,19 +71,21 @@ impl ApiClient {
     pub fn handle_create_file(
         &mut self,
         action: &CreateFile,
-        _: &mut Window,
+        window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        self.project_panel.update(cx, |s, cx| s.handle_create_file(action, cx));
+        self.project_panel
+            .update(cx, |s, cx| s.handle_create_file(action, window, cx));
     }
 
     pub fn handle_rename(
         &mut self,
         action: &RenameFile,
-        _: &mut Window,
+        window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        self.project_panel.update(cx, |s, cx| s.handle_rename(action, cx));
+        self.project_panel
+            .update(cx, |s, cx| s.handle_rename_file(action, window, cx));
     }
 }
 
