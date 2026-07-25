@@ -1,14 +1,15 @@
 mod actions;
 mod fs;
-mod headers;
 mod helpers;
 mod http;
+mod key_value;
 mod project_panel;
-mod query_params;
 mod tabs;
 
 use crate::actions::{CreateFile, RenameFile};
 use gpui::*;
+use gpui_component::button::{Button, ButtonVariants};
+use gpui_component::popover::Popover;
 use gpui_component::select::{SelectEvent, SelectState};
 use gpui_component::{Theme, *};
 use std::path::PathBuf;
@@ -16,7 +17,7 @@ use std::path::PathBuf;
 pub(crate) struct ApiClient {
     pub(crate) project_panel: Entity<project_panel::ProjectPanel>,
     pub(crate) tab_manager: Entity<tabs::TabManager>,
-    pub(crate) theme: Entity<SelectState<Vec<SharedString>>>,
+    // pub(crate) theme: Entity<SelectState<Vec<SharedString>>>,
 }
 
 impl ApiClient {
@@ -62,7 +63,7 @@ impl ApiClient {
         Self {
             project_panel,
             tab_manager,
-            theme,
+            // theme,
         }
     }
 }
@@ -91,13 +92,55 @@ impl ApiClient {
 
 impl Render for ApiClient {
     fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        let names = self.project_panel.read(cx).workspace_names();
         div()
             .size_full()
             .flex()
+            .flex_col()
             .on_action(cx.listener(Self::handle_create_file))
             .on_action(cx.listener(Self::handle_rename))
-            .child(self.project_panel.clone())
-            .child(self.tab_manager.clone())
+            .child(
+                TitleBar::new().h(px(40.)).bg(cx.theme().background).child(
+                    h_flex().gap_2().items_center().px_2().w_full().child(
+                        // In titlebar, trigger is the current workspace name:
+                        Popover::new("workspace-switcher")
+                            // .appearance(false)
+                            .anchor(Anchor::TopLeft)
+                            .trigger(
+                                Button::new("workspace")
+                                    .ghost()
+                                    .small()
+                                    .label(self.project_panel.read(cx).get_selected_workspace()),
+                            )
+                            .content(move |_, window, cx| {
+                                v_flex()
+                                    .gap_1()
+                                    .min_w(px(180.))
+                                    .children(names.iter().map(|ws| {
+                                        div()
+                                            .id(ws.clone())
+                                            .px_2()
+                                            .py_1()
+                                            .rounded_md()
+                                            .hover(|s| s.bg(cx.theme().secondary_hover))
+                                            .text_sm()
+                                            .text_color(cx.theme().foreground)
+                                            .child(ws.clone())
+                                            .on_click(cx.listener(move |_, _, window, cx| {
+                                                // switch workspace
+                                            }))
+                                    }))
+                            }),
+                    ),
+                ),
+            )
+            .child(
+                div()
+                    .flex_1()
+                    .flex()
+                    .child(self.project_panel.clone())
+                    .child(self.tab_manager.clone()),
+            )
     }
 }
 
@@ -118,10 +161,17 @@ fn main() {
             eprintln!("Failed to watch themes directory: {}", err);
         }
         cx.spawn(async move |cx| {
-            cx.open_window(WindowOptions::default(), |window, cx| {
-                let view = cx.new(|view_cx| ApiClient::new(window, view_cx, default_theme));
-                cx.new(|cx| Root::new(view, window, cx))
-            })
+            cx.open_window(
+                WindowOptions {
+                    titlebar: Some(TitleBar::title_bar_options()),
+                    window_decorations: Some(WindowDecorations::Client),
+                    ..Default::default()
+                },
+                |window, cx| {
+                    let view = cx.new(|view_cx| ApiClient::new(window, view_cx, default_theme));
+                    cx.new(|cx| Root::new(view, window, cx))
+                },
+            )
             .expect("Failed to open window");
         })
         .detach();

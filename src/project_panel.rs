@@ -178,6 +178,7 @@ impl ProjectPanel {
         let rename_node_name = name.clone();
 
         item = item.context_menu(move |menu, _, _| {
+
             let menu = if !is_file {
                 menu.menu_with_icon(
                     "Create File",
@@ -407,6 +408,17 @@ impl ProjectPanel {
 
     pub fn collapsed(&self) -> bool {
         self.sidebar_collapsed
+    }
+
+    pub fn get_selected_workspace(&self) -> &str {
+        self.workspaces
+            .get(self.selected_workspace)
+            .map(|w| w.name.as_str())
+            .unwrap_or("no workspace")
+    }
+
+    pub fn workspace_names(&self) -> Vec<String> {
+        self.workspaces.iter().map(|w| w.name.clone()).collect()
     }
 }
 

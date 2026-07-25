@@ -1,9 +1,9 @@
 use crate::ApiClient;
-use crate::headers::{Headers, headers_from_json, render_headers_section, render_response_headers};
+
 use crate::helpers::{build_method_tag, next_id};
 use crate::http;
+use crate::key_value::{KeyValueItem, KeyValueEditor};
 use crate::project_panel::{ProjectPanel, ProjectPanelEvent};
-use crate::query_params::{QueryParams, query_params_from_json, render_query_params_section};
 use gpui::prelude::FluentBuilder;
 use gpui::*;
 use gpui_component::input::{Input, InputEvent, InputState};
@@ -22,8 +22,8 @@ pub struct Tabs {
     pub(crate) name: String,
     pub(crate) method: Entity<SelectState<Vec<String>>>,
     pub(crate) url: Entity<InputState>,
-    pub(crate) query_params: Vec<Entity<QueryParams>>,
-    pub(crate) headers: Vec<Entity<Headers>>,
+    pub(crate) query_params: Vec<Entity<KeyValueItem>>,
+    pub(crate) headers: Vec<Entity<KeyValueItem>>,
     pub(crate) pending: bool,
     pub(crate) dirty: bool,
     pub(crate) selected_editor_config: usize,
@@ -114,8 +114,8 @@ impl TabManager {
                     let url_entity = tab.read(cx).url.clone();
                     url_entity.update(cx, |i, cx| i.set_value(url.to_string(), window, cx));
                 }
-                let qp = query_params_from_json(window, cx, tab.clone(), &value);
-                let hd = headers_from_json(window, cx, tab.clone(), &value);
+                let qp = KeyValueItem::from_json(window, cx, tab.clone(), &value, "query_params");
+                let hd = KeyValueItem::from_json(window, cx, tab.clone(), &value, "headers");
                 tab.update(cx, |t, _| {
                     t.query_params = qp;
                     t.headers = hd;
@@ -242,6 +242,46 @@ impl TabManager {
                         })
                     }),
             )
+    }
+
+    fn render_qp_section(&mut self, cx: &mut Context<Self>) -> AnyElement {
+        let Some(tab) = self.active_tab_id.and_then(|id| self.tabs.get(&id)).cloned() else {
+            return div().into_any_element();
+        };
+        let items = tab.read(cx).query_params.clone();
+        let editor = KeyValueEditor::new(
+            "Add Param", "qp-", "add-qp",
+            |this, window, cx| {
+                let Some(tab) = this.active_tab_id.and_then(|id| this.tabs.get(&id)).cloned() else { return };
+                let item = KeyValueItem::build(window, cx, tab.clone(), "", "", true);
+                tab.update(cx, |t, _| t.query_params.push(item));
+            },
+            |entity_id, this, _window, cx| {
+                let Some(tab) = this.active_tab_id.and_then(|id| this.tabs.get(&id)).cloned() else { return };
+                tab.update(cx, |t, _| t.query_params.retain(|q| q.entity_id() != entity_id));
+            },
+        );
+        editor.render(&items, self, cx).into_any_element()
+    }
+
+    fn render_header_section(&mut self, cx: &mut Context<Self>) -> AnyElement {
+        let Some(tab) = self.active_tab_id.and_then(|id| self.tabs.get(&id)).cloned() else {
+            return div().into_any_element();
+        };
+        let items = tab.read(cx).headers.clone();
+        let editor = KeyValueEditor::new(
+            "Add Header", "head-", "add-head",
+            |this, window, cx| {
+                let Some(tab) = this.active_tab_id.and_then(|id| this.tabs.get(&id)).cloned() else { return };
+                let item = KeyValueItem::build(window, cx, tab.clone(), "", "", true);
+                tab.update(cx, |t, _| t.headers.push(item));
+            },
+            |entity_id, this, _window, cx| {
+                let Some(tab) = this.active_tab_id.and_then(|id| this.tabs.get(&id)).cloned() else { return };
+                tab.update(cx, |t, _| t.headers.retain(|h| h.entity_id() != entity_id));
+            },
+        );
+        editor.render(&items, self, cx).into_any_element()
     }
 
     fn render_footer(&mut self, cx: &mut Context<Self>) -> impl IntoElement {
@@ -457,6 +497,7 @@ pub fn render_tab(
     let close_node_id = node_id;
 
     Tab::default()
+        .min_h(px(40.))
         .px_1()
         .prefix(div().mr_1().child(build_method_tag(method)))
         .label(node_name)
@@ -484,7 +525,8 @@ pub fn render_tab_bar(tm: &TabManager, cx: &mut Context<TabManager>) -> impl Int
     let sidebar_collapsed = tm.sidebar.read(cx).collapsed();
 
     TabBar::new("tabs")
-        .min_h(px(32.))
+        .h(px(40.))
+        .with_size(gpui_component::Size::Large)
         .prefix(
             h_flex().px(px(8.)).items_center().child(
                 SidebarToggleButton::new()
@@ -546,8 +588,8 @@ impl Render for TabManager {
                             .map(|tab| tab.read(cx).selected_editor_config)
                             .unwrap_or(0)
                         {
-                            0 => render_query_params_section(self, cx).into_any_element(),
-                            2 => render_headers_section(self, cx).into_any_element(),
+                            0 => self.render_qp_section(cx).into_any_element(),
+                            2 => self.render_header_section(cx).into_any_element(),
                             _ => div().into_any_element(),
                         },
                     ),
@@ -696,4 +738,88 @@ impl Render for TabManager {
             .child(div().flex_1().min_h(px(0.)).child(main_content))
             .child(self.render_footer(cx))
     }
+}
+
+fn render_response_headers(response_headers: Vec<(String, String)>, cx: &App) -> impl IntoElement {
+    use gpui_component::scroll::ScrollableElement;
+    use gpui_component::StyledExt;
+
+    let theme = cx.theme();
+
+    div()
+        .id("response-headers-vscroll")
+        .w_full()
+        .h_full()
+        .min_h(px(0.))
+        .overflow_y_scrollbar()
+        .child(
+            div()
+                .id("response-headers-hscroll")
+                .w_full()
+                .min_w(px(0.))
+                .overflow_x_scrollbar()
+                .child(
+                    div()
+                        .flex_col()
+                        .min_w(px(432.))
+                        .child(
+                            h_flex()
+                                .flex_none()
+                                .h(px(32.))
+                                .items_center()
+                                .bg(theme.table_head)
+                                .text_color(theme.table_head_foreground)
+                                .border_b_1()
+                                .border_color(theme.table_row_border)
+                                .child(
+                                    div()
+                                        .w(px(200.))
+                                        .flex_none()
+                                        .px(px(12.))
+                                        .text_sm()
+                                        .font_semibold()
+                                        .child("Key"),
+                                )
+                                .child(
+                                    div()
+                                        .w(px(232.))
+                                        .flex_none()
+                                        .px(px(12.))
+                                        .text_sm()
+                                        .font_semibold()
+                                        .child("Value"),
+                                ),
+                        )
+                        .children(response_headers.into_iter().map(|(key, value)| {
+                            h_flex()
+                                .flex_none()
+                                .h(px(32.))
+                                .items_center()
+                                .border_b_1()
+                                .border_color(theme.table_row_border)
+                                .child(
+                                    div()
+                                        .w(px(200.))
+                                        .flex_none()
+                                        .px(px(12.))
+                                        .text_sm()
+                                        .text_ellipsis()
+                                        .overflow_hidden()
+                                        .whitespace_nowrap()
+                                        .child(key),
+                                )
+                                .child(
+                                    div()
+                                        .w(px(232.))
+                                        .flex_none()
+                                        .px(px(12.))
+                                        .text_sm()
+                                        .text_ellipsis()
+                                        .overflow_hidden()
+                                        .whitespace_nowrap()
+                                        .child(value),
+                                )
+                        })),
+                ),
+        )
 }
