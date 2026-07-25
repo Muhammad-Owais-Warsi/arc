@@ -2,7 +2,7 @@ use crate::ApiClient;
 
 use crate::helpers::{build_method_tag, next_id};
 use crate::http;
-use crate::key_value::{KeyValueItem, KeyValueEditor};
+use crate::key_value::{KeyValueEditor, KeyValueItem};
 use crate::project_panel::{ProjectPanel, ProjectPanelEvent};
 use gpui::prelude::FluentBuilder;
 use gpui::*;
@@ -245,39 +245,77 @@ impl TabManager {
     }
 
     fn render_qp_section(&mut self, cx: &mut Context<Self>) -> AnyElement {
-        let Some(tab) = self.active_tab_id.and_then(|id| self.tabs.get(&id)).cloned() else {
+        let Some(tab) = self
+            .active_tab_id
+            .and_then(|id| self.tabs.get(&id))
+            .cloned()
+        else {
             return div().into_any_element();
         };
         let items = tab.read(cx).query_params.clone();
         let editor = KeyValueEditor::new(
-            "Add Param", "qp-", "add-qp",
+            "Add Param",
+            "qp-",
+            "add-qp",
             |this, window, cx| {
-                let Some(tab) = this.active_tab_id.and_then(|id| this.tabs.get(&id)).cloned() else { return };
+                let Some(tab) = this
+                    .active_tab_id
+                    .and_then(|id| this.tabs.get(&id))
+                    .cloned()
+                else {
+                    return;
+                };
                 let item = KeyValueItem::build(window, cx, tab.clone(), "", "", true);
                 tab.update(cx, |t, _| t.query_params.push(item));
             },
             |entity_id, this, _window, cx| {
-                let Some(tab) = this.active_tab_id.and_then(|id| this.tabs.get(&id)).cloned() else { return };
-                tab.update(cx, |t, _| t.query_params.retain(|q| q.entity_id() != entity_id));
+                let Some(tab) = this
+                    .active_tab_id
+                    .and_then(|id| this.tabs.get(&id))
+                    .cloned()
+                else {
+                    return;
+                };
+                tab.update(cx, |t, _| {
+                    t.query_params.retain(|q| q.entity_id() != entity_id)
+                });
             },
         );
         editor.render(&items, self, cx).into_any_element()
     }
 
     fn render_header_section(&mut self, cx: &mut Context<Self>) -> AnyElement {
-        let Some(tab) = self.active_tab_id.and_then(|id| self.tabs.get(&id)).cloned() else {
+        let Some(tab) = self
+            .active_tab_id
+            .and_then(|id| self.tabs.get(&id))
+            .cloned()
+        else {
             return div().into_any_element();
         };
         let items = tab.read(cx).headers.clone();
         let editor = KeyValueEditor::new(
-            "Add Header", "head-", "add-head",
+            "Add Header",
+            "head-",
+            "add-head",
             |this, window, cx| {
-                let Some(tab) = this.active_tab_id.and_then(|id| this.tabs.get(&id)).cloned() else { return };
+                let Some(tab) = this
+                    .active_tab_id
+                    .and_then(|id| this.tabs.get(&id))
+                    .cloned()
+                else {
+                    return;
+                };
                 let item = KeyValueItem::build(window, cx, tab.clone(), "", "", true);
                 tab.update(cx, |t, _| t.headers.push(item));
             },
             |entity_id, this, _window, cx| {
-                let Some(tab) = this.active_tab_id.and_then(|id| this.tabs.get(&id)).cloned() else { return };
+                let Some(tab) = this
+                    .active_tab_id
+                    .and_then(|id| this.tabs.get(&id))
+                    .cloned()
+                else {
+                    return;
+                };
                 tab.update(cx, |t, _| t.headers.retain(|h| h.entity_id() != entity_id));
             },
         );
@@ -602,15 +640,14 @@ impl Render for TabManager {
                     .as_ref()
                     .map(|t| t.read(cx).selected_response_panel_config)
                     .unwrap_or(0);
-
                 let response_content = div()
                     .id("response-panel-vscroll")
+                    .w_full()
+                    .min_w(px(0.))
                     .h_full()
-                    .overflow_y_scrollbar()
                     .min_h(px(0.))
                     .v_flex()
                     .border_t_1()
-                    .overflow_hidden()
                     .border_color(cx.theme().border)
                     .bg(cx.theme().background)
                     .child(
@@ -645,26 +682,26 @@ impl Render for TabManager {
                             ),
                     )
                     .child(
-                        div().px(px(24.)).flex_none().child(
-                            TabBar::new("response-config")
-                                .w_full()
-                                .with_variant(tab::TabVariant::Underline)
-                                .selected_index(selected_response_config)
-                                .on_click(cx.listener(
-                                    move |this: &mut TabManager, idx: &usize, _window, cx| {
-                                        if let Some(tab) =
-                                            this.active_tab_id.and_then(|id| this.tabs.get(&id))
-                                        {
-                                            tab.update(cx, |tab, _cx| {
-                                                tab.selected_response_panel_config = *idx;
-                                            });
-                                        }
-                                        cx.notify();
-                                    },
-                                ))
-                                .child(Tab::new().label("Body"))
-                                .child(Tab::new().label("Headers")),
-                        ),
+                        TabBar::new("response-config")
+                            .w_full()
+                            .flex_none()
+                            .px(px(24.))
+                            .with_variant(tab::TabVariant::Underline)
+                            .selected_index(selected_response_config)
+                            .on_click(cx.listener(
+                                move |this: &mut TabManager, idx: &usize, _window, cx| {
+                                    if let Some(tab) =
+                                        this.active_tab_id.and_then(|id| this.tabs.get(&id))
+                                    {
+                                        tab.update(cx, |tab, _cx| {
+                                            tab.selected_response_panel_config = *idx;
+                                        });
+                                    }
+                                    cx.notify();
+                                },
+                            ))
+                            .child(Tab::new().label("Body"))
+                            .child(Tab::new().label("Headers")),
                     )
                     .child(match selected_response_config {
                         0 => {
@@ -688,6 +725,8 @@ impl Render for TabManager {
                             let response_headers = tab.unwrap().read(cx).response_headers.clone();
                             div()
                                 .flex_1()
+                                .w_full()
+                                .h_full()
                                 .min_h(px(0.))
                                 .min_w(px(0.))
                                 .px(px(24.))
@@ -696,6 +735,7 @@ impl Render for TabManager {
                         }
                         _ => div().child("issue").into_any_element(),
                     });
+
                 v_resizable("editor-response-split")
                     .child(
                         resizable_panel()
@@ -741,8 +781,8 @@ impl Render for TabManager {
 }
 
 fn render_response_headers(response_headers: Vec<(String, String)>, cx: &App) -> impl IntoElement {
-    use gpui_component::scroll::ScrollableElement;
     use gpui_component::StyledExt;
+    use gpui_component::scroll::ScrollableElement;
 
     let theme = cx.theme();
 
@@ -751,6 +791,7 @@ fn render_response_headers(response_headers: Vec<(String, String)>, cx: &App) ->
         .w_full()
         .h_full()
         .min_h(px(0.))
+        .min_w(px(0.))
         .overflow_y_scrollbar()
         .child(
             div()
