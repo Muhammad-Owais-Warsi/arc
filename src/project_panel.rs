@@ -175,18 +175,10 @@ impl ProjectPanel {
             })
         };
 
-        // let mut item = SidebarMenuItem::new(name.clone())
-        //     .suffix(move |_, _| {
-        //         if is_file {
-        //             div().child(build_method_tag(&method_for_suffix))
-        //         } else {
-        //             div()
-        //         }
-        //     })
-        //     .active(self.active_node_id == Some(node_id));
+        let rename_node_name = name.clone();
 
-        if !is_file {
-            item = item.context_menu(move |menu, _window, _cx| {
+        item = item.context_menu(move |menu, _, _| {
+            let menu = if !is_file {
                 menu.menu_with_icon(
                     "Create File",
                     IconName::File,
@@ -194,24 +186,21 @@ impl ProjectPanel {
                         parent_id: node_id_for_menu,
                     }),
                 )
-            });
-        }
+            } else {
+                menu
+            };
+            menu.menu_with_icon(
+                "Rename",
+                IconName::Redo,
+                Box::new(RenameFile {
+                    node_id,
+                    node_name: rename_node_name.clone(),
+                    new_name: String::new(),
+                }),
+            )
+        });
 
         if is_file {
-            let rename_node_name = name.clone();
-            let rename_node_id = node_id;
-            item = item.context_menu(move |menu, _window, _cx| {
-                menu.menu_with_icon(
-                    "Rename",
-                    IconName::Redo,
-                    Box::new(RenameFile {
-                        node_id: rename_node_id,
-                        node_name: rename_node_name.clone(),
-                        new_name: "renamed.json".to_string(),
-                    }),
-                )
-            });
-
             let name_for_click = name.clone();
             let path_for_click = path.clone();
             let method_for_click = node.method.clone();
@@ -235,20 +224,24 @@ impl ProjectPanel {
         if node.children.is_empty() && !is_pending {
             item
         } else {
-            let mut children = node
-                .children
-                .iter()
-                .map(|&child_id| self.render_node(child_id, cx))
-                .collect::<Vec<_>>();
+            let mut children = Vec::new();
 
-            if let Some((_pid, input)) = &self.new_file {
-                let input_clone = input.clone();
-                children.push(SidebarMenuItem::new("").suffix(move |_window, _cx| {
-                    Input::new(&input_clone)
-                        .appearance(false)
-                        .into_any_element()
-                }));
+            if is_pending {
+                if let Some((_, ref input)) = self.new_file {
+                    let input_clone = input.clone();
+                    children.push(SidebarMenuItem::new("").suffix(move |_window, _cx| {
+                        Input::new(&input_clone)
+                            .appearance(false)
+                            .into_any_element()
+                    }));
+                }
             }
+
+            children.extend(
+                node.children
+                    .iter()
+                    .map(|&child_id| self.render_node(child_id, cx)),
+            );
 
             item.children(children)
         }
