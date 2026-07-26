@@ -1,6 +1,6 @@
 // use gpui::Window;
 use crate::actions::{CreateFile, RenameFile};
-use crate::helpers::{build_method_tag, next_id};
+use crate::helpers::{next_id, render_method_tag};
 use crate::{ApiClient, fs};
 use gpui::*;
 use gpui_component::IconName;
@@ -62,7 +62,7 @@ pub(crate) struct ProjectPanel {
 impl EventEmitter<ProjectPanelEvent> for ProjectPanel {}
 
 impl ProjectPanel {
-    pub fn new(_window: &mut Window, cx: &mut Context<ApiClient>) -> Entity<Self> {
+    pub fn new(_window: &mut Window, cx: &mut Context<Self>) -> Self {
         let home = dirs::home_dir().unwrap_or_else(|| PathBuf::from("."));
         let workspace_path = home.join("projects").join("react-app");
         let tree = Self::read_dir_to_nodes(&workspace_path);
@@ -73,16 +73,14 @@ impl ProjectPanel {
             root_id: tree.root_ids,
         };
 
-        let sidebar = cx.new(|_| Self {
+        Self {
             workspaces: vec![workspace],
             selected_workspace: 0,
             sidebar_collapsed: false,
             active_node_id: None,
             new_file: None,
             rename_file: None,
-        });
-
-        sidebar
+        }
     }
 
     pub fn read_dir_to_nodes(dir: &std::path::Path) -> DirTree {
@@ -167,7 +165,7 @@ impl ProjectPanel {
             SidebarMenuItem::new(name.clone()).suffix(move |_, _| {
                 if is_file {
                     div()
-                        .child(build_method_tag(&method_for_suffix))
+                        .child(render_method_tag(&method_for_suffix))
                         .into_any_element()
                 } else {
                     div().into_any_element()
@@ -178,7 +176,6 @@ impl ProjectPanel {
         let rename_node_name = name.clone();
 
         item = item.context_menu(move |menu, _, _| {
-
             let menu = if !is_file {
                 menu.menu_with_icon(
                     "Create File",

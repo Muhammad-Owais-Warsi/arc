@@ -1,69 +1,77 @@
 mod actions;
+mod footer;
 mod fs;
+mod headers;
 mod helpers;
 mod http;
-mod key_value;
+mod playground;
 mod project_panel;
+mod query_params;
+mod response_panel;
+mod tab;
 mod tabs;
 
 use crate::actions::{CreateFile, RenameFile};
+use crate::project_panel::{ProjectPanel, ProjectPanelEvent};
+use crate::tabs::TabManagerEvent;
 use gpui::*;
 use gpui_component::button::{Button, ButtonVariants};
 use gpui_component::popover::Popover;
-use gpui_component::select::{SelectEvent, SelectState};
 use gpui_component::{Theme, *};
 use std::path::PathBuf;
 
 pub(crate) struct ApiClient {
     pub(crate) project_panel: Entity<project_panel::ProjectPanel>,
     pub(crate) tab_manager: Entity<tabs::TabManager>,
-    // pub(crate) theme: Entity<SelectState<Vec<SharedString>>>,
 }
 
 impl ApiClient {
-    fn new(window: &mut Window, cx: &mut Context<Self>, default_theme: SharedString) -> Self {
-        let themes: Vec<SharedString> =
-            ThemeRegistry::global(cx).themes().keys().cloned().collect();
-        let default_theme_idx = themes.iter().position(|t| *t == default_theme).unwrap_or(0);
+    fn new(window: &mut Window, cx: &mut Context<Self>) -> Self {
+        let project_panel = cx.new(|cx| ProjectPanel::new(window, cx));
+        let tab_manager = cx.new(|cx| tabs::TabManager::new(window, cx));
 
-        let theme = cx.new(|cx| {
-            SelectState::new(
-                themes,
-                Some(IndexPath {
-                    section: 0,
-                    row: default_theme_idx,
-                    column: 0,
-                }),
-                window,
-                cx,
-            )
-        });
-
-        cx.subscribe_in(&theme, window, |_, _, event, _window, cx| {
-            if let SelectEvent::Confirm(Some(name)) = event {
-                let registry = ThemeRegistry::global(cx);
-                if let Some(theme_config) = registry.themes().get(name).cloned() {
-                    let mode = theme_config.mode;
-                    let theme = Theme::global_mut(cx);
-                    if mode.is_dark() {
-                        theme.dark_theme = theme_config;
-                    } else {
-                        theme.light_theme = theme_config;
-                    }
-                    Theme::change(mode, None, cx);
-                    cx.refresh_windows();
+        cx.subscribe_in(&project_panel, window, {
+            let tab_manager = tab_manager.clone();
+            move |_, _, event, window, cx| match event {
+                ProjectPanelEvent::FileActivated {
+                    node_id,
+                    name,
+                    path,
+                    method,
+                } => {
+                    tab_manager.update(cx, |tm, cx| {
+                        tm.activate_tab(
+                            *node_id,
+                            name.clone(),
+                            path.clone(),
+                            method.clone(),
+                            window,
+                            cx,
+                        );
+                    });
+                }
+                ProjectPanelEvent::FileRenamed { node_id, new_name } => {
+                    tab_manager.update(cx, |tm, cx| {
+                        tm.rename_tab(*node_id, new_name.clone(), cx);
+                    });
                 }
             }
         })
         .detach();
 
-        let project_panel = project_panel::ProjectPanel::new(window, cx);
-        let tab_manager = tabs::TabManager::new(window, cx, project_panel.clone(), theme.clone());
+        cx.subscribe_in(&tab_manager, window, {
+            let project_panel = project_panel.clone();
+            move |_, _, event, _window, cx| {
+                if let TabManagerEvent::MethodChanged(node_id, method) = event {
+                    project_panel.update(cx, |pp, _| pp.set_node_method(*node_id, method));
+                }
+            }
+        })
+        .detach();
 
         Self {
             project_panel,
             tab_manager,
-            // theme,
         }
     }
 }
@@ -168,7 +176,7 @@ fn main() {
                     ..Default::default()
                 },
                 |window, cx| {
-                    let view = cx.new(|view_cx| ApiClient::new(window, view_cx, default_theme));
+                    let view = cx.new(|view_cx| ApiClient::new(window, view_cx));
                     cx.new(|cx| Root::new(view, window, cx))
                 },
             )

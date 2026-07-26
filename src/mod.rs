@@ -1,7 +1,12 @@
 pub mod actions;
+pub mod footer;
 pub mod fs;
 pub mod headers;
 pub mod helpers;
+pub mod http;
+pub mod playground;
 pub mod project_panel;
 pub mod query_params;
+pub mod response_panel;
+pub mod tab;
 pub mod tabs;

@@ -3,7 +3,7 @@ use gpui_component::tag::Tag;
 use gpui_component::{ColorName, Sizable};
 use std::sync::atomic::{AtomicUsize, Ordering};
 
-pub fn build_method_tag(method: &str) -> impl IntoElement {
+pub fn render_method_tag(method: &str) -> impl IntoElement {
     match method {
         "GET" => Tag::color(ColorName::Green).outline().child("GET").xsmall(),
 
