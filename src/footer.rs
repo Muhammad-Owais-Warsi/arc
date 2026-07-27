@@ -6,7 +6,7 @@ use gpui_component::{ActiveTheme, IconName, IndexPath, Sizable, Theme, ThemeRegi
 
 pub struct Footer {
     theme: Entity<SelectState<Vec<SharedString>>>,
-    response_toggle: bool,
+    show_toggle: bool,
 }
 
 #[derive(Clone, Debug)]
@@ -56,13 +56,13 @@ impl Footer {
 
         Self {
             theme,
-            response_toggle: true,
+            show_toggle: false,
         }
     }
 
-    pub fn toggle_response_button(&mut self, cx: &mut Context<Self>) {
-        self.response_toggle = !self.response_toggle;
-        cx.notify()
+    pub fn set_show_toggle(&mut self, show: bool, cx: &mut Context<Self>) {
+        self.show_toggle = show;
+        cx.notify();
     }
 }
 
@@ -78,7 +78,7 @@ impl Render for Footer {
             .flex()
             .items_center()
             .px(px(16.0))
-            .when(self.response_toggle, |this| {
+            .when(self.show_toggle, |this| {
                 this.child(
                     Button::new("toggle-response")
                         .ghost()

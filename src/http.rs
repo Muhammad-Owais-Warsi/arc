@@ -24,6 +24,7 @@ pub async fn send_request(
     method: &str,
     query_params: Vec<(String, String)>,
     headers: Vec<(String, String)>,
+    body: String,
 ) -> anyhow::Result<(String, Vec<(String, String)>)> {
     let url = url.to_string();
     let mut req_headers = HeaderMap::new();
@@ -41,6 +42,11 @@ pub async fn send_request(
     runtime().spawn(async move {
         let result = async {
             let mut req = client().request(http_method, &url).headers(req_headers);
+
+            if !body.is_empty() {
+                req = req.body(body);
+            }
+
             if !query_params.is_empty() {
                 let query_pairs: Vec<(&str, &str)> = query_params
                     .iter()

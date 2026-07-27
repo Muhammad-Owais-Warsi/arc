@@ -9,4 +9,4 @@ pub mod project_panel;
 pub mod query_params;
 pub mod response_panel;
 pub mod tab;
-pub mod tabs;
+pub mod tab_manager;

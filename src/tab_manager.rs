@@ -10,6 +10,9 @@ use std::collections::HashMap;
 
 pub enum TabManagerEvent {
     MethodChanged(usize, String),
+    SidebarToggle(bool),
+    ResponseToggle,
+    // TabClosed(usize),
 }
 
 impl EventEmitter<TabManagerEvent> for TabManager {}
@@ -35,15 +38,11 @@ impl TabManager {
         };
 
         let footer_clone = footer.clone();
-        cx.subscribe_in(
-            &footer_clone,
-            window,
-            |this: &mut Self, _, event, _window, cx| {
-                if let FooterEvent::ToggleResponse = event {
-                    this.toggle_response(cx);
-                }
-            },
-        )
+        cx.subscribe_in(&footer_clone, window, |_, _, event, _window, cx| {
+            if let FooterEvent::ToggleResponse = event {
+                cx.emit(TabManagerEvent::ResponseToggle);
+            }
+        })
         .detach();
 
         tm
@@ -87,22 +86,14 @@ impl TabManager {
         }
     }
 
-    pub fn toggle_response(&mut self, cx: &mut Context<Self>) {
-        if let Some(tab) = self.active_tab_id.and_then(|id| self.tabs.get(&id)) {
-            tab.update(cx, |tab, cx| {
-                tab.playground().update(cx, |pg, cx| {
-                    pg.response_panel.update(cx, |panel, cx| {
-                        panel.toggle(cx);
-                    });
-                });
-            });
-        }
-        cx.notify();
+    pub fn has_tabs(&self) -> bool {
+        self.active_tab_id.is_some()
     }
 
-    pub fn toggle_sidebar(&mut self, cx: &mut Context<Self>) {
-        self.sidebar_collapsed = !self.sidebar_collapsed;
-        cx.notify();
+    pub fn active_playground(&self, cx: &App) -> Option<Entity<Playground>> {
+        self.active_tab_id
+            .and_then(|id| self.tabs.get(&id))
+            .map(|tab| tab.read(cx).playground())
     }
 
     fn add_tab(
@@ -124,7 +115,7 @@ impl TabManager {
                     .collect();
             let row = methods.iter().position(|m| *m == method).unwrap_or(0);
             playground.update(cx, |pg, cx| {
-                pg.method.update(cx, |state, cx| {
+                pg.method_entity().update(cx, |state, cx| {
                     state.set_selected_index(Some(IndexPath::default().row(row)), window, cx);
                 })
             });
@@ -147,6 +138,7 @@ impl TabManager {
                 if let TabEvent::Close(node_id) = event {
                     this.tabs.remove(node_id);
                     this.active_tab_id = this.tabs.keys().next().copied();
+                    // cx.emit(TabManagerEvent::TabClosed(*node_id));
                     cx.notify();
                 }
             },
@@ -178,6 +170,7 @@ impl TabManager {
                         .collapsed(self.sidebar_collapsed)
                         .on_click(cx.listener(|this: &mut Self, _, _window, cx| {
                             this.sidebar_collapsed = !this.sidebar_collapsed;
+                            cx.emit(TabManagerEvent::SidebarToggle(this.sidebar_collapsed));
                             cx.notify();
                         })),
                 ),
@@ -221,7 +214,9 @@ impl TabManager {
             )
     }
 
-    fn render_footer(&self, _cx: &mut Context<Self>) -> AnyElement {
+    fn render_footer(&self, has_tabs: bool, cx: &mut Context<Self>) -> AnyElement {
+        self.footer
+            .update(cx, |f, cx| f.set_show_toggle(has_tabs, cx));
         self.footer.clone().into_any_element()
     }
 }
@@ -258,6 +253,6 @@ impl Render for TabManager {
                     .child(self.render_tab_bar(cx)),
             )
             .child(div().flex_1().min_h(px(0.)).child(main_content))
-            .child(self.render_footer(cx))
+            .child(self.render_footer(has_tab, cx))
     }
 }

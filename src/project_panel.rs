@@ -1,10 +1,10 @@
 // use gpui::Window;
 use crate::actions::{CreateFile, RenameFile};
+use crate::fs;
 use crate::helpers::{next_id, render_method_tag};
-use crate::{ApiClient, fs};
 use gpui::*;
-use gpui_component::IconName;
 use gpui_component::input::{Input, InputEvent, InputState};
+use gpui_component::{Icon, IconName};
 use std::path::PathBuf;
 // use gpui_component::sidebar::Sidebar;
 use gpui_component::sidebar::{
@@ -197,6 +197,10 @@ impl ProjectPanel {
                 }),
             )
         });
+
+        if !is_file && !self.sidebar_collapsed {
+            item = item.icon(IconName::Folder)
+        }
 
         if is_file {
             let name_for_click = name.clone();
@@ -399,12 +403,9 @@ impl ProjectPanel {
         }
     }
 
-    pub fn toggle_collapsed(&mut self) {
-        self.sidebar_collapsed = !self.sidebar_collapsed;
-    }
-
-    pub fn collapsed(&self) -> bool {
-        self.sidebar_collapsed
+    pub fn set_collapsed(&mut self, collapsed: bool, cx: &mut Context<Self>) {
+        self.sidebar_collapsed = collapsed;
+        cx.notify();
     }
 
     pub fn get_selected_workspace(&self) -> &str {

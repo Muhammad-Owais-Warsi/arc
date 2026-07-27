@@ -9,11 +9,11 @@ mod project_panel;
 mod query_params;
 mod response_panel;
 mod tab;
-mod tabs;
+mod tab_manager;
 
 use crate::actions::{CreateFile, RenameFile};
 use crate::project_panel::{ProjectPanel, ProjectPanelEvent};
-use crate::tabs::TabManagerEvent;
+use crate::tab_manager::TabManagerEvent;
 use gpui::*;
 use gpui_component::button::{Button, ButtonVariants};
 use gpui_component::popover::Popover;
@@ -22,13 +22,13 @@ use std::path::PathBuf;
 
 pub(crate) struct ApiClient {
     pub(crate) project_panel: Entity<project_panel::ProjectPanel>,
-    pub(crate) tab_manager: Entity<tabs::TabManager>,
+    pub(crate) tab_manager: Entity<tab_manager::TabManager>,
 }
 
 impl ApiClient {
     fn new(window: &mut Window, cx: &mut Context<Self>) -> Self {
         let project_panel = cx.new(|cx| ProjectPanel::new(window, cx));
-        let tab_manager = cx.new(|cx| tabs::TabManager::new(window, cx));
+        let tab_manager = cx.new(|cx| tab_manager::TabManager::new(window, cx));
 
         cx.subscribe_in(&project_panel, window, {
             let tab_manager = tab_manager.clone();
@@ -61,10 +61,23 @@ impl ApiClient {
 
         cx.subscribe_in(&tab_manager, window, {
             let project_panel = project_panel.clone();
-            move |_, _, event, _window, cx| {
-                if let TabManagerEvent::MethodChanged(node_id, method) = event {
+            let tab_manager = tab_manager.clone();
+            move |_, _, event, _window, cx| match event {
+                TabManagerEvent::MethodChanged(node_id, method) => {
                     project_panel.update(cx, |pp, _| pp.set_node_method(*node_id, method));
                 }
+                TabManagerEvent::SidebarToggle(collapsed) => {
+                    project_panel.update(cx, |pp, cx| pp.set_collapsed(*collapsed, cx));
+                }
+                TabManagerEvent::ResponseToggle => {
+                    if let Some(pg) = tab_manager.read(cx).active_playground(cx) {
+                        pg.update(cx, |pg, cx| {
+                            pg.respone_panel_entity().update(cx, |panel, cx| {
+                                panel.toggle(cx);
+                            });
+                        });
+                    }
+                } // TabManagerEvent::TabClosed(_node_id) => {}
             }
         })
         .detach();

@@ -1,11 +1,12 @@
 use gpui::prelude::FluentBuilder;
 use gpui::*;
 use gpui_component::button::{Button, ButtonVariants};
+use gpui_component::input::TabSize;
 use gpui_component::scroll::ScrollableElement;
 use gpui_component::{ActiveTheme, h_flex};
 use gpui_component::{Disableable, IconName};
 use gpui_component::{
-    IndexPath, Sizable, StyledExt,
+    IndexPath, StyledExt,
     input::{Input, InputEvent, InputState},
     resizable::{resizable_panel, v_resizable},
     select::{Select, SelectEvent, SelectState},
@@ -25,15 +26,16 @@ pub enum PlaygroundEvent {
 impl EventEmitter<PlaygroundEvent> for Playground {}
 
 pub struct Playground {
-    pub method: Entity<SelectState<Vec<String>>>,
-    pub url: Entity<InputState>,
-    pub query_params: Entity<QueryParams>,
-    pub headers: Entity<Headers>,
-    pub body: Entity<InputState>,
-    pub selected_config: usize,
-    pub pending: bool,
-    pub dirty: bool,
-    pub response_panel: Entity<ResponsePanel>,
+    method: Entity<SelectState<Vec<String>>>,
+    url: Entity<InputState>,
+    query_params: Entity<QueryParams>,
+    headers: Entity<Headers>,
+    body: Entity<InputState>,
+    body_type: Entity<SelectState<Vec<String>>>,
+    selected_config: usize,
+    pending: bool,
+    dirty: bool,
+    response_panel: Entity<ResponsePanel>,
 }
 
 impl Playground {
@@ -57,11 +59,41 @@ impl Playground {
                 cx,
             )
         });
+
+        let body_types: Vec<String> = vec!["text", "json", "html"]
+            .into_iter()
+            .map(|bt| bt.to_string())
+            .collect();
+
+        let selected_body_type = body_types.iter().position(|m| *m == "json").unwrap_or(0);
+        let initial_language = body_types
+            .get(selected_body_type)
+            .map(|s| s.as_str())
+            .unwrap_or("json")
+            .to_string();
+        let body_type_state = cx.new(|cx| {
+            SelectState::new(
+                body_types,
+                Some(IndexPath {
+                    section: 0,
+                    row: selected_body_type,
+                    column: 0,
+                }),
+                window,
+                cx,
+            )
+        });
+
         let body = cx.new(|cx| {
             InputState::new(window, cx)
                 .multi_line(true)
-                .code_editor("json")
+                .tab_size(TabSize {
+                    tab_size: 4,
+                    hard_tabs: false,
+                })
+                .code_editor(&initial_language)
         });
+
         let query_params = cx.new(|_| QueryParams::new());
         let headers = cx.new(|_| Headers::new());
         let response_panel = cx.new(|cx| ResponsePanel::new(window, cx));
@@ -72,11 +104,26 @@ impl Playground {
             query_params,
             headers,
             body,
+            body_type: body_type_state.clone(),
             selected_config: 0,
             pending: false,
             dirty: false,
             response_panel,
         };
+
+        cx.subscribe_in(
+            &body_type_state,
+            window,
+            |this: &mut Self, _, event, _window, cx| {
+                if let SelectEvent::Confirm(Some(body_type)) = event {
+                    this.body.update(cx, |editor, cx| {
+                        editor.set_highlighter(body_type, cx);
+                        cx.notify();
+                    })
+                }
+            },
+        )
+        .detach();
 
         cx.subscribe_in(
             &method_state,
@@ -108,6 +155,14 @@ impl Playground {
             .selected_value()
             .cloned()
             .unwrap_or_else(|| "GET".to_string())
+    }
+
+    pub fn method_entity(&self) -> Entity<SelectState<Vec<String>>> {
+        self.method.clone()
+    }
+
+    pub fn respone_panel_entity(&self) -> Entity<ResponsePanel> {
+        self.response_panel.clone()
     }
 
     pub fn load(
@@ -147,13 +202,21 @@ impl Playground {
             .unwrap_or_else(|| "GET".to_string());
         let query_params = self.query_params.read(cx).active_params(cx);
         let headers = self.headers.read(cx).active_headers(cx);
+        let body = self.body.read(cx).value();
         let response_panel = self.response_panel.clone();
 
         response_panel.update(cx, |panel, cx| panel.open(cx));
 
         let rp = response_panel;
         cx.spawn(async move |this, cx| {
-            let result = http::send_request(&url_str, &method_str, query_params, headers).await;
+            let result = http::send_request(
+                &url_str,
+                &method_str,
+                query_params,
+                headers,
+                body.to_string(),
+            )
+            .await;
             let _ = this.update_in(cx, |_this, window, cx| {
                 match result {
                     Ok((body, resp_headers)) => {
@@ -233,34 +296,36 @@ impl Playground {
             .into_any_element()
     }
 
-    fn render_config_content(&self, _cx: &mut Context<Self>) -> AnyElement {
+    fn render_config_content(&self, cx: &mut Context<Self>) -> AnyElement {
         match self.selected_config {
-            0 => self.query_params.clone().into_any_element(),
-            2 => self.headers.clone().into_any_element(),
-            3 => self.render_body(),
+            0 => div()
+                .size_full()
+                .child(self.query_params.clone())
+                .into_any_element(),
+            2 => div()
+                .size_full()
+                .child(self.headers.clone())
+                .into_any_element(),
+            3 => self.render_body(cx),
             _ => div().into_any_element(),
         }
     }
 
-    fn render_body(&self) -> AnyElement {
+    fn render_body(&self, cx: &mut Context<Self>) -> AnyElement {
         div()
             .size_full()
             .v_flex()
+            .gap(px(4.))
+            .child(div().w(px(110.)).child(Select::new(&self.body_type)))
             .child(
                 div()
                     .flex_basis(DefiniteLength::Fraction(0.75))
-                    .flex_grow(1.)
                     .min_h(px(0.))
                     .border_1()
+                    .border_color(cx.theme().border)
                     .rounded_md()
                     .overflow_hidden()
                     .child(Input::new(&self.body).size_full().appearance(false)),
-            )
-            .child(
-                div()
-                    .flex_basis(DefiniteLength::Fraction(0.25))
-                    .flex_grow(1.)
-                    .min_h(px(0.)),
             )
             .into_any_element()
     }

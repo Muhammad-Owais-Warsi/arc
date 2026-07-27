@@ -1,7 +1,6 @@
 use gpui::*;
 use gpui_component::button::{Button, ButtonVariants};
 use gpui_component::input::{Input, InputState, TabSize};
-use gpui_component::scroll::ScrollableElement;
 use gpui_component::tab::{self, Tab, TabBar};
 use gpui_component::{ActiveTheme, IconName, Sizable, StyledExt, h_flex};
 

@@ -33,13 +33,13 @@ impl Tabs {
         self.playground.clone()
     }
 
-    pub fn name(&self) -> String {
-        self.name.clone()
-    }
+    // pub fn name(&self) -> String {
+    //     self.name.clone()
+    // }
 
-    pub fn node_id(&self) -> usize {
-        self.node_id
-    }
+    // pub fn node_id(&self) -> usize {
+    //     self.node_id
+    // }
 
     pub fn update_name(&mut self, new_name: String) {
         self.name = new_name
