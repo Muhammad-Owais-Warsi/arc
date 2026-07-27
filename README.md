@@ -6,5 +6,7 @@ a fast and lightweight api client.
 2. `carggo install`
 3. `cargo run`
 
-https://github.com/user-attachments/assets/1979ec96-7de4-4564-954b-5c1fb375c256
+
+
+https://github.com/user-attachments/assets/6dda7d38-0d7a-4cef-9c93-e500a1e69654
 
