@@ -1,4 +1,6 @@
 pub mod actions;
+pub mod auth;
+pub mod body;
 pub mod footer;
 pub mod fs;
 pub mod headers;

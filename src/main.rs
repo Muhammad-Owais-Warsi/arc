@@ -1,4 +1,6 @@
 mod actions;
+mod auth;
+mod body;
 mod footer;
 mod fs;
 mod headers;
