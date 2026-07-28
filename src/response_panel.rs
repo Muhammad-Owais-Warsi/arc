@@ -4,12 +4,24 @@ use gpui_component::input::{Input, InputState, TabSize};
 use gpui_component::tab::{self, Tab, TabBar};
 use gpui_component::{ActiveTheme, IconName, Sizable, StyledExt, h_flex};
 
+use crate::http::Response;
+
+fn format_size(bytes: usize) -> String {
+    if bytes > 1024 * 1024 {
+        format!("{:.1} MB", bytes as f64 / (1024.0 * 1024.0))
+    } else if bytes > 1024 {
+        format!("{:.1} KB", bytes as f64 / 1024.0)
+    } else {
+        format!("{bytes} B")
+    }
+}
+
 #[derive(Clone)]
 pub struct ResponsePanel {
     show: bool,
     selected_config: usize,
     body: Entity<InputState>,
-    headers: Vec<(String, String)>,
+    data: Option<Response>,
 }
 
 impl ResponsePanel {
@@ -29,7 +41,7 @@ impl ResponsePanel {
             show: false,
             selected_config: 0,
             body,
-            headers: vec![],
+            data: None,
         }
     }
 
@@ -49,14 +61,19 @@ impl ResponsePanel {
 
     pub fn set_response(
         &mut self,
-        body: String,
-        headers: Vec<(String, String)>,
+        response: Response,
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
+        let body_text = response.body.clone();
+        let body_text = if let Ok(json) = serde_json::from_str::<serde_json::Value>(&body_text) {
+            serde_json::to_string_pretty(&json).unwrap_or(body_text)
+        } else {
+            body_text
+        };
         self.body
-            .update(cx, |state, cx| state.set_value(body, window, cx));
-        self.headers = headers;
+            .update(cx, |state, cx| state.set_value(body_text, window, cx));
+        self.data = Some(response);
         self.show = true;
         cx.notify();
     }
@@ -182,6 +199,38 @@ impl Render for ResponsePanel {
                     ),
             )
             .child(
+                h_flex()
+                    .w_full()
+                    .flex_none()
+                    .px(px(24.))
+                    .py_1()
+                    .gap(px(16.))
+                    .bg(cx.theme().background)
+                    .border_b_1()
+                    .border_color(cx.theme().border)
+                    .child(
+                        div().text_sm().child(
+                            self.data
+                                .as_ref()
+                                .map(|d| format!("{} {}", d.status_code, d.status_text))
+                                .unwrap_or_default(),
+                        ),
+                    )
+                    .child(
+                        div().text_sm().child(
+                            self.data
+                                .as_ref()
+                                .map(|d| format!("{:?}", d.duration))
+                                .unwrap_or_default(),
+                        ),
+                    )
+                    .child(
+                        div()
+                            .text_sm()
+                            .child(format_size(self.body.read(cx).value().len())),
+                    ),
+            )
+            .child(
                 TabBar::new("response-config")
                     .w_full()
                     .flex_none()
@@ -205,15 +254,22 @@ impl Render for ResponsePanel {
                     .px(px(24.))
                     .child(Input::new(&self.body).flex_1().h_full().appearance(false))
                     .into_any_element(),
-                1 => div()
-                    .flex_1()
-                    .w_full()
-                    .h_full()
-                    .min_h(px(0.))
-                    .min_w(px(0.))
-                    .px(px(24.))
-                    .child(Self::render_headers_table(&self.headers, cx))
-                    .into_any_element(),
+                1 => {
+                    let headers = self
+                        .data
+                        .as_ref()
+                        .map(|d| d.headers.as_slice())
+                        .unwrap_or(&[]);
+                    div()
+                        .flex_1()
+                        .w_full()
+                        .h_full()
+                        .min_h(px(0.))
+                        .min_w(px(0.))
+                        .px(px(24.))
+                        .child(Self::render_headers_table(headers, cx))
+                        .into_any_element()
+                }
                 _ => div().child("issue").into_any_element(),
             })
     }

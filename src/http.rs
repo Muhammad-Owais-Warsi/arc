@@ -19,13 +19,29 @@ pub fn client() -> &'static reqwest::Client {
     CLIENT.get_or_init(|| reqwest::Client::new())
 }
 
+pub enum AuthPayload {
+    None,
+    Basic { username: String, password: String },
+    Bearer { token: String },
+}
+
+#[derive(Clone)]
+pub struct Response {
+    pub status_code: u16,
+    pub status_text: String,
+    pub headers: Vec<(String, String)>,
+    pub body: String,
+    pub duration: std::time::Duration,
+}
+
 pub async fn send_request(
     url: &str,
     method: &str,
     query_params: Vec<(String, String)>,
     headers: Vec<(String, String)>,
     body: String,
-) -> anyhow::Result<(String, Vec<(String, String)>)> {
+    auth: AuthPayload,
+) -> anyhow::Result<Response> {
     let url = url.to_string();
     let mut req_headers = HeaderMap::new();
     for (key, value) in &headers {
@@ -41,11 +57,21 @@ pub async fn send_request(
 
     runtime().spawn(async move {
         let result = async {
-            let mut req = client().request(http_method, &url).headers(req_headers);
+            let mut req = client().request(http_method, &url);
+
+            match &auth {
+                AuthPayload::None => {}
+                AuthPayload::Basic { username, password } => {
+                    req = req.basic_auth(username, Some(password));
+                }
+                AuthPayload::Bearer { token } => req = req.bearer_auth(token),
+            }
 
             if !body.is_empty() {
                 req = req.body(body);
             }
+
+            req = req.headers(req_headers);
 
             if !query_params.is_empty() {
                 let query_pairs: Vec<(&str, &str)> = query_params
@@ -54,14 +80,30 @@ pub async fn send_request(
                     .collect();
                 req = req.query(&query_pairs);
             }
+
+            // send request
+            let start = std::time::Instant::now();
             let resp = req.send().await?;
+            let elapsed = start.elapsed();
+            let status_code = resp.status().as_u16();
+            let status_text = resp
+                .status()
+                .canonical_reason()
+                .unwrap_or("Unknown")
+                .to_string();
             let headers: Vec<(String, String)> = resp
                 .headers()
                 .iter()
                 .map(|(k, v)| (k.to_string(), v.to_str().unwrap_or("").to_string()))
                 .collect();
             let body = resp.text().await?;
-            Ok::<_, anyhow::Error>((body, headers))
+            Ok::<_, anyhow::Error>(Response {
+                status_code,
+                status_text,
+                headers,
+                body,
+                duration: elapsed,
+            })
         }
         .await;
         let _ = tx.send(result);

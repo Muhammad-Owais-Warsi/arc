@@ -12,10 +12,10 @@ use gpui_component::{
     tab::{self, Tab, TabBar},
 };
 
-use crate::auth::Auth;
+use crate::auth::{Auth, AuthType};
 use crate::body::Body;
 use crate::headers::Headers;
-use crate::http;
+use crate::http::{self, AuthPayload, Response};
 use crate::query_params::QueryParams;
 use crate::response_panel::ResponsePanel;
 
@@ -146,7 +146,7 @@ impl Playground {
             .update(cx, |h, cx| h.load_from_json(content, window, cx));
     }
 
-    pub fn send_request(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+    pub fn send_request(&mut self, _window: &mut Window, cx: &mut Context<Self>) {
         let url_str = self.url.read(cx).value().to_string();
         let method_str = self
             .method
@@ -158,6 +158,20 @@ impl Playground {
         let headers = self.headers.read(cx).active_headers(cx);
         let body = self.body.read(cx).value(cx);
 
+        let auth = match self.auth.read(cx).auth_type() {
+            AuthType::None => AuthPayload::None,
+            AuthType::Basic => {
+                let (u, p) = self.auth.read(cx).basic_auth_values(cx);
+                AuthPayload::Basic {
+                    username: u,
+                    password: p,
+                }
+            }
+            AuthType::Bearer => AuthPayload::Bearer {
+                token: self.auth.read(cx).bearer_auth_value(cx),
+            },
+        };
+
         let response_panel = self.response_panel.clone();
 
         response_panel.update(cx, |panel, cx| panel.open(cx));
@@ -165,21 +179,27 @@ impl Playground {
         let rp = response_panel;
         cx.spawn(async move |this, cx| {
             let result =
-                http::send_request(&url_str, &method_str, query_params, headers, body).await;
+                http::send_request(&url_str, &method_str, query_params, headers, body, auth).await;
             let _ = this.update_in(cx, |_this, window, cx| {
                 match result {
-                    Ok((body, resp_headers)) => {
-                        let formatted = serde_json::from_str::<serde_json::Value>(&body)
-                            .ok()
-                            .and_then(|v| serde_json::to_string_pretty(&v).ok())
-                            .unwrap_or(body);
+                    Ok(response) => {
                         rp.update(cx, |p, cx| {
-                            p.set_response(formatted, resp_headers, window, cx);
+                            p.set_response(response, window, cx);
                         });
                     }
                     Err(err) => {
                         rp.update(cx, |p, cx| {
-                            p.set_response(format!("Error: {err}"), vec![], window, cx);
+                            p.set_response(
+                                Response {
+                                    status_code: 0,
+                                    status_text: "Error".to_string(),
+                                    headers: vec![],
+                                    body: format!("Error: {err}"),
+                                    duration: std::time::Duration::ZERO,
+                                },
+                                window,
+                                cx,
+                            );
                         });
                     }
                 }
