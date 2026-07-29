@@ -18,8 +18,12 @@ impl EventEmitter<FooterEvent> for Footer {}
 
 impl Footer {
     pub fn new(window: &mut Window, cx: &mut Context<Self>) -> Self {
-        let themes: Vec<SharedString> =
-            ThemeRegistry::global(cx).themes().keys().cloned().collect();
+        let themes: Vec<SharedString> = ThemeRegistry::global(cx)
+            .themes()
+            .keys()
+            .filter(|k| *k != "Default Dark" && *k != "Default Light")
+            .cloned()
+            .collect();
         let default_theme = SharedString::from("Ayu Dark");
         let default_idx = themes.iter().position(|t| *t == default_theme).unwrap_or(0);
 

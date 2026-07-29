@@ -171,7 +171,7 @@ fn main() {
     let app = gpui_platform::application().with_assets(gpui_component_assets::Assets);
     app.run(move |cx| {
         gpui_component::init(cx);
-        let theme_name = SharedString::from("Ayu Dark");
+        let theme_name = SharedString::from("One Dark");
         let default_theme = theme_name.clone();
         if let Some(theme) = ThemeRegistry::global(cx).themes().get(&theme_name).cloned() {
             Theme::global_mut(cx).apply_config(&theme);

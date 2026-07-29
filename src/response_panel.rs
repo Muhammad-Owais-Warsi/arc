@@ -1,8 +1,9 @@
 use gpui::*;
-use gpui_component::button::{Button, ButtonVariants};
 use gpui_component::input::{Input, InputState, TabSize};
+use gpui_component::scroll::ScrollableElement;
 use gpui_component::tab::{self, Tab, TabBar};
-use gpui_component::{ActiveTheme, IconName, Sizable, StyledExt, h_flex};
+use gpui_component::tag::Tag;
+use gpui_component::{ActiveTheme, ColorName, IconName, Sizable, StyledExt, h_flex, v_flex};
 
 use crate::http::Response;
 
@@ -78,6 +79,29 @@ impl ResponsePanel {
         cx.notify();
     }
 
+    fn render_status_tag(data: &Response) -> impl IntoElement {
+        let color = match data.status_code {
+            200..=299 => ColorName::Green,
+            300..=399 => ColorName::Yellow,
+            _ => ColorName::Red,
+        };
+
+        h_flex().gap(px(8.)).items_center().child(
+            Tag::color(color)
+                .child(format!(
+                    "{} {}",
+                    data.status_code.to_string(),
+                    data.status_text.to_string()
+                ))
+                .xsmall(),
+        )
+        // .child(div().text_sm().child(data.status_text.clone()))
+    }
+
+    fn render_duration(data: &Response) -> impl IntoElement {
+        div().text_sm().child(format!("{:?}", data.duration))
+    }
+
     fn render_headers_table(headers: &[(String, String)], cx: &App) -> impl IntoElement {
         use gpui_component::StyledExt;
         use gpui_component::scroll::ScrollableElement;
@@ -96,7 +120,7 @@ impl ResponsePanel {
                     .id("response-headers-hscroll")
                     .w_full()
                     .min_w(px(0.))
-                    .overflow_x_scrollbar()
+                    .overflow_y_scrollbar()
                     .child(
                         div()
                             .flex_col()
@@ -187,48 +211,17 @@ impl Render for ResponsePanel {
                     .border_b_1()
                     .border_color(cx.theme().border)
                     .child(div().text_sm().font_semibold().child("Response"))
-                    .child(
-                        Button::new("close-response")
-                            .ghost()
-                            .tooltip("Close Response")
-                            .small()
-                            .icon(IconName::Close)
-                            .on_click(cx.listener(|this: &mut Self, _, _window, cx| {
-                                this.toggle(cx);
-                            })),
-                    ),
-            )
-            .child(
-                h_flex()
-                    .w_full()
-                    .flex_none()
-                    .px(px(24.))
-                    .py_1()
-                    .gap(px(16.))
-                    .bg(cx.theme().background)
-                    .border_b_1()
-                    .border_color(cx.theme().border)
-                    .child(
-                        div().text_sm().child(
-                            self.data
-                                .as_ref()
-                                .map(|d| format!("{} {}", d.status_code, d.status_text))
-                                .unwrap_or_default(),
-                        ),
-                    )
-                    .child(
-                        div().text_sm().child(
-                            self.data
-                                .as_ref()
-                                .map(|d| format!("{:?}", d.duration))
-                                .unwrap_or_default(),
-                        ),
-                    )
-                    .child(
-                        div()
-                            .text_sm()
-                            .child(format_size(self.body.read(cx).value().len())),
-                    ),
+                    .child(self.data.as_ref().map_or_else(
+                        || div().into_any_element(),
+                        |data| {
+                            h_flex()
+                                .gap(px(12.))
+                                .items_center()
+                                .child(Self::render_status_tag(data))
+                                .child(Self::render_duration(data))
+                                .into_any_element()
+                        },
+                    )),
             )
             .child(
                 TabBar::new("response-config")
@@ -262,10 +255,9 @@ impl Render for ResponsePanel {
                         .unwrap_or(&[]);
                     div()
                         .flex_1()
-                        .w_full()
-                        .h_full()
                         .min_h(px(0.))
                         .min_w(px(0.))
+                        .overflow_y_scrollbar()
                         .px(px(24.))
                         .child(Self::render_headers_table(headers, cx))
                         .into_any_element()
