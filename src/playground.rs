@@ -178,8 +178,15 @@ impl Playground {
 
         let rp = response_panel;
         cx.spawn(async move |this, cx| {
-            let result =
-                http::send_request(&url_str, &method_str, query_params, headers, body, auth).await;
+            let result = http::HttpRequest::new()
+                .url(&url_str)
+                .method(&method_str)
+                .headers(headers)
+                .queries(query_params)
+                .body(&body)
+                .auth(auth)
+                .send()
+                .await;
             let _ = this.update_in(cx, |_this, window, cx| {
                 match result {
                     Ok(response) => {
@@ -193,8 +200,21 @@ impl Playground {
                                 Response {
                                     status_code: 0,
                                     status_text: "Error".to_string(),
-                                    headers: vec![],
-                                    body: format!("Error: {err}"),
+                                    headers: http::ResponseHeaders {
+                                        headers: vec![],
+                                        response_size: 0,
+                                    },
+                                    body: http::ResponseBody {
+                                        body: format!("Error: {err}"),
+                                        response_size: 0,
+                                    },
+                                    cookies: vec![],
+                                    request: http::RequestStats {
+                                        header_size: 0,
+                                        body_size: 0,
+                                        size: 0,
+                                    },
+                                    response_size: 0,
                                     duration: std::time::Duration::ZERO,
                                 },
                                 window,

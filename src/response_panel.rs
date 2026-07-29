@@ -1,19 +1,26 @@
 use gpui::*;
+use gpui_component::button::{Button, ButtonVariants};
 use gpui_component::input::{Input, InputState, TabSize};
+use gpui_component::popover::Popover;
 use gpui_component::scroll::ScrollableElement;
 use gpui_component::tab::{self, Tab, TabBar};
 use gpui_component::tag::Tag;
-use gpui_component::{ActiveTheme, ColorName, IconName, Sizable, StyledExt, h_flex, v_flex};
+use gpui_component::{ActiveTheme, ColorName, Icon, IconName, Sizable, StyledExt, h_flex, v_flex};
 
 use crate::http::Response;
 
 fn format_size(bytes: usize) -> String {
-    if bytes > 1024 * 1024 {
-        format!("{:.1} MB", bytes as f64 / (1024.0 * 1024.0))
-    } else if bytes > 1024 {
-        format!("{:.1} KB", bytes as f64 / 1024.0)
+    const KB: f64 = 1024.0;
+    const MB: f64 = KB * 1024.0;
+
+    let bytes = bytes as f64;
+
+    if bytes >= MB {
+        format!("{:.2} MB", bytes / MB)
+    } else if bytes >= KB {
+        format!("{:.2} KB", bytes / KB)
     } else {
-        format!("{bytes} B")
+        format!("{:.0} B", bytes)
     }
 }
 
@@ -66,7 +73,7 @@ impl ResponsePanel {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        let body_text = response.body.clone();
+        let body_text = response.body.body.clone();
         let body_text = if let Ok(json) = serde_json::from_str::<serde_json::Value>(&body_text) {
             serde_json::to_string_pretty(&json).unwrap_or(body_text)
         } else {
@@ -93,15 +100,102 @@ impl ResponsePanel {
                     data.status_code.to_string(),
                     data.status_text.to_string()
                 ))
+                .outline()
                 .xsmall(),
         )
-        // .child(div().text_sm().child(data.status_text.clone()))
     }
 
     fn render_duration(data: &Response) -> impl IntoElement {
-        div().text_sm().child(format!("{:?}", data.duration))
+        let ms = data.duration.as_secs_f64() * 1000.0;
+
+        Button::new("time-duration")
+            .label(format!("{:.2} ms", ms))
+            .ghost()
+            .xsmall()
+        // .tooltip("duration")
     }
 
+    fn render_size(data: &Response) -> impl IntoElement {
+        let req_hdr = format_size(data.request.header_size);
+        let req_body = format_size(data.request.body_size);
+        let req_total = format_size(data.request.size);
+
+        let res_hdr = format_size(data.headers.response_size);
+        let res_body = format_size(data.body.response_size);
+        let res_total = format_size(data.response_size);
+
+        Popover::new("response-size-popover")
+            .anchor(Anchor::BottomLeft)
+            .trigger(
+                Button::new("response-size")
+                    .label(res_total.clone())
+                    .ghost()
+                    .xsmall(),
+            )
+            .content(move |_, _window, cx| {
+                let theme = cx.theme();
+
+                let row = |label: SharedString, value: SharedString| {
+                    h_flex()
+                        .justify_between()
+                        .items_center()
+                        .w_full()
+                        .child(
+                            div()
+                                .text_xs()
+                                .text_color(theme.muted_foreground)
+                                .child(label),
+                        )
+                        .child(div().text_xs().font_medium().child(value))
+                };
+
+                v_flex()
+                    .p(px(10.))
+                    .gap(px(10.))
+                    .min_w(px(220.))
+                    // Request
+                    .child(
+                        v_flex()
+                            .gap(px(6.))
+                            .child(
+                                h_flex()
+                                    .items_center()
+                                    .gap(px(6.))
+                                    .child(
+                                        Icon::new(IconName::ArrowUp)
+                                            .small()
+                                            // .bg(cx.theme().background)
+                                            .text_color(theme.danger),
+                                    )
+                                    .child(div().text_sm().font_semibold().child("Request")),
+                            )
+                            .child(row("Headers".into(), req_hdr.clone().into()))
+                            .child(row("Body".into(), req_body.clone().into()))
+                            .child(row("Total".into(), req_total.clone().into())),
+                    )
+                    .child(div().h(px(1.)).w_full().bg(theme.border))
+                    // Response
+                    .child(
+                        v_flex()
+                            .gap(px(6.))
+                            .child(
+                                h_flex()
+                                    .items_center()
+                                    .gap(px(6.))
+                                    .child(
+                                        Icon::new(IconName::ArrowDown)
+                                            .small()
+                                            // .bg(cx.theme().background)
+                                            .text_color(theme.success),
+                                    )
+                                    .child(div().text_sm().font_semibold().child("Response")),
+                            )
+                            .child(row("Headers".into(), res_hdr.clone().into()))
+                            .child(row("Body".into(), res_body.clone().into()))
+                            .child(row("Total".into(), res_total.clone().into())),
+                    )
+            })
+    }
     fn render_headers_table(headers: &[(String, String)], cx: &App) -> impl IntoElement {
         use gpui_component::StyledExt;
         use gpui_component::scroll::ScrollableElement;
@@ -219,6 +313,7 @@ impl Render for ResponsePanel {
                                 .items_center()
                                 .child(Self::render_status_tag(data))
                                 .child(Self::render_duration(data))
+                                .child(Self::render_size(data))
                                 .into_any_element()
                         },
                     )),
@@ -251,7 +346,7 @@ impl Render for ResponsePanel {
                     let headers = self
                         .data
                         .as_ref()
-                        .map(|d| d.headers.as_slice())
+                        .map(|d| d.headers.headers.as_slice())
                         .unwrap_or(&[]);
                     div()
                         .flex_1()

@@ -5,6 +5,11 @@ use gpui_component::{
     select::{Select, SelectEvent, SelectState},
 };
 
+struct BodyType {
+    label: &'static str,
+    language: &'static str,
+}
+
 pub struct Body {
     body: Entity<InputState>,
     body_type: Entity<SelectState<Vec<String>>>,
@@ -12,23 +17,35 @@ pub struct Body {
 
 impl Body {
     pub fn new(window: &mut Window, cx: &mut Context<Self>) -> Self {
-        let body_types: Vec<String> = vec!["text", "json", "html"]
-            .into_iter()
-            .map(|bt| bt.to_string())
-            .collect();
+        let body_types = vec![
+            BodyType {
+                label: "Text",
+                language: "text",
+            },
+            BodyType {
+                label: "JSON",
+                language: "json",
+            },
+            BodyType {
+                label: "HTML",
+                language: "html",
+            },
+        ];
+        let select_items: Vec<String> = body_types.iter().map(|t| t.label.to_string()).collect();
 
-        let selected_body_type = body_types.iter().position(|m| *m == "json").unwrap_or(0);
-        let initial_language = body_types
-            .get(selected_body_type)
-            .map(|s| s.as_str())
-            .unwrap_or("json")
-            .to_string();
+        let selected = body_types
+            .iter()
+            .position(|t| t.language == "json")
+            .unwrap_or(0);
+
+        let initial_language = body_types[selected].language.to_string();
+
         let body_type_state = cx.new(|cx| {
             SelectState::new(
-                body_types,
+                select_items,
                 Some(IndexPath {
                     section: 0,
-                    row: selected_body_type,
+                    row: selected,
                     column: 0,
                 }),
                 window,
@@ -49,12 +66,14 @@ impl Body {
         cx.subscribe_in(
             &body_type_state,
             window,
-            |this: &mut Self, _, event, _window, cx| {
-                if let SelectEvent::Confirm(Some(body_type)) = event {
-                    this.body.update(cx, |editor, cx| {
-                        editor.set_highlighter(body_type, cx);
-                        cx.notify();
-                    })
+            move |this: &mut Self, _, event, _, cx| {
+                if let SelectEvent::Confirm(Some(label)) = event {
+                    if let Some(body_type) = body_types.iter().find(|t| t.label == label) {
+                        this.body.update(cx, |editor, cx| {
+                            editor.set_highlighter(body_type.language, cx);
+                            cx.notify();
+                        });
+                    }
                 }
             },
         )
