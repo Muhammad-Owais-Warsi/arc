@@ -2,7 +2,9 @@ use gpui::prelude::FluentBuilder;
 use gpui::*;
 use gpui_component::button::{Button, ButtonVariants};
 use gpui_component::select::{Select, SelectEvent, SelectState};
-use gpui_component::{ActiveTheme, IconName, IndexPath, Sizable, Theme, ThemeRegistry};
+use gpui_component::{ActiveTheme, IndexPath, Sizable, Theme, ThemeRegistry};
+
+use crate::icons::IconName;
 
 pub struct Footer {
     theme: Entity<SelectState<Vec<SharedString>>>,
@@ -24,7 +26,7 @@ impl Footer {
             .filter(|k| *k != "Default Dark" && *k != "Default Light")
             .cloned()
             .collect();
-        let default_theme = SharedString::from("Ayu Dark");
+        let default_theme = SharedString::from("One Dark");
         let default_idx = themes.iter().position(|t| *t == default_theme).unwrap_or(0);
 
         let theme = cx.new(|cx| {

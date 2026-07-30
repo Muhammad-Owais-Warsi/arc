@@ -1,9 +1,9 @@
 use gpui::prelude::FluentBuilder;
 use gpui::*;
+use gpui_component::Disableable;
 use gpui_component::button::{Button, ButtonVariants};
 use gpui_component::scroll::ScrollableElement;
 use gpui_component::{ActiveTheme, h_flex};
-use gpui_component::{Disableable, IconName};
 use gpui_component::{
     IndexPath, StyledExt,
     input::{Input, InputEvent, InputState},
@@ -16,6 +16,7 @@ use crate::auth::{Auth, AuthType};
 use crate::body::Body;
 use crate::headers::Headers;
 use crate::http::{self, AuthPayload, Response};
+use crate::icons::IconName;
 use crate::query_params::QueryParams;
 use crate::response_panel::ResponsePanel;
 
@@ -247,10 +248,11 @@ impl Playground {
             .child(
                 Button::new("send")
                     .primary()
-                    .icon(IconName::Network)
+                    .icon(IconName::Send)
                     .label("Send")
                     .disabled(self.pending)
                     .loading(self.pending)
+                    .loading_icon(IconName::Spinner)
                     .on_click(cx.listener(|this: &mut Self, _, window, cx| {
                         this.pending = true;
                         this.send_request(window, cx);

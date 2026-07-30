@@ -4,7 +4,9 @@ use gpui::*;
 use gpui_component::Sizable;
 use gpui_component::button::Button;
 use gpui_component::tab::Tab;
-use gpui_component::{IconName, button::ButtonVariants};
+use gpui_component::button::ButtonVariants;
+
+use crate::icons::IconName;
 
 pub enum TabEvent {
     Close(usize), // node_id

@@ -1,4 +1,5 @@
 mod actions;
+pub mod assets;
 mod auth;
 mod body;
 mod footer;
@@ -6,6 +7,7 @@ mod fs;
 mod headers;
 mod helpers;
 mod http;
+mod icons;
 mod playground;
 mod project_panel;
 mod query_params;
@@ -14,12 +16,14 @@ mod tab;
 mod tab_manager;
 
 use crate::actions::{CreateFile, RenameFile};
+use crate::assets::Assets;
 use crate::project_panel::{ProjectPanel, ProjectPanelEvent};
 use crate::tab_manager::TabManagerEvent;
 use gpui::*;
 use gpui_component::button::{Button, ButtonVariants};
 use gpui_component::popover::Popover;
 use gpui_component::{Theme, *};
+use std::borrow::Cow;
 use std::path::PathBuf;
 
 pub(crate) struct ApiClient {
@@ -168,11 +172,20 @@ impl Render for ApiClient {
 }
 
 fn main() {
-    let app = gpui_platform::application().with_assets(gpui_component_assets::Assets);
+    let app = gpui_platform::application().with_assets(Assets);
     app.run(move |cx| {
         gpui_component::init(cx);
+
+        cx.text_system()
+            .add_fonts(vec![
+                Cow::Borrowed(include_bytes!("../assets/fonts/ibm-plex-sans/IBMPlexSans-Regular.ttf")),
+                Cow::Borrowed(include_bytes!("../assets/fonts/ibm-plex-sans/IBMPlexSans-Italic.ttf")),
+                Cow::Borrowed(include_bytes!("../assets/fonts/ibm-plex-sans/IBMPlexSans-SemiBold.ttf")),
+                Cow::Borrowed(include_bytes!("../assets/fonts/ibm-plex-sans/IBMPlexSans-SemiBoldItalic.ttf")),
+            ])
+            .expect("Failed to load fonts");
+
         let theme_name = SharedString::from("One Dark");
-        let default_theme = theme_name.clone();
         if let Some(theme) = ThemeRegistry::global(cx).themes().get(&theme_name).cloned() {
             Theme::global_mut(cx).apply_config(&theme);
         }

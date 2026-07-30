@@ -7,6 +7,7 @@
     {
       "name": "Ayu Dark",
       "mode": "dark",
+      "font.family": ".ZedSans",
       "colors": {
         "accent.background": "#2d2f34ff",
         "accent.foreground": "#5ac1feff",
@@ -247,6 +248,7 @@
     {
       "name": "Ayu Light",
       "mode": "light",
+      "font.family": ".ZedSans",
       "colors": {
         "accent.background": "#dfe0e1ff",
         "accent.foreground": "#3b9ee5ff",
@@ -487,6 +489,7 @@
     {
       "name": "Ayu Mirage",
       "mode": "dark",
+      "font.family": ".ZedSans",
       "colors": {
         "accent.background": "#43464fff",
         "accent.foreground": "#72cffeff",

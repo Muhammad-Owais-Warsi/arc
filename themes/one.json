@@ -7,6 +7,7 @@
     {
       "name": "One Dark",
       "mode": "dark",
+      "font.family": ".ZedSans",
       "colors": {
         "accent.background": "#363c46ff",
         "accent.foreground": "#74ade8ff",
@@ -247,6 +248,7 @@
     {
       "name": "One Light",
       "mode": "light",
+      "font.family": ".ZedSans",
       "colors": {
         "accent.background": "#dfdfe0ff",
         "accent.foreground": "#5c78e2ff",

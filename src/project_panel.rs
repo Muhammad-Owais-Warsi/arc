@@ -3,8 +3,10 @@ use crate::actions::{CreateFile, RenameFile};
 use crate::fs;
 use crate::helpers::{next_id, render_method_tag};
 use gpui::*;
+// use gpui_component::Icon;
 use gpui_component::input::{Input, InputEvent, InputState};
-use gpui_component::{Icon, IconName};
+
+use crate::icons::IconName;
 use std::path::PathBuf;
 // use gpui_component::sidebar::Sidebar;
 use gpui_component::sidebar::{
@@ -189,7 +191,7 @@ impl ProjectPanel {
             };
             menu.menu_with_icon(
                 "Rename",
-                IconName::Redo,
+                IconName::Rename,
                 Box::new(RenameFile {
                     node_id,
                     node_name: rename_node_name.clone(),

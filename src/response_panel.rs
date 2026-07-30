@@ -5,7 +5,9 @@ use gpui_component::popover::Popover;
 use gpui_component::scroll::ScrollableElement;
 use gpui_component::tab::{self, Tab, TabBar};
 use gpui_component::tag::Tag;
-use gpui_component::{ActiveTheme, ColorName, Icon, IconName, Sizable, StyledExt, h_flex, v_flex};
+use gpui_component::{ActiveTheme, ColorName, Icon, Sizable, StyledExt, h_flex, v_flex};
+
+use crate::icons::IconName;
 
 use crate::http::Response;
 

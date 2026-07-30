@@ -6,6 +6,8 @@ use gpui::*;
 use gpui_component::sidebar::SidebarToggleButton;
 use gpui_component::tab::{Tab, TabBar};
 use gpui_component::{ActiveTheme as _, button::*, *};
+
+use crate::icons::IconName;
 use std::collections::HashMap;
 
 pub enum TabManagerEvent {

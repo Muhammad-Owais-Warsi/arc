@@ -1,10 +1,12 @@
 use gpui::*;
+use gpui_component::Sizable;
 use gpui_component::button::{Button, ButtonVariants};
 use gpui_component::checkbox::Checkbox;
 use gpui_component::input::{Input, InputState};
 use gpui_component::table::{Table, TableBody, TableCell, TableHead, TableHeader, TableRow};
-use gpui_component::{ActiveTheme, h_flex, v_flex};
-use gpui_component::{IconName, Sizable};
+use gpui_component::{ActiveTheme, Icon, h_flex, v_flex};
+
+use crate::icons::IconName;
 
 #[derive(Clone)]
 pub struct Param {
@@ -133,7 +135,7 @@ impl Render for QueryParams {
                                             Button::new(format!("del-qp-{i}"))
                                                 .ghost()
                                                 .small()
-                                                .icon(IconName::Delete)
+                                                .icon(IconName::Trash)
                                                 .on_click(cx.listener(
                                                     move |this: &mut Self, _, _window, cx| {
                                                         this.rows.remove(i);
