@@ -2,6 +2,7 @@ use gpui::prelude::FluentBuilder;
 use gpui::*;
 use gpui_component::Disableable;
 use gpui_component::button::{Button, ButtonVariants};
+use gpui_component::clipboard::Clipboard;
 use gpui_component::scroll::ScrollableElement;
 use gpui_component::{ActiveTheme, h_flex};
 use gpui_component::{
@@ -236,7 +237,12 @@ impl Playground {
             .w_full()
             .gap(rems(0.5))
             .child(div().w(px(110.)).child(Select::new(&self.method)))
-            .child(div().flex_1().child(Input::new(&self.url)))
+            .child(
+                div().flex_1().child(
+                    Input::new(&self.url)
+                        .suffix(Clipboard::new("url-clip").value(self.url.read(cx).value())),
+                ),
+            )
             .child(
                 Button::new("save")
                     .secondary()

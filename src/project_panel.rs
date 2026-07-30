@@ -200,8 +200,15 @@ impl ProjectPanel {
             )
         });
 
+        let is_active = self.active_node_id == Some(node_id);
+        item = item.active(is_active);
+
         if !is_file && !self.sidebar_collapsed {
-            item = item.icon(IconName::Folder)
+            item = item.icon(if is_active {
+                IconName::FolderOpen
+            } else {
+                IconName::Folder
+            })
         }
 
         if is_file {
@@ -419,6 +426,10 @@ impl ProjectPanel {
 
     pub fn workspace_names(&self) -> Vec<String> {
         self.workspaces.iter().map(|w| w.name.clone()).collect()
+    }
+
+    pub fn set_active_node(&mut self, node_id: Option<usize>) {
+        self.active_node_id = node_id
     }
 }
 

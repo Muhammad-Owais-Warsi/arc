@@ -15,6 +15,7 @@ pub enum TabManagerEvent {
     SidebarToggle(bool),
     ResponseToggle,
     // TabClosed(usize),
+    TabActivated(Option<usize>),
 }
 
 impl EventEmitter<TabManagerEvent> for TabManager {}
@@ -139,7 +140,9 @@ impl TabManager {
             |this: &mut Self, _, event, _window, cx| {
                 if let TabEvent::Close(node_id) = event {
                     this.tabs.remove(node_id);
-                    this.active_tab_id = this.tabs.keys().next().copied();
+                    let next = this.tabs.keys().next().copied();
+                    this.active_tab_id = next;
+                    cx.emit(TabManagerEvent::TabActivated((next)));
                     // cx.emit(TabManagerEvent::TabClosed(*node_id));
                     cx.notify();
                 }
@@ -183,6 +186,7 @@ impl TabManager {
                     let tab_ids: Vec<usize> = this.tabs.keys().copied().collect();
                     if let Some(&id) = tab_ids.get(*idx) {
                         this.active_tab_id = Some(id);
+                        cx.emit(TabManagerEvent::TabActivated(Some(id)));
                         cx.notify();
                     }
                 }),

@@ -27,6 +27,7 @@ pub enum IconName {
     WindowMaximize,
     WindowMinimize,
     WindowRestore,
+    Copy,
 }
 
 impl IconNamed for IconName {

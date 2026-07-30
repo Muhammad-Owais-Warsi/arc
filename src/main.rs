@@ -82,7 +82,13 @@ impl ApiClient {
                             });
                         });
                     }
-                } // TabManagerEvent::TabClosed(_node_id) => {}
+                }
+                TabManagerEvent::TabActivated(node_id) => {
+                    project_panel.update(cx, |pp, cx| {
+                        pp.set_active_node(*node_id);
+                        cx.notify();
+                    });
+                }
             }
         })
         .detach();
@@ -179,11 +185,13 @@ fn main() {
         if let Some(theme) = ThemeRegistry::global(cx).themes().get(&theme_name).cloned() {
             Theme::global_mut(cx).apply_config(&theme);
         }
-        if let Err(err) = ThemeRegistry::watch_dir(PathBuf::from("./themes"), cx, move |cx| {
-            if let Some(theme) = ThemeRegistry::global(cx).themes().get(&theme_name).cloned() {
-                Theme::global_mut(cx).apply_config(&theme);
-            }
-        }) {
+        if let Err(err) =
+            ThemeRegistry::watch_dir(PathBuf::from("./assets/themes"), cx, move |cx| {
+                if let Some(theme) = ThemeRegistry::global(cx).themes().get(&theme_name).cloned() {
+                    Theme::global_mut(cx).apply_config(&theme);
+                }
+            })
+        {
             eprintln!("Failed to watch themes directory: {}", err);
         }
         cx.spawn(async move |cx| {
