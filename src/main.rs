@@ -23,7 +23,6 @@ use gpui::*;
 use gpui_component::button::{Button, ButtonVariants};
 use gpui_component::popover::Popover;
 use gpui_component::{Theme, *};
-use std::borrow::Cow;
 use std::path::PathBuf;
 
 pub(crate) struct ApiClient {
@@ -175,15 +174,6 @@ fn main() {
     let app = gpui_platform::application().with_assets(Assets);
     app.run(move |cx| {
         gpui_component::init(cx);
-
-        cx.text_system()
-            .add_fonts(vec![
-                Cow::Borrowed(include_bytes!("../assets/fonts/ibm-plex-sans/IBMPlexSans-Regular.ttf")),
-                Cow::Borrowed(include_bytes!("../assets/fonts/ibm-plex-sans/IBMPlexSans-Italic.ttf")),
-                Cow::Borrowed(include_bytes!("../assets/fonts/ibm-plex-sans/IBMPlexSans-SemiBold.ttf")),
-                Cow::Borrowed(include_bytes!("../assets/fonts/ibm-plex-sans/IBMPlexSans-SemiBoldItalic.ttf")),
-            ])
-            .expect("Failed to load fonts");
 
         let theme_name = SharedString::from("One Dark");
         if let Some(theme) = ThemeRegistry::global(cx).themes().get(&theme_name).cloned() {

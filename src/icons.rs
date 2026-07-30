@@ -23,6 +23,10 @@ pub enum IconName {
     Trash,
     File,
     Rename,
+    WindowClose,
+    WindowMaximize,
+    WindowMinimize,
+    WindowRestore,
 }
 
 impl IconNamed for IconName {
