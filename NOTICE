@@ -1,0 +1,57 @@
+# NOTICE
+
+## Project ownership
+
+Copyright (c) 2026 Muhammad Owais Warsi
+
+The original application code in this repository (`crates/arc`), the
+`crates/workspace` crate, and the build configuration are the original work
+of the project owner above and are licensed under the Apache License,
+Version 2.0.
+
+## Third-party software
+
+This project contains modified copies of software from the following
+third-party projects. All modifications are clearly scoped to the local
+crates and retain the upstream copyright and license.
+
+### GPUI Component
+
+The following crates are forks (modified copies) of
+[`longbridge/gpui-component`](https://github.com/longbridge/gpui-component),
+licensed under the Apache License, Version 2.0:
+
+- `crates/ui` (upstream: `crates/ui`)
+- `crates/ui_macros` (upstream: `crates/macros`)
+
+Upstream copyright: Copyright 2024 - 2025 Longbridge <https://longbridge.com>
+
+Vendored at git revision `b7e63cc29018c27bb24788ddb212f4cbdd861334`
+(version 0.5.2 / 0.5.1).
+
+The SVG icon files under `assets/icons/` are also vendored from the same
+upstream revision (the icon set previously shipped by the upstream
+`crates/assets` crate, which has been consolidated into this project's own
+`assets/icons` directory and is managed by the project owner).
+
+Modifications made to this project: the crates above were copied into this
+repository and adapted to build as part of this workspace, including
+rewriting their dependency references and wiring their theming into this
+project's own `workspace` crate. The internationalization system
+(`rust_i18n`) and the `time` (calendar/date-picker), `chart`, and `setting`
+modules were removed, along with their now-unused dependencies. The upstream
+`crates/assets` crate (icon ownership) was removed entirely; `gpui_component`
+now generates its `IconName` enum from this project's `assets/icons`
+directory. Any further edits are made by this project and are subject to the
+Apache License, Version 2.0 terms.
+
+## License
+
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this software except in compliance with the License.
+
+The full license text is not reproduced here; it is available at:
+
+    https://www.apache.org/licenses/LICENSE-2.0.txt
+
+SPDX-License-Identifier: Apache-2.0
