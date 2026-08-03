@@ -28,6 +28,10 @@ pub enum IconName {
     WindowMinimize,
     WindowRestore,
     Copy,
+    Settings,
+    Minus,
+    Search,
+    Undo2,
 }
 
 impl IconNamed for IconName {

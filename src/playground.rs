@@ -283,7 +283,6 @@ impl Playground {
                         .child(Tab::new().label("Authorization"))
                         .child(Tab::new().label("Headers"))
                         .child(Tab::new().label("Body"))
-                        .child(Tab::new().label("Settings"))
                         .on_click(cx.listener(|this: &mut Self, idx: &usize, _window, cx| {
                             this.selected_config = *idx;
                             cx.notify();

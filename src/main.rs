@@ -2,6 +2,7 @@ mod actions;
 pub mod assets;
 mod auth;
 mod body;
+mod env;
 mod footer;
 mod fs;
 mod headers;
@@ -12,13 +13,17 @@ mod playground;
 mod project_panel;
 mod query_params;
 mod response_panel;
+mod settings_panel;
+mod settings_window;
 mod tab;
 mod tab_manager;
 
 use crate::actions::{CreateFile, RenameFile};
 use crate::assets::Assets;
+use crate::env::EnvironmentStore;
 use crate::footer::{Footer, FooterEvent};
 use crate::project_panel::{ProjectPanel, ProjectPanelEvent};
+use crate::settings_window::SettingsWindow;
 use crate::tab_manager::TabManagerEvent;
 use gpui::*;
 use gpui_component::button::{Button, ButtonVariants};
@@ -30,6 +35,8 @@ pub(crate) struct ApiClient {
     pub(crate) project_panel: Entity<project_panel::ProjectPanel>,
     pub(crate) tab_manager: Entity<tab_manager::TabManager>,
     footer: Entity<Footer>,
+    env_store: Entity<EnvironmentStore>,
+    settings_window: Option<WeakEntity<SettingsWindow>>,
 }
 
 impl ApiClient {
@@ -37,6 +44,7 @@ impl ApiClient {
         let project_panel = cx.new(|cx| ProjectPanel::new(window, cx));
         let tab_manager = cx.new(|cx| tab_manager::TabManager::new(window, cx));
         let footer = cx.new(|cx| Footer::new(window, cx));
+        let env_store = cx.new(|cx| EnvironmentStore::new());
 
         cx.subscribe_in(&project_panel, window, {
             let tab_manager = tab_manager.clone();
@@ -89,7 +97,8 @@ impl ApiClient {
 
         cx.subscribe_in(&footer, window, {
             let tab_manager = tab_manager.clone();
-            move |_, _, event, _window, cx| match event {
+            let env_store = env_store.clone();
+            move |this: &mut Self, _, event, _window, cx| match event {
                 FooterEvent::ToggleResponse => {
                     if let Some(pg) = tab_manager.read(cx).active_playground(cx) {
                         pg.update(cx, |pg, cx| {
@@ -97,6 +106,15 @@ impl ApiClient {
                                 panel.toggle(cx);
                             });
                         });
+                    }
+                }
+                FooterEvent::ToggleSettings(_) => {
+                    if this
+                        .settings_window
+                        .as_ref()
+                        .is_none_or(|w| w.upgrade().is_none())
+                    {
+                        open_settings_window(cx.entity(), env_store.clone(), cx);
                     }
                 }
             }
@@ -107,6 +125,8 @@ impl ApiClient {
             project_panel,
             tab_manager,
             footer,
+            env_store,
+            settings_window: None,
         }
     }
 }
@@ -134,7 +154,8 @@ impl ApiClient {
 
     fn render_footer(&mut self, cx: &mut Context<Self>) -> impl IntoElement {
         let has_tabs = self.tab_manager.read(cx).has_tabs();
-        self.footer.update(cx, |f, cx| f.set_show_toggle(has_tabs, cx));
+        self.footer
+            .update(cx, |f, cx| f.set_show_toggle(has_tabs, cx));
         self.footer.clone()
     }
 }
@@ -194,6 +215,33 @@ impl Render for ApiClient {
     }
 }
 
+fn open_settings_window(
+    api_client: Entity<ApiClient>,
+    env_store: Entity<EnvironmentStore>,
+    cx: &mut App,
+) {
+    let window_bounds = WindowBounds::centered(size(px(960.), px(680.)), cx);
+    cx.spawn(async move |cx| {
+        cx.open_window(
+            WindowOptions {
+                titlebar: Some(TitleBar::title_bar_options()),
+                window_decorations: Some(WindowDecorations::Client),
+                window_bounds: Some(window_bounds),
+                ..Default::default()
+            },
+            |window, cx| {
+                let settings = cx.new(|cx| SettingsWindow::new(env_store, window, cx));
+                api_client.update(cx, |client, cx| {
+                    client.settings_window = Some(settings.downgrade());
+                    cx.notify();
+                });
+                cx.new(|cx| Root::new(settings, window, cx))
+            },
+        )
+        .expect("Failed to open settings window");
+    })
+    .detach();
+}
 fn main() {
     let app = gpui_platform::application().with_assets(Assets);
     app.run(move |cx| {

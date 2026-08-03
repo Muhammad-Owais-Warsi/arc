@@ -123,11 +123,14 @@ impl TabManager {
             window,
             |this: &mut Self, _, event, _window, cx| {
                 if let TabEvent::Close(node_id) = event {
-                    this.tabs.remove(node_id);
-                    let next = this.tabs.keys().next().copied();
-                    this.active_tab_id = next;
-                    cx.emit(TabManagerEvent::TabActivated((next)));
-                    // cx.emit(TabManagerEvent::TabClosed(*node_id));
+                    this.tabs.remove(&node_id);
+                    this.active_tab_id = this
+                        .tabs
+                        .keys()
+                        .copied()
+                        .filter(|id| *id != *node_id) // safe even though it's already removed; harmless no-op
+                        .max();
+                    cx.emit(TabManagerEvent::TabActivated(this.active_tab_id));
                     cx.notify();
                 }
             },
@@ -181,7 +184,8 @@ impl TabManager {
             .into_any_element()
     }
 
-    fn render_new_tab_button(&self, cx: &mut Context<Self>) -> impl IntoElement {        h_flex()
+    fn render_new_tab_button(&self, cx: &mut Context<Self>) -> impl IntoElement {
+        h_flex()
             .h_full()
             .items_center()
             .justify_center()
