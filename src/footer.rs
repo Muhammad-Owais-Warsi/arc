@@ -76,7 +76,7 @@ impl Render for Footer {
     fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         div()
             .flex_none()
-            .h(px(50.0))
+            .h(px(32.0))
             .w_full()
             .border_t_1()
             .border_color(cx.theme().border)

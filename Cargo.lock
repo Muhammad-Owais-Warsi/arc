@@ -2291,7 +2291,6 @@ dependencies = [
  "dirs 5.0.1",
  "gpui 0.2.2",
  "gpui-component",
- "gpui-component-assets",
  "gpui_platform",
  "reqwest",
  "rust-embed",

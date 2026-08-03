@@ -436,11 +436,16 @@ impl ProjectPanel {
 impl Render for ProjectPanel {
     fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let ws = &self.workspaces[self.selected_workspace];
-        Sidebar::new("api-sidebar")
+        let sidebar = Sidebar::new("api-sidebar")
             .collapsible(SidebarCollapsible::Icon)
-            .collapsed(self.sidebar_collapsed)
+            .collapsed(false)
             .child(SidebarGroup::new(&ws.name).child(
                 SidebarMenu::new().children(ws.root_id.iter().map(|&id| self.render_node(id, cx))),
-            ))
+            ));
+        if self.sidebar_collapsed {
+            sidebar.w_0().overflow_hidden().flex_none().into_any_element()
+        } else {
+            sidebar.into_any_element()
+        }
     }
 }

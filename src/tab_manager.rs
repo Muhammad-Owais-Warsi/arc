@@ -1,4 +1,3 @@
-use crate::footer::{Footer, FooterEvent};
 use crate::helpers::next_id;
 use crate::playground::{Playground, PlaygroundEvent};
 use crate::tab::{TabEvent, Tabs};
@@ -13,7 +12,6 @@ use std::collections::HashMap;
 pub enum TabManagerEvent {
     MethodChanged(usize, String),
     SidebarToggle(bool),
-    ResponseToggle,
     // TabClosed(usize),
     TabActivated(Option<usize>),
 }
@@ -24,31 +22,17 @@ pub struct TabManager {
     tabs: HashMap<usize, Entity<Tabs>>,
     active_tab_id: Option<usize>,
     scroll_handle: ScrollHandle,
-    footer: Entity<Footer>,
     sidebar_collapsed: bool,
 }
 
 impl TabManager {
     pub fn new(window: &mut Window, cx: &mut Context<Self>) -> Self {
-        let footer = cx.new(|cx| Footer::new(window, cx));
-
-        let tm = Self {
+        Self {
             tabs: HashMap::new(),
             active_tab_id: None,
             scroll_handle: ScrollHandle::new(),
-            footer: footer.clone(),
             sidebar_collapsed: false,
-        };
-
-        let footer_clone = footer.clone();
-        cx.subscribe_in(&footer_clone, window, |_, _, event, _window, cx| {
-            if let FooterEvent::ToggleResponse = event {
-                cx.emit(TabManagerEvent::ResponseToggle);
-            }
-        })
-        .detach();
-
-        tm
+        }
     }
 
     pub fn activate_tab(
@@ -167,7 +151,7 @@ impl TabManager {
             .collect();
 
         TabBar::new("tabs")
-            .h(px(40.))
+            .h(px(32.))
             .with_size(gpui_component::Size::Large)
             .prefix(
                 h_flex().px(px(8.)).items_center().child(
@@ -197,8 +181,7 @@ impl TabManager {
             .into_any_element()
     }
 
-    fn render_new_tab_button(&self, cx: &mut Context<Self>) -> impl IntoElement {
-        h_flex()
+    fn render_new_tab_button(&self, cx: &mut Context<Self>) -> impl IntoElement {        h_flex()
             .h_full()
             .items_center()
             .justify_center()
@@ -218,12 +201,6 @@ impl TabManager {
                         cx.notify();
                     })),
             )
-    }
-
-    fn render_footer(&self, has_tabs: bool, cx: &mut Context<Self>) -> AnyElement {
-        self.footer
-            .update(cx, |f, cx| f.set_show_toggle(has_tabs, cx));
-        self.footer.clone().into_any_element()
     }
 }
 
@@ -259,6 +236,5 @@ impl Render for TabManager {
                     .child(self.render_tab_bar(cx)),
             )
             .child(div().flex_1().min_h(px(0.)).child(main_content))
-            .child(self.render_footer(has_tab, cx))
     }
 }

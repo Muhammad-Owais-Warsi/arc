@@ -17,6 +17,7 @@ mod tab_manager;
 
 use crate::actions::{CreateFile, RenameFile};
 use crate::assets::Assets;
+use crate::footer::{Footer, FooterEvent};
 use crate::project_panel::{ProjectPanel, ProjectPanelEvent};
 use crate::tab_manager::TabManagerEvent;
 use gpui::*;
@@ -28,12 +29,14 @@ use std::path::PathBuf;
 pub(crate) struct ApiClient {
     pub(crate) project_panel: Entity<project_panel::ProjectPanel>,
     pub(crate) tab_manager: Entity<tab_manager::TabManager>,
+    footer: Entity<Footer>,
 }
 
 impl ApiClient {
     fn new(window: &mut Window, cx: &mut Context<Self>) -> Self {
         let project_panel = cx.new(|cx| ProjectPanel::new(window, cx));
         let tab_manager = cx.new(|cx| tab_manager::TabManager::new(window, cx));
+        let footer = cx.new(|cx| Footer::new(window, cx));
 
         cx.subscribe_in(&project_panel, window, {
             let tab_manager = tab_manager.clone();
@@ -74,15 +77,6 @@ impl ApiClient {
                 TabManagerEvent::SidebarToggle(collapsed) => {
                     project_panel.update(cx, |pp, cx| pp.set_collapsed(*collapsed, cx));
                 }
-                TabManagerEvent::ResponseToggle => {
-                    if let Some(pg) = tab_manager.read(cx).active_playground(cx) {
-                        pg.update(cx, |pg, cx| {
-                            pg.respone_panel_entity().update(cx, |panel, cx| {
-                                panel.toggle(cx);
-                            });
-                        });
-                    }
-                }
                 TabManagerEvent::TabActivated(node_id) => {
                     project_panel.update(cx, |pp, cx| {
                         pp.set_active_node(*node_id);
@@ -93,9 +87,26 @@ impl ApiClient {
         })
         .detach();
 
+        cx.subscribe_in(&footer, window, {
+            let tab_manager = tab_manager.clone();
+            move |_, _, event, _window, cx| match event {
+                FooterEvent::ToggleResponse => {
+                    if let Some(pg) = tab_manager.read(cx).active_playground(cx) {
+                        pg.update(cx, |pg, cx| {
+                            pg.respone_panel_entity().update(cx, |panel, cx| {
+                                panel.toggle(cx);
+                            });
+                        });
+                    }
+                }
+            }
+        })
+        .detach();
+
         Self {
             project_panel,
             tab_manager,
+            footer,
         }
     }
 }
@@ -119,6 +130,12 @@ impl ApiClient {
     ) {
         self.project_panel
             .update(cx, |s, cx| s.handle_rename_file(action, window, cx));
+    }
+
+    fn render_footer(&mut self, cx: &mut Context<Self>) -> impl IntoElement {
+        let has_tabs = self.tab_manager.read(cx).has_tabs();
+        self.footer.update(cx, |f, cx| f.set_show_toggle(has_tabs, cx));
+        self.footer.clone()
     }
 }
 
@@ -173,6 +190,7 @@ impl Render for ApiClient {
                     .child(self.project_panel.clone())
                     .child(self.tab_manager.clone()),
             )
+            .child(self.render_footer(cx))
     }
 }
 

@@ -3,8 +3,8 @@ use crate::playground::Playground;
 use gpui::*;
 use gpui_component::Sizable;
 use gpui_component::button::Button;
-use gpui_component::tab::Tab;
 use gpui_component::button::ButtonVariants;
+use gpui_component::tab::Tab;
 
 use crate::icons::IconName;
 
@@ -52,7 +52,7 @@ impl Tabs {
         let node_id = self.node_id;
 
         Tab::default()
-            .min_h(px(40.))
+            .min_h(px(32.))
             .px_1()
             .prefix(div().mr_1().child(render_method_tag(&method)))
             .label(self.name.clone())

@@ -7,8 +7,8 @@ edition = "2024"
 gpui = { git = "https://github.com/zed-industries/zed", rev = "1d217ee39d381ac101b7cf49d3d22451ac1093fe" }
 gpui_platform = { git = "https://github.com/zed-industries/zed", rev = "1d217ee39d381ac101b7cf49d3d22451ac1093fe", features = ["font-kit", "runtime_shaders"] }
 gpui-component = { git = "https://github.com/longbridge/gpui-component" }
-# Optional, for default bundled assets
-gpui-component-assets = { git = "https://github.com/longbridge/gpui-component" }
+# # Optional, for default bundled assets
+# gpui-component-assets = { git = "https://github.com/longbridge/gpui-component" }
 anyhow = "1.0"
 reqwest = { version = "0.13", features = ["json", "query", "cookies"] }
 tokio = { version = "1", features = ["full"] }
