@@ -17,6 +17,7 @@ mod settings_panel;
 mod settings_window;
 mod tab;
 mod tab_manager;
+mod themes_and_fonts;
 
 use crate::actions::{CreateFile, RenameFile};
 use crate::assets::Assets;
@@ -31,9 +32,9 @@ use gpui_component::popover::Popover;
 use gpui_component::{Theme, *};
 use std::path::PathBuf;
 
-pub(crate) struct ApiClient {
-    pub(crate) project_panel: Entity<project_panel::ProjectPanel>,
-    pub(crate) tab_manager: Entity<tab_manager::TabManager>,
+pub struct ApiClient {
+    project_panel: Entity<project_panel::ProjectPanel>,
+    tab_manager: Entity<tab_manager::TabManager>,
     footer: Entity<Footer>,
     env_store: Entity<EnvironmentStore>,
     settings_window: Option<WeakEntity<SettingsWindow>>,
@@ -44,7 +45,7 @@ impl ApiClient {
         let project_panel = cx.new(|cx| ProjectPanel::new(window, cx));
         let tab_manager = cx.new(|cx| tab_manager::TabManager::new(window, cx));
         let footer = cx.new(|cx| Footer::new(window, cx));
-        let env_store = cx.new(|cx| EnvironmentStore::new());
+        let env_store = cx.new(|cx| EnvironmentStore::new(window, cx));
 
         cx.subscribe_in(&project_panel, window, {
             let tab_manager = tab_manager.clone();

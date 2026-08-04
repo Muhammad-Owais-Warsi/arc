@@ -32,6 +32,9 @@ pub enum IconName {
     Minus,
     Search,
     Undo2,
+    Info,
+    Variable,
+    Settings2,
 }
 
 impl IconNamed for IconName {
