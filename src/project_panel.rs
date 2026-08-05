@@ -1,6 +1,6 @@
 // use gpui::Window;
-use crate::actions::{CreateFile, RenameFile};
-use crate::fs;
+use crate::actions::{CreateFile, CreateFolder, RenameItem};
+use crate::fs::{self, read_request_method};
 use crate::helpers::{next_id, render_method_tag};
 use gpui::*;
 // use gpui_component::Icon;
@@ -21,7 +21,7 @@ pub struct DirTree {
 }
 
 #[derive(Clone, Debug)]
-pub(crate) enum ProjectPanelEvent {
+pub enum ProjectPanelEvent {
     FileActivated {
         node_id: usize,
         name: String,
@@ -52,13 +52,14 @@ pub struct Node {
     pub is_file: bool,
 }
 
-pub(crate) struct ProjectPanel {
+pub struct ProjectPanel {
     workspaces: Vec<Workspace>,
     selected_workspace: usize,
     sidebar_collapsed: bool,
     active_node_id: Option<usize>,
     new_file: Option<(usize, Entity<InputState>)>,
-    rename_file: Option<(usize, Entity<InputState>)>,
+    new_folder: Option<(usize, Entity<InputState>)>,
+    rename_item: Option<(usize, Entity<InputState>)>,
 }
 
 impl EventEmitter<ProjectPanelEvent> for ProjectPanel {}
@@ -81,7 +82,8 @@ impl ProjectPanel {
             sidebar_collapsed: false,
             active_node_id: None,
             new_file: None,
-            rename_file: None,
+            new_folder: None,
+            rename_item: None,
         }
     }
 
@@ -121,7 +123,7 @@ impl ProjectPanel {
                         id,
                         path: path.to_string_lossy().to_string(),
                         name,
-                        method: crate::helpers::read_request_method(&path),
+                        method: read_request_method(&path),
                         is_file: true,
                         children: vec![],
                     },
@@ -155,12 +157,12 @@ impl ProjectPanel {
         let _node_id_for_click = node_id;
         let node_id_for_menu = node_id;
         let is_renaming = self
-            .rename_file
+            .rename_item
             .as_ref()
             .map_or(false, |(id, _)| *id == node_id);
 
         let mut item = if is_renaming {
-            let input = self.rename_file.as_ref().unwrap().1.clone();
+            let input = self.rename_item.as_ref().unwrap().1.clone();
             SidebarMenuItem::new("")
                 .suffix(move |_, _| Input::new(&input).appearance(false).into_any_element())
         } else {
@@ -179,20 +181,28 @@ impl ProjectPanel {
 
         item = item.context_menu(move |menu, _, _| {
             let menu = if !is_file {
-                menu.menu_with_icon(
+                menu.menu(
                     "Create File",
-                    IconName::File,
+                    // IconName::File,
                     Box::new(CreateFile {
                         parent_id: node_id_for_menu,
                     }),
                 )
+                .menu(
+                    "Create Folder",
+                    // IconName::Folder,
+                    Box::new(CreateFolder {
+                        parent_id: node_id_for_menu,
+                    }),
+                )
+                .separator()
             } else {
                 menu
             };
-            menu.menu_with_icon(
+            menu.menu(
                 "Rename",
-                IconName::Rename,
-                Box::new(RenameFile {
+                // IconName::Rename,
+                Box::new(RenameItem {
                     node_id,
                     node_name: rename_node_name.clone(),
                     new_name: String::new(),
@@ -227,18 +237,33 @@ impl ProjectPanel {
             }));
         }
 
-        let is_pending = self
+        let is_pending_file = self
             .new_file
             .as_ref()
             .map_or(false, |(pid, _)| *pid == node_id);
+        let is_pending_folder = self
+            .new_folder
+            .as_ref()
+            .map_or(false, |(pid, _)| *pid == node_id);
 
-        if node.children.is_empty() && !is_pending {
+        if node.children.is_empty() && !is_pending_file && !is_pending_folder {
             item
         } else {
             let mut children = Vec::new();
 
-            if is_pending {
+            if is_pending_file {
                 if let Some((_, ref input)) = self.new_file {
+                    let input_clone = input.clone();
+                    children.push(SidebarMenuItem::new("").suffix(move |_window, _cx| {
+                        Input::new(&input_clone)
+                            .appearance(false)
+                            .into_any_element()
+                    }));
+                }
+            }
+
+            if is_pending_folder {
+                if let Some((_, ref input)) = self.new_folder {
                     let input_clone = input.clone();
                     children.push(SidebarMenuItem::new("").suffix(move |_window, _cx| {
                         Input::new(&input_clone)
@@ -294,7 +319,7 @@ impl ProjectPanel {
                     },
                 );
                 if let Some(parent) = ws.nodes.get_mut(&parent_id) {
-                    parent.children.push(id);
+                    parent.children.push(id); // we can keep check if it is file or folder
                 }
                 cx.notify();
             }
@@ -330,9 +355,81 @@ impl ProjectPanel {
         cx.notify();
     }
 
-    pub fn handle_rename_file(
+    pub fn confirm_create_folder(
         &mut self,
-        action: &RenameFile,
+        parent_id: usize,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let Some(ws) = self.workspaces.get_mut(self.selected_workspace) else {
+            return;
+        };
+        let Some(parent_path) = ws.nodes.get(&parent_id).map(|n| n.path.clone()) else {
+            return;
+        };
+
+        let Some((_, input)) = self.new_folder.take() else {
+            return;
+        };
+        let name = input.read(cx).value().trim().to_string();
+        if name.is_empty() {
+            return cx.notify();
+        }
+
+        match fs::create_folder(&name, &parent_path) {
+            Ok(path) => {
+                let id = next_id();
+                ws.nodes.insert(
+                    id,
+                    Node {
+                        id,
+                        name: format!("{name}").to_string(),
+                        path,
+                        is_file: false,
+                        method: "".to_string(),
+                        children: vec![],
+                    },
+                );
+                if let Some(parent) = ws.nodes.get_mut(&parent_id) {
+                    parent.children.push(id); // we can keep check if it is file or folder
+                }
+                cx.notify();
+            }
+            Err(err) => eprintln!("Failed to create folder: {err}"),
+        }
+    }
+
+    pub fn cancel_create_folder(&mut self, cx: &mut Context<Self>) {
+        self.new_folder = None;
+        cx.notify();
+    }
+
+    pub fn handle_create_folder(
+        &mut self,
+        action: &CreateFolder,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let input = cx.new(|cx| InputState::new(window, cx).placeholder("folder-name"));
+
+        cx.subscribe_in(&input, window, {
+            let parent_id = action.parent_id;
+            move |this: &mut Self, _, event, window, cx| match event {
+                InputEvent::PressEnter { .. } => this.confirm_create_folder(parent_id, window, cx),
+                InputEvent::Blur => this.cancel_create_folder(cx),
+                _ => {}
+            }
+        })
+        .detach();
+
+        input.update(cx, |i, cx| i.focus(window, cx));
+        self.new_folder = Some((action.parent_id, input));
+        cx.notify();
+    }
+
+    pub fn handle_rename_item(
+        &mut self,
+        action: &RenameItem,
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
@@ -350,24 +447,24 @@ impl ProjectPanel {
         cx.subscribe_in(&input, window, {
             let node_id = action.node_id;
             move |this: &mut Self, _, event, window, cx| match event {
-                InputEvent::PressEnter { .. } => this.confirm_rename_file(node_id, window, cx),
-                InputEvent::Blur => this.cancel_rename_file(cx),
+                InputEvent::PressEnter { .. } => this.confirm_rename_item(node_id, window, cx),
+                InputEvent::Blur => this.cancel_rename_item(cx),
                 _ => {}
             }
         })
         .detach();
         input.update(cx, |i, cx| i.focus(window, cx));
-        self.rename_file = Some((action.node_id, input));
+        self.rename_item = Some((action.node_id, input));
         cx.notify();
     }
 
-    pub fn confirm_rename_file(
+    pub fn confirm_rename_item(
         &mut self,
         node_id: usize,
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        let Some((_, input)) = self.rename_file.take() else {
+        let Some((_, input)) = self.rename_item.take() else {
             return;
         };
         let new_name = input.read(cx).value().to_string();
@@ -388,7 +485,7 @@ impl ProjectPanel {
             new_name
         );
 
-        let rename_ok = fs::rename_file(&old_path, &new_path).is_ok();
+        let rename_ok = fs::rename_item(&old_path, &new_path).is_ok();
         if rename_ok {
             if let Some(node) = ws.nodes.get_mut(&node_id) {
                 node.name = new_name.clone();
@@ -401,8 +498,8 @@ impl ProjectPanel {
         cx.notify();
     }
 
-    pub fn cancel_rename_file(&mut self, cx: &mut Context<Self>) {
-        self.rename_file = None;
+    pub fn cancel_rename_item(&mut self, cx: &mut Context<Self>) {
+        self.rename_item = None;
         cx.notify();
     }
 
@@ -426,6 +523,24 @@ impl ProjectPanel {
 
     pub fn workspace_names(&self) -> Vec<String> {
         self.workspaces.iter().map(|w| w.name.clone()).collect()
+    }
+
+    pub fn switch_workspace(
+        &mut self,
+        name: &str,
+        _window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        if let Some(ix) = self.workspaces.iter().position(|w| w.name == name) {
+            if ix != self.selected_workspace {
+                self.selected_workspace = ix;
+                self.active_node_id = None;
+                self.new_file = None;
+                self.new_folder = None;
+                self.rename_item = None;
+            }
+        }
+        cx.notify();
     }
 
     pub fn set_active_node(&mut self, node_id: Option<usize>) {

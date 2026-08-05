@@ -6,8 +6,9 @@ use gpui_component::{
     select::{Select, SelectEvent, SelectState},
     v_flex,
 };
+use serde::{Deserialize, Serialize};
 
-#[derive(Clone, PartialEq)]
+#[derive(Clone, PartialEq, Serialize, Deserialize)]
 pub enum AuthType {
     None,
     Bearer,
@@ -133,6 +134,41 @@ impl Auth {
 
     pub fn bearer_auth_value(&self, cx: &App) -> String {
         self.token.read(cx).value().to_string()
+    }
+
+    pub fn load_from_json(
+        &mut self,
+        data: &serde_json::Value,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let Some(auth) = data.get("auth") else {
+            return;
+        };
+        let auth_type = match auth.get("auth_type").and_then(|v| v.as_str()) {
+            Some("Bearer") => AuthType::Bearer,
+            Some("Basic") => AuthType::Basic,
+            _ => AuthType::None,
+        };
+        let username = auth.get("username").and_then(|v| v.as_str()).unwrap_or("");
+        let password = auth.get("password").and_then(|v| v.as_str()).unwrap_or("");
+        let token = auth.get("token").and_then(|v| v.as_str()).unwrap_or("");
+
+        self.selected_auth_type = auth_type.clone();
+        let row = match auth_type {
+            AuthType::None => 0,
+            AuthType::Bearer => 1,
+            AuthType::Basic => 2,
+        };
+        self.auth_type.update(cx, |state, cx| {
+            state.set_selected_index(Some(IndexPath::default().row(row)), window, cx);
+        });
+        self.username
+            .update(cx, |s, cx| s.set_value(username, window, cx));
+        self.password
+            .update(cx, |s, cx| s.set_value(password, window, cx));
+        self.token
+            .update(cx, |s, cx| s.set_value(token, window, cx));
     }
 }
 

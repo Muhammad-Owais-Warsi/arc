@@ -35,6 +35,7 @@ pub enum IconName {
     Info,
     Variable,
     Settings2,
+    Monitor,
 }
 
 impl IconNamed for IconName {

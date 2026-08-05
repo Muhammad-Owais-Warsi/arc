@@ -98,11 +98,11 @@ impl SettingsPanel {
             SettingPage::new("General")
                 .resettable(true)
                 .default_open(true)
-                .icon(IconName::Settings2)
+                .icon(Icon::new(IconName::Settings2))
                 .groups(Self::appearance_settings(cx)),
             SettingPage::new("Environment")
                 .resettable(true)
-                .icon(IconName::Variable)
+                .icon(Icon::new(IconName::Variable))
                 .group(
                     SettingGroup::new().item(SettingItem::render(move |_, _, _| {
                         store.clone().into_any_element()
@@ -110,7 +110,7 @@ impl SettingsPanel {
                 ),
             SettingPage::new("About")
                 .resettable(true)
-                .icon(IconName::Info)
+                .icon(Icon::new(IconName::Info))
                 .group(
                     SettingGroup::new().item(SettingItem::render(|_options, _, cx| {
                         v_flex()
@@ -118,7 +118,7 @@ impl SettingsPanel {
                             .w_full()
                             .items_center()
                             .justify_center()
-                            .child(IconName::Info)
+                            .child(Icon::new(IconName::Info))
                             .child("Arc API Client")
                             .into_any_element()
                     })),

@@ -9,6 +9,7 @@ pub mod headers;
 pub mod helpers;
 pub mod http;
 pub mod icons;
+pub mod list;
 pub mod playground;
 pub mod project_panel;
 pub mod query_params;

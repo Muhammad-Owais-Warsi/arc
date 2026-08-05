@@ -9,6 +9,7 @@ mod headers;
 mod helpers;
 mod http;
 mod icons;
+mod list;
 mod playground;
 mod project_panel;
 mod query_params;
@@ -19,24 +20,30 @@ mod tab;
 mod tab_manager;
 mod themes_and_fonts;
 
-use crate::actions::{CreateFile, RenameFile};
+use crate::actions::{CreateFile, CreateFolder, RenameItem};
 use crate::assets::Assets;
 use crate::env::EnvironmentStore;
 use crate::footer::{Footer, FooterEvent};
+use crate::list::WorkspaceListItem;
 use crate::project_panel::{ProjectPanel, ProjectPanelEvent};
 use crate::settings_window::SettingsWindow;
 use crate::tab_manager::TabManagerEvent;
+use gpui::prelude::FluentBuilder as _;
 use gpui::*;
 use gpui_component::button::{Button, ButtonVariants};
+use gpui_component::list::{List, ListState};
 use gpui_component::popover::Popover;
 use gpui_component::{Theme, *};
 use std::path::PathBuf;
+
+use crate::icons::IconName;
 
 pub struct ApiClient {
     project_panel: Entity<project_panel::ProjectPanel>,
     tab_manager: Entity<tab_manager::TabManager>,
     footer: Entity<Footer>,
     env_store: Entity<EnvironmentStore>,
+    workspace_list: Entity<ListState<WorkspaceListItem>>,
     settings_window: Option<WeakEntity<SettingsWindow>>,
 }
 
@@ -46,6 +53,10 @@ impl ApiClient {
         let tab_manager = cx.new(|cx| tab_manager::TabManager::new(window, cx));
         let footer = cx.new(|cx| Footer::new(window, cx));
         let env_store = cx.new(|cx| EnvironmentStore::new(window, cx));
+        let workspace_list = cx.new(|cx| {
+            ListState::new(WorkspaceListItem::new(project_panel.clone()), window, cx)
+                .searchable(true)
+        });
 
         cx.subscribe_in(&project_panel, window, {
             let tab_manager = tab_manager.clone();
@@ -127,6 +138,7 @@ impl ApiClient {
             tab_manager,
             footer,
             env_store,
+            workspace_list,
             settings_window: None,
         }
     }
@@ -143,14 +155,24 @@ impl ApiClient {
             .update(cx, |s, cx| s.handle_create_file(action, window, cx));
     }
 
-    pub fn handle_rename(
+    pub fn handle_create_folder(
         &mut self,
-        action: &RenameFile,
+        action: &CreateFolder,
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
         self.project_panel
-            .update(cx, |s, cx| s.handle_rename_file(action, window, cx));
+            .update(cx, |s, cx| s.handle_create_folder(action, window, cx));
+    }
+
+    pub fn handle_rename(
+        &mut self,
+        action: &RenameItem,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.project_panel
+            .update(cx, |s, cx| s.handle_rename_item(action, window, cx));
     }
 
     fn render_footer(&mut self, cx: &mut Context<Self>) -> impl IntoElement {
@@ -159,48 +181,75 @@ impl ApiClient {
             .update(cx, |f, cx| f.set_show_toggle(has_tabs, cx));
         self.footer.clone()
     }
+
+    fn section_label(label: &'static str, cx: &App) -> impl IntoElement {
+        div()
+            .px_2()
+            .pt_1()
+            .pb_0p5()
+            .text_xs()
+            .font_medium()
+            .text_color(cx.theme().muted_foreground)
+            .child(label.to_string())
+    }
+
+    fn footer_action(label: &'static str, icon: Option<IconName>, cx: &App) -> impl IntoElement {
+        h_flex()
+            .id(label)
+            .w_full()
+            .px_2()
+            .py_1()
+            .gap_2()
+            .items_center()
+            .rounded_md()
+            .cursor_pointer()
+            .hover(|s| s.bg(cx.theme().secondary_hover))
+            .when_some(icon, |row, icon| {
+                row.child(
+                    Icon::new(icon)
+                        .size_4()
+                        .text_color(cx.theme().muted_foreground),
+                )
+            })
+            .child(
+                div()
+                    .text_sm()
+                    .text_color(cx.theme().foreground)
+                    .child(label.to_string()),
+            )
+    }
 }
 
 impl Render for ApiClient {
     fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
-        let names = self.project_panel.read(cx).workspace_names();
+        let project_panel = self.project_panel.clone();
+        let workspace_list = self.workspace_list.clone();
         div()
             .size_full()
             .flex()
             .flex_col()
             .on_action(cx.listener(Self::handle_create_file))
+            .on_action(cx.listener(Self::handle_create_folder))
             .on_action(cx.listener(Self::handle_rename))
             .child(
                 TitleBar::new().h(px(40.)).bg(cx.theme().background).child(
                     h_flex().gap_2().items_center().px_2().w_full().child(
                         // In titlebar, trigger is the current workspace name:
                         Popover::new("workspace-switcher")
-                            // .appearance(false)
                             .anchor(Anchor::TopLeft)
                             .trigger(
                                 Button::new("workspace")
                                     .ghost()
                                     .small()
-                                    .label(self.project_panel.read(cx).get_selected_workspace()),
+                                    .label(project_panel.read(cx).get_selected_workspace()),
                             )
-                            .content(move |_, window, cx| {
+                            .content(move |_, _window, cx| {
                                 v_flex()
-                                    .gap_1()
-                                    .min_w(px(180.))
-                                    .children(names.iter().map(|ws| {
-                                        div()
-                                            .id(ws.clone())
-                                            .px_2()
-                                            .py_1()
-                                            .rounded_md()
-                                            .hover(|s| s.bg(cx.theme().secondary_hover))
-                                            .text_sm()
-                                            .text_color(cx.theme().foreground)
-                                            .child(ws.clone())
-                                            .on_click(cx.listener(move |_, _, window, cx| {
-                                                // switch workspace
-                                            }))
-                                    }))
+                                    .w(px(260.))
+                                    .py_1()
+                                    .gap_0()
+                                    .child(List::new(&workspace_list).max_h(px(320.)))
+                                    .child(div().h(px(1.)).w_full().my_1().bg(cx.theme().border))
                             }),
                     ),
                 ),

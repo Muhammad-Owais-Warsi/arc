@@ -1,3 +1,4 @@
+use crate::fs::read_request_file;
 use crate::helpers::next_id;
 use crate::playground::{Playground, PlaygroundEvent};
 use crate::tab::{TabEvent, Tabs};
@@ -8,6 +9,7 @@ use gpui_component::{ActiveTheme as _, button::*, *};
 
 use crate::icons::IconName;
 use std::collections::HashMap;
+use std::path::Path;
 
 pub enum TabManagerEvent {
     MethodChanged(usize, String),
@@ -52,14 +54,11 @@ impl TabManager {
 
         let tab = self.add_tab(window, cx, node_id, name, method);
 
-        if let Ok(content) = std::fs::read_to_string(&path) {
-            if let Ok(value) = serde_json::from_str::<serde_json::Value>(&content) {
-                tab.update(cx, |t, cx| {
-                    t.playground()
-                        .update(cx, |pg, cx| pg.load(window, cx, &value));
-                });
-            }
-        }
+        let request = read_request_file(Path::new(&path));
+        tab.update(cx, |t, cx| {
+            t.playground()
+                .update(cx, |pg, cx| pg.load(window, cx, &request));
+        });
 
         self.tabs.insert(node_id, tab);
         self.active_tab_id = Some(node_id);

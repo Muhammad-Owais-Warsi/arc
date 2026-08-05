@@ -43,7 +43,7 @@ impl QueryParams {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        if let Some(arr) = data.get("query_params").and_then(|v| v.as_array()) {
+        if let Some(arr) = data.get("params").and_then(|v| v.as_array()) {
             self.rows = arr
                 .iter()
                 .map(|item| {

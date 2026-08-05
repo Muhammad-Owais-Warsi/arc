@@ -45,17 +45,3 @@ pub fn next_id() -> usize {
     static COUNTER: AtomicUsize = AtomicUsize::new(1);
     COUNTER.fetch_add(1, Ordering::Relaxed)
 }
-
-pub fn read_request_method(path: &std::path::Path) -> String {
-    let Ok(content) = std::fs::read_to_string(path) else {
-        return String::new();
-    };
-    let Ok(value) = serde_json::from_str::<serde_json::Value>(&content) else {
-        return String::new();
-    };
-    value
-        .get("method")
-        .and_then(|m| m.as_str())
-        .unwrap_or("")
-        .to_uppercase()
-}

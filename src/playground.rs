@@ -146,6 +146,10 @@ impl Playground {
             .update(cx, |qp, cx| qp.load_from_json(content, window, cx));
         self.headers
             .update(cx, |h, cx| h.load_from_json(content, window, cx));
+        self.auth
+            .update(cx, |a, cx| a.load_from_json(content, window, cx));
+        self.body
+            .update(cx, |b, cx| b.load_from_json(content, window, cx));
     }
 
     pub fn send_request(&mut self, _window: &mut Window, cx: &mut Context<Self>) {

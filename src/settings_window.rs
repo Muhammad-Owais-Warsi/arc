@@ -19,6 +19,7 @@ impl Render for SettingsWindow {
     fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let theme = cx.theme();
         div()
+            .w_full()
             .size_full()
             .bg(theme.background)
             .v_flex()
