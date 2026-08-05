@@ -18,7 +18,7 @@ mod settings_panel;
 mod settings_window;
 mod tab;
 mod tab_manager;
-mod themes_and_fonts;
+// mod themes_and_fonts;
 
 use crate::actions::{CreateFile, CreateFolder, RenameItem};
 use crate::assets::Assets;

@@ -1,7 +1,9 @@
-use crate::icons::IconName;
+use crate::{
+    helpers::{get_active_font, get_active_theme, get_fonts, get_theme_config, get_themes},
+    icons::IconName,
+};
 use gpui::{
-    App, Context, Entity, IntoElement, ParentElement as _, Render, SharedString, Styled, Window,
-    prelude::FluentBuilder as _, px,
+    App, Context, Entity, IntoElement, ParentElement as _, Render, SharedString, Styled, Window, px,
 };
 use gpui_component::{
     Icon, Sizable, Size, Theme,
@@ -11,7 +13,6 @@ use gpui_component::{
 };
 
 use crate::env::EnvironmentStore;
-use crate::themes_and_fonts::ThemesAndFonts;
 
 pub struct SettingsPanel {
     store: Entity<EnvironmentStore>,
@@ -32,11 +33,10 @@ impl SettingsPanel {
                 SettingItem::new(
                     "Theme",
                     SettingField::<SharedString>::dropdown(
-                        ThemesAndFonts::get_themes(cx),
-                        |cx: &App| ThemesAndFonts::get_active_theme(cx),
+                        get_themes(cx),
+                        |cx: &App| get_active_theme(cx),
                         |name: SharedString, cx: &mut App| {
-                            if let Some(theme_config) = ThemesAndFonts::get_theme_config(cx, &name)
-                            {
+                            if let Some(theme_config) = get_theme_config(cx, &name) {
                                 let mode = theme_config.mode;
                                 let t = Theme::global_mut(cx);
                                 if mode.is_dark() {
@@ -58,8 +58,8 @@ impl SettingsPanel {
                 SettingItem::new(
                     "Font Family",
                     SettingField::<SharedString>::scrollable_dropdown(
-                        ThemesAndFonts::get_fonts(cx),
-                        |cx: &App| ThemesAndFonts::get_active_font(cx),
+                        get_fonts(cx),
+                        |cx: &App| get_active_font(cx),
                         |val: SharedString, cx: &mut App| {
                             Theme::global_mut(cx).font_family = val;
                             cx.refresh_windows();

@@ -16,4 +16,3 @@ pub mod query_params;
 pub mod response_panel;
 pub mod tab;
 pub mod tab_manager;
-pub mod themes_and_fonts;
