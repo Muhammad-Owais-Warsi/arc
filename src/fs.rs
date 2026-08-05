@@ -41,6 +41,15 @@ pub fn create_folder(name: &str, parent_dir: &str) -> io::Result<String> {
     Ok(path)
 }
 
+pub fn create_workspace(name: &str) -> io::Result<String> {
+    let home = dirs::home_dir().unwrap_or_else(|| std::path::PathBuf::from("."));
+    let projects_dir = home.join("projects");
+    let path = projects_dir.join(name);
+
+    std::fs::create_dir(&path)?;
+    Ok(path.to_string_lossy().to_string())
+}
+
 pub fn create_file(name: &str, parent_dir: &str) -> io::Result<String> {
     let path = format!("{parent_dir}/{name}.json");
 

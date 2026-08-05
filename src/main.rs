@@ -24,11 +24,11 @@ use crate::actions::{CreateFile, CreateFolder, RenameItem};
 use crate::assets::Assets;
 use crate::env::EnvironmentStore;
 use crate::footer::{Footer, FooterEvent};
-use crate::list::WorkspaceListItem;
+use crate::list::{WorkspaceListItem, WorkspaceListItemEvent};
 use crate::project_panel::{ProjectPanel, ProjectPanelEvent};
 use crate::settings_window::SettingsWindow;
 use crate::tab_manager::TabManagerEvent;
-use gpui::prelude::FluentBuilder as _;
+// use gpui::prelude::FluentBuilder as _;
 use gpui::*;
 use gpui_component::button::{Button, ButtonVariants};
 use gpui_component::list::{List, ListState};
@@ -36,7 +36,7 @@ use gpui_component::popover::Popover;
 use gpui_component::{Theme, *};
 use std::path::PathBuf;
 
-use crate::icons::IconName;
+// use crate::icons::IconName;
 
 pub struct ApiClient {
     project_panel: Entity<project_panel::ProjectPanel>,
@@ -57,6 +57,61 @@ impl ApiClient {
             ListState::new(WorkspaceListItem::new(project_panel.clone()), window, cx)
                 .searchable(true)
         });
+
+        let pp = project_panel.clone();
+        cx.spawn(async move |_, cx| {
+            let dirs = cx
+                .background_executor()
+                .spawn(ProjectPanel::list_workspace_dirs())
+                .await;
+
+            let selected_ix = pp.update(cx, |pp, cx| pp.set_workspaces(dirs, cx));
+            if let Some(path) = pp.update(cx, |pp, _| pp.get_workspace(selected_ix).map(|(_, p)| p))
+            {
+                let tree = cx
+                    .background_executor()
+                    .spawn(
+                        async move { ProjectPanel::read_dir_to_nodes(std::path::Path::new(&path)) },
+                    )
+                    .await;
+
+                pp.update(cx, |pp, cx| {
+                    pp.set_workspace_tree(selected_ix, tree, cx);
+                    cx.notify();
+                });
+            }
+        })
+        .detach();
+
+        cx.subscribe_in(&workspace_list, window, {
+            let project_panel = project_panel.clone();
+            let tab_manager = tab_manager.clone();
+            move |_, _, event, window, cx| match event {
+                WorkspaceListItemEvent::WorkspaceChanged(name) => {
+                    let ix = project_panel.update(cx, |pp, cx| pp.reset(window, cx, name.clone()));
+                    tab_manager.update(cx, |tb, cx| tb.reset(window, cx));
+
+                    let pp = project_panel.clone();
+                    cx.spawn(async move |_, cx| {
+                        let path = pp.update(cx, |pp, _| pp.get_workspace(ix).map(|(_, p)| p));
+                        if let Some(path) = path {
+                            let tree = cx
+                                .background_executor()
+                                .spawn(async move {
+                                    ProjectPanel::read_dir_to_nodes(std::path::Path::new(&path))
+                                })
+                                .await;
+                            pp.update(cx, |pp, cx| {
+                                pp.set_workspace_tree(ix, tree, cx);
+                                cx.notify();
+                            });
+                        }
+                    })
+                    .detach();
+                }
+            }
+        })
+        .detach();
 
         cx.subscribe_in(&project_panel, window, {
             let tab_manager = tab_manager.clone();
@@ -181,43 +236,6 @@ impl ApiClient {
             .update(cx, |f, cx| f.set_show_toggle(has_tabs, cx));
         self.footer.clone()
     }
-
-    fn section_label(label: &'static str, cx: &App) -> impl IntoElement {
-        div()
-            .px_2()
-            .pt_1()
-            .pb_0p5()
-            .text_xs()
-            .font_medium()
-            .text_color(cx.theme().muted_foreground)
-            .child(label.to_string())
-    }
-
-    fn footer_action(label: &'static str, icon: Option<IconName>, cx: &App) -> impl IntoElement {
-        h_flex()
-            .id(label)
-            .w_full()
-            .px_2()
-            .py_1()
-            .gap_2()
-            .items_center()
-            .rounded_md()
-            .cursor_pointer()
-            .hover(|s| s.bg(cx.theme().secondary_hover))
-            .when_some(icon, |row, icon| {
-                row.child(
-                    Icon::new(icon)
-                        .size_4()
-                        .text_color(cx.theme().muted_foreground),
-                )
-            })
-            .child(
-                div()
-                    .text_sm()
-                    .text_color(cx.theme().foreground)
-                    .child(label.to_string()),
-            )
-    }
 }
 
 impl Render for ApiClient {
@@ -234,7 +252,6 @@ impl Render for ApiClient {
             .child(
                 TitleBar::new().h(px(40.)).bg(cx.theme().background).child(
                     h_flex().gap_2().items_center().px_2().w_full().child(
-                        // In titlebar, trigger is the current workspace name:
                         Popover::new("workspace-switcher")
                             .anchor(Anchor::TopLeft)
                             .trigger(

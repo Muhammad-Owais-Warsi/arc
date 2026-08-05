@@ -65,19 +65,9 @@ pub struct ProjectPanel {
 impl EventEmitter<ProjectPanelEvent> for ProjectPanel {}
 
 impl ProjectPanel {
-    pub fn new(_window: &mut Window, cx: &mut Context<Self>) -> Self {
-        let home = dirs::home_dir().unwrap_or_else(|| PathBuf::from("."));
-        let workspace_path = home.join("projects").join("react-app");
-        let tree = Self::read_dir_to_nodes(&workspace_path);
-        let workspace = Workspace {
-            name: "react-app".into(),
-            path: workspace_path.to_string_lossy().to_string(),
-            nodes: tree.nodes,
-            root_id: tree.root_ids,
-        };
-
+    pub fn new(_window: &mut Window, _cx: &mut Context<Self>) -> Self {
         Self {
-            workspaces: vec![workspace],
+            workspaces: Vec::new(),
             selected_workspace: 0,
             sidebar_collapsed: false,
             active_node_id: None,
@@ -87,9 +77,102 @@ impl ProjectPanel {
         }
     }
 
+    pub fn get_workspace(&self, idx: usize) -> Option<(String, String)> {
+        self.workspaces
+            .get(idx)
+            .map(|w| (w.name.clone(), w.path.clone()))
+    }
+
+    pub fn reset(&mut self, _window: &mut Window, cx: &mut Context<Self>, name: String) -> usize {
+        let Some(ix) = self.workspaces.iter().position(|w| w.name == name) else {
+            return self.selected_workspace;
+        };
+        if ix != self.selected_workspace {
+            self.selected_workspace = ix;
+            self.active_node_id = None;
+            self.new_file = None;
+            self.new_folder = None;
+            self.rename_item = None;
+
+            cx.notify();
+        }
+        ix
+    }
+
+    pub async fn list_workspace_dirs() -> Vec<(String, PathBuf)> {
+        let home = dirs::home_dir().unwrap_or_else(|| PathBuf::from("."));
+        let projects_dir = home.join("projects");
+        let mut dirs = Vec::new();
+        if let Ok(entries) = std::fs::read_dir(&projects_dir) {
+            for entry in entries.flatten() {
+                if entry.file_type().map_or(false, |ft| ft.is_dir()) {
+                    dirs.push((
+                        entry.file_name().to_string_lossy().to_string(),
+                        entry.path(),
+                    ));
+                }
+            }
+        }
+        dirs.sort_by(|a, b| a.0.cmp(&b.0));
+        dirs
+    }
+
+    pub fn set_workspaces(&mut self, dirs: Vec<(String, PathBuf)>, cx: &mut Context<Self>) -> usize {
+        self.workspaces = dirs
+            .into_iter()
+            .map(|(name, path)| Workspace {
+                name,
+                path: path.to_string_lossy().to_string(),
+                nodes: HashMap::new(),
+                root_id: Vec::new(),
+            })
+            .collect();
+        self.selected_workspace = self
+            .workspaces
+            .iter()
+            .position(|w| w.name == "react-app")
+            .unwrap_or(0);
+
+        cx.notify();
+        self.selected_workspace
+    }
+
+    pub fn add_workspace(&mut self, name: String, path: String, cx: &mut Context<Self>) {
+        self.workspaces.push(Workspace {
+            name,
+            path,
+            nodes: HashMap::new(),
+            root_id: Vec::new(),
+        });
+        self.selected_workspace = self.workspaces.len() - 1;
+        self.active_node_id = None;
+        self.new_file = None;
+        self.new_folder = None;
+        self.rename_item = None;
+
+        cx.notify();
+    }
+    // Called after the recursive scan of one workspace completes.
+    pub fn set_workspace_tree(&mut self, ix: usize, tree: DirTree, cx: &mut Context<Self>) {
+        if let Some(ws) = self.workspaces.get_mut(ix) {
+            ws.nodes = tree.nodes;
+            ws.root_id = tree.root_ids;
+        }
+
+        cx.notify();
+    }
+
     pub fn read_dir_to_nodes(dir: &std::path::Path) -> DirTree {
+        Self::read_dir_to_nodes_depth(dir, 0)
+    }
+
+    fn read_dir_to_nodes_depth(dir: &std::path::Path, depth: usize) -> DirTree {
         let mut nodes: HashMap<usize, Node> = HashMap::new();
         let mut root_ids: Vec<usize> = Vec::new();
+        if depth > 8 {
+            return DirTree { root_ids, nodes };
+        }
+
         let Ok(raw) = std::fs::read_dir(dir) else {
             return DirTree { root_ids, nodes };
         };
@@ -99,9 +182,13 @@ impl ProjectPanel {
             let name = entry.file_name().to_string_lossy().to_string();
             let path = entry.path();
 
+            if name == "target" || name == "node_modules" || name == ".git" || name == "dist" {
+                continue;
+            }
+
             if file_type.map_or(false, |ft| ft.is_dir()) {
                 let id = next_id();
-                let child = Self::read_dir_to_nodes(&path);
+                let child = Self::read_dir_to_nodes_depth(&path, depth + 1);
                 nodes.extend(child.nodes);
                 nodes.insert(
                     id,
@@ -143,7 +230,9 @@ impl ProjectPanel {
     }
 
     pub fn render_node(&self, node_id: usize, cx: &mut Context<Self>) -> SidebarMenuItem {
-        let ws = &self.workspaces[self.selected_workspace];
+        let Some(ws) = self.workspaces.get(self.selected_workspace) else {
+            return SidebarMenuItem::new("???".to_string());
+        };
         let Some(node) = ws.nodes.get(&node_id) else {
             return SidebarMenuItem::new("???".to_string());
         };
@@ -525,24 +614,6 @@ impl ProjectPanel {
         self.workspaces.iter().map(|w| w.name.clone()).collect()
     }
 
-    pub fn switch_workspace(
-        &mut self,
-        name: &str,
-        _window: &mut Window,
-        cx: &mut Context<Self>,
-    ) {
-        if let Some(ix) = self.workspaces.iter().position(|w| w.name == name) {
-            if ix != self.selected_workspace {
-                self.selected_workspace = ix;
-                self.active_node_id = None;
-                self.new_file = None;
-                self.new_folder = None;
-                self.rename_item = None;
-            }
-        }
-        cx.notify();
-    }
-
     pub fn set_active_node(&mut self, node_id: Option<usize>) {
         self.active_node_id = node_id
     }
@@ -550,7 +621,12 @@ impl ProjectPanel {
 
 impl Render for ProjectPanel {
     fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
-        let ws = &self.workspaces[self.selected_workspace];
+        let Some(ws) = self.workspaces.get(self.selected_workspace) else {
+            return Sidebar::new("api-sidebar")
+                .collapsible(SidebarCollapsible::Offcanvas)
+                .collapsed(self.sidebar_collapsed)
+                .into_element();
+        };
         let sidebar = Sidebar::new("api-sidebar")
             .collapsible(SidebarCollapsible::Offcanvas)
             .collapsed(self.sidebar_collapsed)

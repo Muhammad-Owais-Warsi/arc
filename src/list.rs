@@ -1,16 +1,25 @@
 use gpui::{AnyElement, Component, *};
 use gpui_component::{
-    h_flex, ActiveTheme, Icon, IconName, IndexPath, Selectable, Sizable,
+    ActiveTheme, Icon, IconName, IndexPath, Selectable, h_flex,
+    input::{Input, InputEvent, InputState},
     label::Label,
     list::{ListDelegate, ListItem, ListSeparatorItem, ListState},
 };
 
+use crate::fs;
 use crate::project_panel::ProjectPanel;
+
+pub enum WorkspaceListItemEvent {
+    WorkspaceChanged(String),
+}
+
+impl EventEmitter<WorkspaceListItemEvent> for ListState<WorkspaceListItem> {}
 
 pub struct WorkspaceListItem {
     project_panel: Entity<ProjectPanel>,
     active_workspace_index: Option<IndexPath>,
     query: String,
+    new_workspace: Option<(usize, Entity<InputState>)>,
 }
 
 pub enum WorkspaceListRow {
@@ -63,6 +72,7 @@ impl WorkspaceListItem {
             project_panel,
             active_workspace_index: None,
             query: String::new(),
+            new_workspace: None,
         }
     }
 
@@ -74,6 +84,54 @@ impl WorkspaceListItem {
             .into_iter()
             .filter(|name| query.is_empty() || name.to_lowercase().contains(&query))
             .collect()
+    }
+
+    fn start_create_workspace(&mut self, window: &mut Window, cx: &mut Context<ListState<Self>>) {
+        let input = cx.new(|cx| InputState::new(window, cx).placeholder("workspace-name"));
+        let input_for_subscription = input.clone();
+
+        cx.subscribe_in(&input, window, {
+            move |this: &mut ListState<WorkspaceListItem>, _, event, window, cx| match event {
+                InputEvent::PressEnter { .. } => {
+                    let name = input_for_subscription.read(cx).value().trim().to_string();
+                    this.delegate_mut().finish_create_workspace(&name, cx);
+                }
+                InputEvent::Blur => {
+                    this.delegate_mut().cancel_create_workspace(cx);
+                }
+                _ => {}
+            }
+        })
+        .detach();
+
+        input.update(cx, |i, cx| i.focus(window, cx));
+        self.new_workspace = Some((self.filtered_names(cx).len() + 1, input));
+        cx.notify();
+    }
+
+    fn cancel_create_workspace(&mut self, cx: &mut Context<ListState<Self>>) {
+        self.new_workspace = None;
+        cx.notify();
+    }
+
+    fn finish_create_workspace(&mut self, name: &str, cx: &mut Context<ListState<Self>>) {
+        self.cancel_create_workspace(cx);
+
+        let name = name.trim().to_string();
+        if name.is_empty() {
+            return;
+        }
+
+        match fs::create_workspace(&name) {
+            Ok(path) => {
+                self.project_panel.update(cx, |pp, cx| {
+                    pp.add_workspace(name.clone(), path, cx);
+                });
+
+                cx.emit(WorkspaceListItemEvent::WorkspaceChanged(name));
+            }
+            Err(err) => eprintln!("Failed to create workspace: {err}"),
+        }
     }
 }
 
@@ -116,27 +174,42 @@ impl ListDelegate for WorkspaceListItem {
                 WorkspaceListRow::Workspace(
                     ListItem::new(ix)
                         .child(Label::new(name.clone()))
-                        .selected(*name == active)
+                        // .selected(*name == active)
                         .check_icon(IconName::Check)
                         .confirmed(*name == active),
                 )
             })
         } else if ix.row == separator_row {
             Some(WorkspaceListRow::Separator(
-                ListSeparatorItem::new().child(
-                    div().h_px().w_full().bg(cx.theme().border),
-                ),
+                ListSeparatorItem::new().child(div().h_px().w_full().bg(cx.theme().border)),
             ))
-        } else if ix.row == create_row {
-            Some(WorkspaceListRow::CreateWorkspace(
-                ListItem::new(ix)
-                    .child(
+        } else if let Some((row, input)) = &self.new_workspace {
+            if ix.row == *row {
+                Some(WorkspaceListRow::CreateWorkspace(
+                    ListItem::new(ix).child(Input::new(input).appearance(false)),
+                ))
+            } else if ix.row == create_row {
+                Some(WorkspaceListRow::CreateWorkspace(
+                    ListItem::new(ix).child(
                         h_flex()
                             .gap_2()
                             .items_center()
-                            .child(Icon::new(IconName::Plus).size_4())
+                            .child(Icon::new(IconName::Plus))
                             .child(Label::new("Create workspace")),
                     ),
+                ))
+            } else {
+                None
+            }
+        } else if ix.row == create_row {
+            Some(WorkspaceListRow::CreateWorkspace(
+                ListItem::new(ix).child(
+                    h_flex()
+                        .gap_2()
+                        .items_center()
+                        .child(Icon::new(IconName::Plus))
+                        .child(Label::new("Create workspace")),
+                ),
             ))
         } else {
             None
@@ -163,11 +236,10 @@ impl ListDelegate for WorkspaceListItem {
             let names = self.filtered_names(cx);
             if ix.row < names.len() {
                 if let Some(name) = names.get(ix.row).cloned() {
-                    self.project_panel
-                        .update(cx, |pp, cx| pp.switch_workspace(&name, window, cx));
+                    cx.emit(WorkspaceListItemEvent::WorkspaceChanged(name));
                 }
             } else if ix.row == names.len() + 1 {
-                // TODO: create workspace
+                self.start_create_workspace(window, cx);
             }
         }
     }

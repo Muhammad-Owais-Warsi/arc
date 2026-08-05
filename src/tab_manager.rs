@@ -37,6 +37,15 @@ impl TabManager {
         }
     }
 
+    pub fn reset(&mut self, _window: &mut Window, cx: &mut Context<Self>) {
+        self.tabs.clear();
+        self.active_tab_id = None;
+        self.scroll_handle = ScrollHandle::new();
+        self.sidebar_collapsed = false;
+
+        cx.notify();
+    }
+
     pub fn activate_tab(
         &mut self,
         node_id: usize,
