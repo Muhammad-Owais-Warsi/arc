@@ -2,11 +2,17 @@ use gpui::*;
 use gpui_component::Sizable;
 use gpui_component::button::{Button, ButtonVariants};
 use gpui_component::checkbox::Checkbox;
-use gpui_component::input::{Input, InputState};
+use gpui_component::input::{Input, InputEvent, InputState};
 use gpui_component::table::{Table, TableBody, TableCell, TableHead, TableHeader, TableRow};
 use gpui_component::{ActiveTheme, Icon, h_flex, v_flex};
 
 use crate::icons::IconName;
+
+pub enum QueryParamsEvent {
+    Changed,
+}
+
+impl EventEmitter<QueryParamsEvent> for QueryParams {}
 
 #[derive(Clone)]
 pub struct Param {
@@ -37,6 +43,34 @@ impl QueryParams {
             .collect()
     }
 
+    pub fn rows(&self, cx: &App) -> Vec<(String, String, bool)> {
+        self.rows
+            .iter()
+            .map(|p| {
+                (
+                    p.key.read(cx).value().to_string(),
+                    p.value.read(cx).value().to_string(),
+                    p.active,
+                )
+            })
+            .collect()
+    }
+
+    fn watch(&mut self, key: Entity<InputState>, value: Entity<InputState>, window: &mut Window, cx: &mut Context<Self>) {
+        cx.subscribe_in(&key, window, |_, _, event, _window, cx| {
+            if matches!(event, InputEvent::Change) {
+                cx.emit(QueryParamsEvent::Changed);
+            }
+        })
+        .detach();
+        cx.subscribe_in(&value, window, |_, _, event, _window, cx| {
+            if matches!(event, InputEvent::Change) {
+                cx.emit(QueryParamsEvent::Changed);
+            }
+        })
+        .detach();
+    }
+
     pub fn load_from_json(
         &mut self,
         data: &serde_json::Value,
@@ -44,7 +78,7 @@ impl QueryParams {
         cx: &mut Context<Self>,
     ) {
         if let Some(arr) = data.get("params").and_then(|v| v.as_array()) {
-            self.rows = arr
+            let rows: Vec<Param> = arr
                 .iter()
                 .map(|item| {
                     let key_str = item.get("key").and_then(|v| v.as_str()).unwrap_or("");
@@ -55,6 +89,16 @@ impl QueryParams {
                     Param { key, value, active }
                 })
                 .collect();
+
+            self.rows = rows;
+            let watched: Vec<(Entity<InputState>, Entity<InputState>)> = self
+                .rows
+                .iter()
+                .map(|p| (p.key.clone(), p.value.clone()))
+                .collect();
+            for (key, value) in watched {
+                self.watch(key, value, window, cx);
+            }
         }
     }
 }
@@ -76,11 +120,13 @@ impl Render for QueryParams {
                             .on_click(cx.listener(|this: &mut Self, _, window, cx| {
                                 let key = cx.new(|cx| InputState::new(window, cx));
                                 let value = cx.new(|cx| InputState::new(window, cx));
+                                this.watch(key.clone(), value.clone(), window, cx);
                                 this.rows.push(Param {
                                     key,
                                     value,
                                     active: true,
                                 });
+                                cx.emit(QueryParamsEvent::Changed);
                                 cx.notify();
                             })),
                     ),
@@ -114,6 +160,7 @@ impl Render for QueryParams {
                                                                 value: value.clone(),
                                                                 active: *checked,
                                                             };
+                                                            cx.emit(QueryParamsEvent::Changed);
                                                             cx.notify();
                                                         },
                                                     )
@@ -139,6 +186,7 @@ impl Render for QueryParams {
                                                 .on_click(cx.listener(
                                                     move |this: &mut Self, _, _window, cx| {
                                                         this.rows.remove(i);
+                                                        cx.emit(QueryParamsEvent::Changed);
                                                         cx.notify();
                                                     },
                                                 )),

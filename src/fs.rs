@@ -1,37 +1,38 @@
 use crate::auth::AuthType;
 use serde::{Deserialize, Serialize};
 use std::{fs::OpenOptions, fs::read_to_string, io, path::Path};
+use tokio::fs::File;
 
-#[derive(Serialize, Deserialize)]
-struct KeyValue {
-    key: String,
-    value: String,
-    active: bool,
+#[derive(Serialize, Deserialize, Default, PartialEq)]
+pub struct KeyValue {
+    pub key: String,
+    pub value: String,
+    pub active: bool,
 }
 
-#[derive(Serialize, Deserialize)]
-struct Auth {
-    auth_type: AuthType,
-    username: String,
-    password: String,
-    token: String,
+#[derive(Serialize, Deserialize, Default, PartialEq)]
+pub struct Auth {
+    pub auth_type: AuthType,
+    pub username: String,
+    pub password: String,
+    pub token: String,
 }
 
-#[derive(Serialize, Deserialize)]
-struct Body {
-    body_type: String,
-    body: String,
+#[derive(Serialize, Deserialize, Default, PartialEq)]
+pub struct Body {
+    pub body_type: String,
+    pub body: String,
 }
 
-#[derive(Serialize, Deserialize)]
-struct FileContent {
-    name: String,
-    url: String,
-    method: String,
-    params: Vec<KeyValue>,
-    headers: Vec<KeyValue>,
-    auth: Auth,
-    body: Body,
+#[derive(Serialize, Deserialize, Default, PartialEq)]
+pub struct FileContent {
+    pub name: String,
+    pub url: String,
+    pub method: String,
+    pub params: Vec<KeyValue>,
+    pub headers: Vec<KeyValue>,
+    pub auth: Auth,
+    pub body: Body,
 }
 
 pub fn create_folder(name: &str, parent_dir: &str) -> io::Result<String> {
@@ -79,6 +80,16 @@ pub fn create_file(name: &str, parent_dir: &str) -> io::Result<String> {
     serde_json::to_writer_pretty(file, &content).map_err(io::Error::other)?;
 
     Ok(path)
+}
+
+pub fn write_request_file(path: &Path, content: &FileContent) -> io::Result<()> {
+    let file = OpenOptions::new()
+        .write(true)
+        .truncate(true)
+        .create(true)
+        .open(path)?;
+    serde_json::to_writer_pretty(file, content).map_err(io::Error::other)?;
+    Ok(())
 }
 
 pub fn read_request_file(path: &Path) -> serde_json::Value {

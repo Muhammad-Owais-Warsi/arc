@@ -68,6 +68,9 @@ impl TabManager {
             t.playground()
                 .update(cx, |pg, cx| pg.load(window, cx, &request));
         });
+        tab.update(cx, |t, cx| {
+            t.playground().update(cx, |pg, cx| pg.set_path(path.clone()));
+        });
 
         self.tabs.insert(node_id, tab);
         self.active_tab_id = Some(node_id);

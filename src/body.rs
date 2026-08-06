@@ -1,9 +1,15 @@
 use gpui::*;
 use gpui_component::{
     ActiveTheme, IndexPath, StyledExt,
-    input::{Input, InputState, TabSize},
+    input::{Input, InputEvent, InputState, TabSize},
     select::{Select, SelectEvent, SelectState},
 };
+
+pub enum BodyEvent {
+    Changed,
+}
+
+impl EventEmitter<BodyEvent> for Body {}
 
 struct BodyType {
     label: &'static str,
@@ -74,10 +80,18 @@ impl Body {
                             editor.set_highlighter(body_type.language, cx);
                             cx.notify();
                         });
+                        cx.emit(BodyEvent::Changed);
                     }
                 }
             },
         )
+        .detach();
+
+        cx.subscribe_in(&body, window, |_, _, event, _window, cx| {
+            if matches!(event, InputEvent::Change) {
+                cx.emit(BodyEvent::Changed);
+            }
+        })
         .detach();
 
         Self {

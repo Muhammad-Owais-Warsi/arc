@@ -2,14 +2,21 @@ use gpui::*;
 use gpui_component::ActiveTheme;
 use gpui_component::{
     IndexPath,
-    input::{Input, InputState},
+    input::{Input, InputEvent, InputState},
     select::{Select, SelectEvent, SelectState},
     v_flex,
 };
 use serde::{Deserialize, Serialize};
 
-#[derive(Clone, PartialEq, Serialize, Deserialize)]
+pub enum AuthEvent {
+    Changed,
+}
+
+impl EventEmitter<AuthEvent> for Auth {}
+
+#[derive(Clone, PartialEq, Serialize, Deserialize, Default)]
 pub enum AuthType {
+    #[default]
     None,
     Bearer,
     Basic,
@@ -61,10 +68,30 @@ impl Auth {
                         Some(2) => AuthType::Basic,
                         _ => AuthType::None,
                     };
+                    cx.emit(AuthEvent::Changed);
                     cx.notify();
                 }
             },
         )
+        .detach();
+
+        cx.subscribe_in(&username, window, |_, _, event, _window, cx| {
+            if matches!(event, InputEvent::Change) {
+                cx.emit(AuthEvent::Changed);
+            }
+        })
+        .detach();
+        cx.subscribe_in(&password, window, |_, _, event, _window, cx| {
+            if matches!(event, InputEvent::Change) {
+                cx.emit(AuthEvent::Changed);
+            }
+        })
+        .detach();
+        cx.subscribe_in(&token, window, |_, _, event, _window, cx| {
+            if matches!(event, InputEvent::Change) {
+                cx.emit(AuthEvent::Changed);
+            }
+        })
         .detach();
 
         Self {

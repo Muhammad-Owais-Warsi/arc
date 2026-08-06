@@ -13,12 +13,13 @@ use gpui_component::{
     tab::{self, Tab, TabBar},
 };
 
-use crate::auth::{Auth, AuthType};
-use crate::body::Body;
-use crate::headers::Headers;
+use crate::auth::{Auth, AuthEvent, AuthType};
+use crate::body::{Body, BodyEvent};
+use crate::fs::{self, FileContent, KeyValue};
+use crate::headers::{Headers, HeadersEvent};
 use crate::http::{self, AuthPayload, Response};
 use crate::icons::IconName;
-use crate::query_params::QueryParams;
+use crate::query_params::{QueryParams, QueryParamsEvent};
 use crate::response_panel::ResponsePanel;
 
 pub enum PlaygroundEvent {
@@ -38,6 +39,8 @@ pub struct Playground {
     pending: bool,
     dirty: bool,
     response_panel: Entity<ResponsePanel>,
+    snapshot: FileContent,
+    path: Option<String>,
 }
 
 impl Playground {
@@ -68,7 +71,12 @@ impl Playground {
         let auth = cx.new(|cx| Auth::new(window, cx));
         let body = cx.new(|cx| Body::new(window, cx));
 
-        let this = Self {
+        let qp_for_sub = query_params.clone();
+        let headers_for_sub = headers.clone();
+        let body_for_sub = body.clone();
+        let auth_for_sub = auth.clone();
+
+        let mut this = Self {
             method: method_state.clone(),
             url: url.clone(),
             auth,
@@ -79,15 +87,18 @@ impl Playground {
             pending: false,
             dirty: false,
             response_panel,
+            snapshot: FileContent::default(),
+            path: None,
         };
+        this.snapshot = this.current_content(cx);
 
         cx.subscribe_in(
             &method_state,
             window,
             |this: &mut Self, _, event, _window, cx| {
                 if let SelectEvent::Confirm(_) = event {
-                    this.dirty = true;
                     let method = this.method(cx);
+                    this.evaluate_dirty(cx);
                     cx.emit(PlaygroundEvent::MethodChanged(method));
                 }
             },
@@ -96,13 +107,64 @@ impl Playground {
 
         cx.subscribe_in(&url, window, |this: &mut Self, _, event, _window, cx| {
             if let InputEvent::Change = event {
-                this.dirty = true;
-                cx.notify();
+                this.evaluate_dirty(cx);
             }
         })
         .detach();
 
+        cx.subscribe_in(
+            &qp_for_sub,
+            window,
+            |this: &mut Self, _, event, _window, cx| {
+                if matches!(event, QueryParamsEvent::Changed) {
+                    this.evaluate_dirty(cx);
+                }
+            },
+        )
+        .detach();
+
+        cx.subscribe_in(
+            &headers_for_sub,
+            window,
+            |this: &mut Self, _, event, _window, cx| {
+                if matches!(event, HeadersEvent::Changed) {
+                    this.evaluate_dirty(cx);
+                }
+            },
+        )
+        .detach();
+
+        cx.subscribe_in(
+            &body_for_sub,
+            window,
+            |this: &mut Self, _, event, _window, cx| {
+                if matches!(event, BodyEvent::Changed) {
+                    this.evaluate_dirty(cx);
+                }
+            },
+        )
+        .detach();
+
+        cx.subscribe_in(
+            &auth_for_sub,
+            window,
+            |this: &mut Self, _, event, _window, cx| {
+                if matches!(event, AuthEvent::Changed) {
+                    this.evaluate_dirty(cx);
+                }
+            },
+        )
+        .detach();
+
         this
+    }
+
+    pub fn mark_dirty(&mut self, status: bool) {
+        self.dirty = status
+    }
+
+    pub fn is_dirty(&self) -> bool {
+        self.dirty
     }
 
     pub fn method(&self, cx: &App) -> String {
@@ -117,8 +179,67 @@ impl Playground {
         self.method.clone()
     }
 
+    fn evaluate_dirty(&mut self, cx: &mut Context<Self>) {
+        let current = self.current_content(cx);
+        self.dirty = current != self.snapshot;
+        cx.notify();
+    }
+
+    fn current_content(&self, cx: &App) -> FileContent {
+        FileContent {
+            name: self.snapshot.name.clone(),
+            url: self.url.read(cx).value().to_string(),
+            method: self.method(cx),
+            params: self
+                .query_params
+                .read(cx)
+                .rows(cx)
+                .into_iter()
+                .map(|(key, value, active)| KeyValue { key, value, active })
+                .collect(),
+            headers: self
+                .headers
+                .read(cx)
+                .rows(cx)
+                .into_iter()
+                .map(|(key, value, active)| KeyValue { key, value, active })
+                .collect(),
+            auth: fs::Auth {
+                auth_type: self.auth.read(cx).auth_type(),
+                username: self.auth.read(cx).basic_auth_values(cx).0,
+                password: self.auth.read(cx).basic_auth_values(cx).1,
+                token: self.auth.read(cx).bearer_auth_value(cx),
+            },
+            body: fs::Body {
+                body_type: self.body.read(cx).body_type(cx),
+                body: self.body.read(cx).value(cx),
+            },
+        }
+    }
+
     pub fn respone_panel_entity(&self) -> Entity<ResponsePanel> {
         self.response_panel.clone()
+    }
+
+    pub fn set_path(&mut self, path: String) {
+        self.path = Some(path);
+    }
+
+    pub fn save(&mut self, cx: &mut Context<Self>) {
+        let Some(path) = self.path.clone() else {
+            eprintln!("Cannot save: no file path for this tab");
+            return;
+        };
+
+        let current = self.current_content(cx);
+        match fs::write_request_file(std::path::Path::new(&path), &current) {
+            Ok(()) => {
+                self.snapshot = current;
+                self.dirty = false;
+                cx.notify();
+            }
+            Err(err) => eprintln!("Failed to save request: {err}"),
+        }
     }
 
     pub fn load(
@@ -150,6 +271,8 @@ impl Playground {
             .update(cx, |a, cx| a.load_from_json(content, window, cx));
         self.body
             .update(cx, |b, cx| b.load_from_json(content, window, cx));
+        self.snapshot = self.current_content(cx);
+        self.dirty = false;
     }
 
     pub fn send_request(&mut self, _window: &mut Window, cx: &mut Context<Self>) {
@@ -253,7 +376,10 @@ impl Playground {
                     .label("Save")
                     .when(self.dirty, |this| {
                         this.child(div().size_2().rounded_full().bg(cx.theme().primary))
-                    }),
+                    })
+                    .on_click(cx.listener(|this: &mut Self, _, _window, cx| {
+                        this.save(cx);
+                    })),
             )
             .child(
                 Button::new("send")
