@@ -7,24 +7,10 @@ use gpui_component::tab::{self, Tab, TabBar};
 use gpui_component::tag::Tag;
 use gpui_component::{ActiveTheme, ColorName, Icon, Sizable, StyledExt, h_flex, v_flex};
 
+use crate::helpers::format_size;
 use crate::icons::IconName;
 
 use crate::http::Response;
-
-fn format_size(bytes: usize) -> String {
-    const KB: f64 = 1024.0;
-    const MB: f64 = KB * 1024.0;
-
-    let bytes = bytes as f64;
-
-    if bytes >= MB {
-        format!("{:.2} MB", bytes / MB)
-    } else if bytes >= KB {
-        format!("{:.2} KB", bytes / KB)
-    } else {
-        format!("{:.0} B", bytes)
-    }
-}
 
 #[derive(Clone)]
 pub struct ResponsePanel {

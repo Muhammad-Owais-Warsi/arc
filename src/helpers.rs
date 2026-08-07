@@ -78,3 +78,18 @@ pub fn get_fonts(cx: &App) -> Vec<(SharedString, SharedString)> {
 pub fn get_active_font(cx: &App) -> SharedString {
     Theme::global(cx).font_family.clone()
 }
+
+pub fn format_size(bytes: usize) -> String {
+    const KB: f64 = 1024.0;
+    const MB: f64 = KB * 1024.0;
+
+    let bytes = bytes as f64;
+
+    if bytes >= MB {
+        format!("{:.2} MB", bytes / MB)
+    } else if bytes >= KB {
+        format!("{:.2} KB", bytes / KB)
+    } else {
+        format!("{:.0} B", bytes)
+    }
+}
