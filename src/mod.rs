@@ -13,6 +13,8 @@ pub mod list;
 pub mod playground;
 pub mod project_panel;
 pub mod query_params;
+pub mod request_playground;
 pub mod response_panel;
+pub mod stress_testing;
 pub mod tab;
 pub mod tab_manager;

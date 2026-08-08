@@ -13,12 +13,13 @@ mod list;
 mod playground;
 mod project_panel;
 mod query_params;
+mod request_playground;
 mod response_panel;
 mod settings_panel;
 mod settings_window;
+mod stress_testing;
 mod tab;
 mod tab_manager;
-// mod themes_and_fonts;
 
 use crate::actions::{CreateFile, CreateFolder, RenameItem};
 use crate::assets::Assets;
@@ -27,7 +28,6 @@ use crate::footer::{Footer, FooterEvent};
 use crate::list::{WorkspaceListItem, WorkspaceListItemEvent};
 use crate::project_panel::{ProjectPanel, ProjectPanelEvent};
 use crate::settings_window::SettingsWindow;
-use crate::tab_manager::TabManagerEvent;
 // use gpui::prelude::FluentBuilder as _;
 use gpui::*;
 use gpui_component::button::{Button, ButtonVariants};
@@ -50,7 +50,8 @@ pub struct ApiClient {
 impl ApiClient {
     fn new(window: &mut Window, cx: &mut Context<Self>) -> Self {
         let project_panel = cx.new(|cx| ProjectPanel::new(window, cx));
-        let tab_manager = cx.new(|cx| tab_manager::TabManager::new(window, cx));
+        let tab_manager =
+            cx.new(|cx| tab_manager::TabManager::new(window, cx, project_panel.clone()));
         let footer = cx.new(|cx| Footer::new(window, cx));
         let env_store = cx.new(|cx| EnvironmentStore::new(window, cx));
         let workspace_list = cx.new(|cx| {
@@ -123,7 +124,7 @@ impl ApiClient {
                     method,
                 } => {
                     tab_manager.update(cx, |tm, cx| {
-                        tm.activate_tab(
+                        tm.activate_request_tab(
                             *node_id,
                             name.clone(),
                             path.clone(),
@@ -142,38 +143,12 @@ impl ApiClient {
         })
         .detach();
 
-        cx.subscribe_in(&tab_manager, window, {
-            let project_panel = project_panel.clone();
-            let tab_manager = tab_manager.clone();
-            move |_, _, event, _window, cx| match event {
-                TabManagerEvent::MethodChanged(node_id, method) => {
-                    project_panel.update(cx, |pp, _| pp.set_node_method(*node_id, method));
-                }
-                TabManagerEvent::SidebarToggle(collapsed) => {
-                    project_panel.update(cx, |pp, cx| pp.set_collapsed(*collapsed, cx));
-                }
-                TabManagerEvent::TabActivated(node_id) => {
-                    project_panel.update(cx, |pp, cx| {
-                        pp.set_active_node(*node_id);
-                        cx.notify();
-                    });
-                }
-            }
-        })
-        .detach();
-
         cx.subscribe_in(&footer, window, {
             let tab_manager = tab_manager.clone();
             let env_store = env_store.clone();
             move |this: &mut Self, _, event, _window, cx| match event {
                 FooterEvent::ToggleResponse => {
-                    if let Some(pg) = tab_manager.read(cx).active_playground(cx) {
-                        pg.update(cx, |pg, cx| {
-                            pg.respone_panel_entity().update(cx, |panel, cx| {
-                                panel.toggle(cx);
-                            });
-                        });
-                    }
+                    tab_manager.update(cx, |tm, cx| tm.toggle_active_response(cx));
                 }
                 FooterEvent::ToggleSettings(_) => {
                     if this

@@ -1,6 +1,8 @@
 use crate::fs::read_request_file;
 use crate::helpers::next_id;
-use crate::playground::{Playground, PlaygroundEvent};
+use crate::playground::PlaygroundHandle;
+use crate::project_panel::ProjectPanel;
+use crate::request_playground::{RequestPlayground, RequestPlaygroundEvent};
 use crate::tab::{TabEvent, Tabs};
 use gpui::*;
 use gpui_component::sidebar::SidebarToggleButton;
@@ -11,16 +13,8 @@ use crate::icons::IconName;
 use std::collections::HashMap;
 use std::path::Path;
 
-pub enum TabManagerEvent {
-    MethodChanged(usize, String),
-    SidebarToggle(bool),
-    // TabClosed(usize),
-    TabActivated(Option<usize>),
-}
-
-impl EventEmitter<TabManagerEvent> for TabManager {}
-
 pub struct TabManager {
+    project_panel: Entity<ProjectPanel>,
     tabs: HashMap<usize, Entity<Tabs>>,
     active_tab_id: Option<usize>,
     scroll_handle: ScrollHandle,
@@ -28,8 +22,13 @@ pub struct TabManager {
 }
 
 impl TabManager {
-    pub fn new(window: &mut Window, cx: &mut Context<Self>) -> Self {
+    pub fn new(
+        window: &mut Window,
+        cx: &mut Context<Self>,
+        project_panel: Entity<ProjectPanel>,
+    ) -> Self {
         Self {
+            project_panel,
             tabs: HashMap::new(),
             active_tab_id: None,
             scroll_handle: ScrollHandle::new(),
@@ -46,7 +45,7 @@ impl TabManager {
         cx.notify();
     }
 
-    pub fn activate_tab(
+    pub fn activate_request_tab(
         &mut self,
         node_id: usize,
         name: String,
@@ -61,16 +60,12 @@ impl TabManager {
             return;
         }
 
-        let tab = self.add_tab(window, cx, node_id, name, method);
-
+        let (playground, tab) = self.add_request_tab(window, cx, node_id, name.clone(), method);
         let request = read_request_file(Path::new(&path));
-        tab.update(cx, |t, cx| {
-            t.playground()
-                .update(cx, |pg, cx| pg.load(window, cx, &request));
-        });
-        tab.update(cx, |t, cx| {
-            t.playground().update(cx, |pg, cx| pg.set_path(path.clone()));
-        });
+        playground.update(cx, |pg, cx| pg.load(window, cx, &request));
+        playground.update(cx, |pg, cx| pg.set_path(path.clone()));
+
+        // let tab = self.add_tab(window, cx, node_id, name.clone(), Box::new(playground));
 
         self.tabs.insert(node_id, tab);
         self.active_tab_id = Some(node_id);
@@ -88,22 +83,30 @@ impl TabManager {
         self.active_tab_id.is_some()
     }
 
-    pub fn active_playground(&self, cx: &App) -> Option<Entity<Playground>> {
+    pub fn active_playground(&self, cx: &App) -> Option<Box<dyn PlaygroundHandle>> {
         self.active_tab_id
             .and_then(|id| self.tabs.get(&id))
             .map(|tab| tab.read(cx).playground())
     }
 
-    fn add_tab(
+    pub fn toggle_active_response(&mut self, cx: &mut Context<Self>) {
+        if let Some(content) = self.active_playground(cx) {
+            if let Some(panel) = content.response_panel(cx) {
+                panel.update(cx, |panel, cx| panel.toggle(cx));
+            }
+        }
+    }
+
+    fn add_request_tab(
         &mut self,
         window: &mut Window,
         cx: &mut Context<Self>,
         node_id: usize,
         name: String,
         method: String,
-    ) -> Entity<Tabs> {
+    ) -> (Entity<RequestPlayground>, Entity<Tabs>) {
         let id = next_id();
-        let playground = cx.new(|cx| Playground::new(window, cx));
+        let playground = cx.new(|cx| RequestPlayground::new(window, cx));
 
         if method != "GET" {
             let methods: Vec<String> =
@@ -119,14 +122,19 @@ impl TabManager {
             });
         }
 
-        let tab_entity = cx.new(|cx| Tabs::new(id, node_id, name, playground.clone()));
+        let tab_entity = cx.new(|cx| Tabs::new(id, node_id, name, playground.clone_box()));
 
         let pg = playground.clone();
-        cx.subscribe_in(&pg, window, move |_, _, event, _window, cx| {
-            if let PlaygroundEvent::MethodChanged(method) = event {
-                cx.emit(TabManagerEvent::MethodChanged(node_id, method.clone()));
-            }
-        })
+        cx.subscribe_in(
+            &pg,
+            window,
+            move |this: &mut Self, _, event, _window, cx| {
+                if let RequestPlaygroundEvent::MethodChanged(method) = event {
+                    this.project_panel
+                        .update(cx, |pp, _| pp.set_node_method(node_id, method));
+                }
+            },
+        )
         .detach();
 
         cx.subscribe_in(
@@ -141,14 +149,18 @@ impl TabManager {
                         .copied()
                         .filter(|id| *id != *node_id) // safe even though it's already removed; harmless no-op
                         .max();
-                    cx.emit(TabManagerEvent::TabActivated(this.active_tab_id));
+                    let active = this.active_tab_id;
+                    this.project_panel.update(cx, |pp, cx| {
+                        pp.set_active_node(active);
+                        cx.notify();
+                    });
                     cx.notify();
                 }
             },
         )
         .detach();
 
-        tab_entity
+        (pg, tab_entity)
     }
 
     fn render_tab_bar(&self, cx: &mut Context<Self>) -> AnyElement {
@@ -173,7 +185,9 @@ impl TabManager {
                         .collapsed(self.sidebar_collapsed)
                         .on_click(cx.listener(|this: &mut Self, _, _window, cx| {
                             this.sidebar_collapsed = !this.sidebar_collapsed;
-                            cx.emit(TabManagerEvent::SidebarToggle(this.sidebar_collapsed));
+                            let collapsed = this.sidebar_collapsed;
+                            this.project_panel
+                                .update(cx, |pp, cx| pp.set_collapsed(collapsed, cx));
                             cx.notify();
                         })),
                 ),
@@ -184,7 +198,11 @@ impl TabManager {
                     let tab_ids: Vec<usize> = this.tabs.keys().copied().collect();
                     if let Some(&id) = tab_ids.get(*idx) {
                         this.active_tab_id = Some(id);
-                        cx.emit(TabManagerEvent::TabActivated(Some(id)));
+                        let active = this.active_tab_id;
+                        this.project_panel.update(cx, |pp, cx| {
+                            pp.set_active_node(active);
+                            cx.notify();
+                        });
                         cx.notify();
                     }
                 }),
@@ -209,8 +227,13 @@ impl TabManager {
                     .tooltip("Add Tab")
                     .on_click(cx.listener(|this: &mut Self, _event, window, cx| {
                         let tab_key = next_id();
-                        let tab =
-                            this.add_tab(window, cx, tab_key, "Untitled".into(), "GET".into());
+                        let (playground, tab) = this.add_request_tab(
+                            window,
+                            cx,
+                            tab_key,
+                            "Untitled".to_string(),
+                            "GET".into(),
+                        );
                         this.tabs.insert(tab_key, tab);
                         this.active_tab_id = Some(tab_key);
                         cx.notify();
@@ -226,7 +249,7 @@ impl Render for TabManager {
         let main_content = if has_tab {
             self.active_tab_id
                 .and_then(|id| self.tabs.get(&id))
-                .map(|tab| tab.read(cx).playground().clone().into_any_element())
+                .map(|tab| tab.read(cx).playground().render_into())
                 .unwrap_or_else(|| div().into_any_element())
         } else {
             div()

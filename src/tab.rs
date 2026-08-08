@@ -1,5 +1,6 @@
 use crate::helpers::render_method_tag;
 use crate::playground::Playground;
+use crate::playground::PlaygroundHandle;
 use gpui::*;
 use gpui_component::Sizable;
 use gpui_component::button::Button;
@@ -18,11 +19,16 @@ pub struct Tabs {
     id: usize,
     node_id: usize,
     name: String,
-    playground: Entity<Playground>,
+    playground: Box<dyn PlaygroundHandle>,
 }
 
 impl Tabs {
-    pub fn new(id: usize, node_id: usize, name: String, playground: Entity<Playground>) -> Self {
+    pub fn new(
+        id: usize,
+        node_id: usize,
+        name: String,
+        playground: Box<dyn PlaygroundHandle>,
+    ) -> Self {
         Self {
             id,
             node_id,
@@ -31,8 +37,8 @@ impl Tabs {
         }
     }
 
-    pub fn playground(&self) -> Entity<Playground> {
-        self.playground.clone()
+    pub fn playground(&self) -> Box<dyn PlaygroundHandle> {
+        self.playground.clone_box()
     }
 
     // pub fn name(&self) -> String {
@@ -48,7 +54,7 @@ impl Tabs {
     }
 
     pub fn to_tab_element(&self, cx: &mut Context<Self>) -> Tab {
-        let method = self.playground.read(cx).method(cx);
+        let method = self.playground.method(cx);
         let node_id = self.node_id;
 
         Tab::default()
