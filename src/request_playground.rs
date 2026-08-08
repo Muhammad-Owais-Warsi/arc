@@ -379,8 +379,11 @@ impl RequestPlayground {
             .child(div().w(px(110.)).child(Select::new(&self.method)))
             .child(
                 div().flex_1().child(
-                    Input::new(&self.url)
-                        .suffix(Clipboard::new("url-clip").value(self.url.read(cx).value())),
+                    Input::new(&self.url).suffix(
+                        Clipboard::new("url-clip")
+                            .tooltip("Copy")
+                            .value(self.url.read(cx).value()),
+                    ),
                 ),
             )
             .child(
