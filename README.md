@@ -16,4 +16,5 @@ cargo run
 
 ## Initial looks
 
-https://github.com/user-attachments/assets/6dda7d38-0d7a-4cef-9c93-e500a1e69654
+https://github.com/user-attachments/assets/4b08f35b-9a9e-481e-8862-1763fa953b9d
+
