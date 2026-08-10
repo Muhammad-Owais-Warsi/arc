@@ -3,6 +3,7 @@ use crate::helpers::next_id;
 use crate::playground::PlaygroundHandle;
 use crate::project_panel::ProjectPanel;
 use crate::request_playground::{RequestPlayground, RequestPlaygroundEvent};
+use crate::stress_testing::StressTesting;
 use crate::tab::{TabEvent, Tabs};
 use gpui::*;
 use gpui_component::sidebar::SidebarToggleButton;
@@ -95,6 +96,53 @@ impl TabManager {
                 panel.update(cx, |panel, cx| panel.toggle(cx));
             }
         }
+    }
+
+    pub fn add_stress_test_tab(
+        &mut self,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+        path: String,
+        node_name: String,
+    ) {
+        let tab_key = next_id();
+
+        let source = self
+            .active_playground(cx)
+            .and_then(|content| content.entity().downcast::<RequestPlayground>().ok())
+            .map(|pg| pg.downgrade());
+
+        let stress_test_playground = cx.new(|cx| StressTesting::new(source, path));
+
+        let content: Box<dyn PlaygroundHandle> = stress_test_playground.clone_box();
+        let tab_entity = cx.new(|cx| Tabs::new(tab_key, tab_key, node_name, content));
+
+        cx.subscribe_in(
+            &tab_entity,
+            window,
+            |this: &mut Self, _, event, _window, cx| {
+                if let TabEvent::Close(node_id) = event {
+                    this.tabs.remove(&node_id);
+                    this.active_tab_id = this
+                        .tabs
+                        .keys()
+                        .copied()
+                        .filter(|id| *id != *node_id) // safe even though it's already removed; harmless no-op
+                        .max();
+                    let active = this.active_tab_id;
+                    this.project_panel.update(cx, |pp, cx| {
+                        pp.set_active_node(active);
+                        cx.notify();
+                    });
+                    cx.notify();
+                }
+            },
+        )
+        .detach();
+
+        self.tabs.insert(tab_key, tab_entity);
+        self.active_tab_id = Some(tab_key);
+        cx.notify();
     }
 
     fn add_request_tab(

@@ -1,5 +1,5 @@
 // use gpui::Window;
-use crate::actions::{CreateFile, CreateFolder, RenameItem};
+use crate::actions::{CreateFile, CreateFolder, RenameItem, StressTestPlayground};
 use crate::fs::{self, read_request_method};
 use crate::helpers::{next_id, render_method_tag};
 use gpui::*;
@@ -31,6 +31,11 @@ pub enum ProjectPanelEvent {
     FileRenamed {
         node_id: usize,
         new_name: String,
+    },
+    StressTestPlayground {
+        path: String,
+
+        node_name: String,
     },
 }
 
@@ -117,7 +122,11 @@ impl ProjectPanel {
         dirs
     }
 
-    pub fn set_workspaces(&mut self, dirs: Vec<(String, PathBuf)>, cx: &mut Context<Self>) -> usize {
+    pub fn set_workspaces(
+        &mut self,
+        dirs: Vec<(String, PathBuf)>,
+        cx: &mut Context<Self>,
+    ) -> usize {
         self.workspaces = dirs
             .into_iter()
             .map(|(name, path)| Workspace {
@@ -267,6 +276,7 @@ impl ProjectPanel {
         };
 
         let rename_node_name = name.clone();
+        let stress_playground_node_path = path.clone();
 
         item = item.context_menu(move |menu, _, _| {
             let menu = if !is_file {
@@ -286,7 +296,15 @@ impl ProjectPanel {
                 )
                 .separator()
             } else {
-                menu
+                menu.menu(
+                    "Stress Test",
+                    Box::new(StressTestPlayground {
+                        path: stress_playground_node_path.clone(),
+                        node_id,
+                        node_name: rename_node_name.clone(),
+                    }),
+                )
+                .separator()
             };
             menu.menu(
                 "Rename",
@@ -370,6 +388,18 @@ impl ProjectPanel {
 
             item.children(children)
         }
+    }
+
+    pub fn activate_stress_test_playground(
+        &mut self,
+        action: &StressTestPlayground,
+        _window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        cx.emit(ProjectPanelEvent::StressTestPlayground {
+            path: action.path.clone(),
+            node_name: action.node_name.clone(),
+        });
     }
 
     pub fn confirm_create_file(

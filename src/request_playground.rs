@@ -198,7 +198,7 @@ impl RequestPlayground {
         cx.notify();
     }
 
-    fn current_content(&self, cx: &App) -> FileContent {
+    pub fn current_content(&self, cx: &App) -> FileContent {
         FileContent {
             name: self.snapshot.name.clone(),
             url: self.url.read(cx).value().to_string(),

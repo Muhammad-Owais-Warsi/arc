@@ -21,7 +21,7 @@ mod stress_testing;
 mod tab;
 mod tab_manager;
 
-use crate::actions::{CreateFile, CreateFolder, RenameItem};
+use crate::actions::{CreateFile, CreateFolder, RenameItem, StressTestPlayground};
 use crate::assets::Assets;
 use crate::env::EnvironmentStore;
 use crate::footer::{Footer, FooterEvent};
@@ -139,6 +139,11 @@ impl ApiClient {
                         tm.rename_tab(*node_id, new_name.clone(), cx);
                     });
                 }
+                ProjectPanelEvent::StressTestPlayground { path, node_name } => {
+                    tab_manager.update(cx, |tm, cx| {
+                        tm.add_stress_test_tab(window, cx, path.clone(), node_name.clone());
+                    });
+                }
             }
         })
         .detach();
@@ -205,6 +210,16 @@ impl ApiClient {
             .update(cx, |s, cx| s.handle_rename_item(action, window, cx));
     }
 
+    pub fn handle_stress_test_playground(
+        &mut self,
+        action: &StressTestPlayground,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.project_panel
+            .update(cx, |s, cx| s.activate_stress_test_playground(action, window, cx));
+    }
+
     fn render_footer(&mut self, cx: &mut Context<Self>) -> impl IntoElement {
         let has_tabs = self.tab_manager.read(cx).has_tabs();
         self.footer
@@ -224,6 +239,7 @@ impl Render for ApiClient {
             .on_action(cx.listener(Self::handle_create_file))
             .on_action(cx.listener(Self::handle_create_folder))
             .on_action(cx.listener(Self::handle_rename))
+            .on_action(cx.listener(Self::handle_stress_test_playground))
             .child(
                 TitleBar::new().h(px(40.)).bg(cx.theme().background).child(
                     h_flex().gap_2().items_center().px_2().w_full().child(

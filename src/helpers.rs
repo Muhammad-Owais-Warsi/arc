@@ -39,7 +39,7 @@ pub fn render_method_tag(method: &str) -> impl IntoElement {
 
         _ => Tag::color(ColorName::Neutral)
             .outline()
-            .child("Nan")
+            .child(method.to_string())
             .xsmall(),
     }
 }
