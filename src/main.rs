@@ -21,15 +21,20 @@ mod stress_testing;
 mod tab;
 mod tab_manager;
 
-use crate::actions::{CreateFile, CreateFolder, RenameItem, StressTestPlayground};
+use crate::actions::{
+    CreateFile, CreateFolder, DockSidebarLeft, DockSidebarRight, RenameItem, StressTestPlayground,
+};
 use crate::assets::Assets;
 use crate::env::EnvironmentStore;
 use crate::footer::{Footer, FooterEvent};
 use crate::list::{WorkspaceListItem, WorkspaceListItemEvent};
 use crate::project_panel::{ProjectPanel, ProjectPanelEvent};
+use crate::settings_panel::{AppSettings, SidebarDock};
 use crate::settings_window::SettingsWindow;
+use gpui::prelude::FluentBuilder;
 // use gpui::prelude::FluentBuilder as _;
 use gpui::*;
+use gpui_component::Side;
 use gpui_component::button::{Button, ButtonVariants};
 use gpui_component::list::{List, ListState};
 use gpui_component::popover::Popover;
@@ -216,8 +221,29 @@ impl ApiClient {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        self.project_panel
-            .update(cx, |s, cx| s.activate_stress_test_playground(action, window, cx));
+        self.project_panel.update(cx, |s, cx| {
+            s.activate_stress_test_playground(action, window, cx)
+        });
+    }
+
+    pub fn handle_dock_sidebar_left(
+        &mut self,
+        _: &DockSidebarLeft,
+        _window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        AppSettings::global_mut(cx).sidebar_dock = SidebarDock::Left;
+        cx.refresh_windows();
+    }
+
+    pub fn handle_dock_sidebar_right(
+        &mut self,
+        _: &DockSidebarRight,
+        _window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        AppSettings::global_mut(cx).sidebar_dock = SidebarDock::Right;
+        cx.refresh_windows();
     }
 
     fn render_footer(&mut self, cx: &mut Context<Self>) -> impl IntoElement {
@@ -240,6 +266,8 @@ impl Render for ApiClient {
             .on_action(cx.listener(Self::handle_create_folder))
             .on_action(cx.listener(Self::handle_rename))
             .on_action(cx.listener(Self::handle_stress_test_playground))
+            .on_action(cx.listener(Self::handle_dock_sidebar_left))
+            .on_action(cx.listener(Self::handle_dock_sidebar_right))
             .child(
                 TitleBar::new().h(px(40.)).bg(cx.theme().background).child(
                     h_flex().gap_2().items_center().px_2().w_full().child(
@@ -262,13 +290,25 @@ impl Render for ApiClient {
                     ),
                 ),
             )
-            .child(
+            .child({
                 div()
                     .flex_1()
                     .flex()
-                    .child(self.project_panel.clone())
-                    .child(self.tab_manager.clone()),
-            )
+                    .when(
+                        AppSettings::global(cx).sidebar_dock == SidebarDock::Right,
+                        |this| {
+                            this.child(self.tab_manager.clone())
+                                .child(self.project_panel.clone())
+                        },
+                    )
+                    .when(
+                        AppSettings::global(cx).sidebar_dock == SidebarDock::Left,
+                        |this| {
+                            this.child(self.project_panel.clone())
+                                .child(self.tab_manager.clone())
+                        },
+                    )
+            })
             .child(self.render_footer(cx))
     }
 }
@@ -304,6 +344,7 @@ fn main() {
     let app = gpui_platform::application().with_assets(Assets);
     app.run(move |cx| {
         gpui_component::init(cx);
+        cx.set_global::<AppSettings>(AppSettings::default());
 
         let theme_name = SharedString::from("One Dark");
         if let Some(theme) = ThemeRegistry::global(cx).themes().get(&theme_name).cloned() {

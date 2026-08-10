@@ -3,16 +3,50 @@ use crate::{
     icons::IconName,
 };
 use gpui::{
-    App, Context, Entity, IntoElement, ParentElement as _, Render, SharedString, Styled, Window, px,
+    App, Context, Entity, Global, IntoElement, ParentElement as _, Render, SharedString, Styled,
+    Window, px,
 };
 use gpui_component::{
-    Icon, Sizable, Size, Theme,
+    Icon, Side, Sizable, Size, Theme,
     group_box::GroupBoxVariant,
     setting::{NumberFieldOptions, SettingField, SettingGroup, SettingItem, SettingPage, Settings},
     v_flex,
 };
 
 use crate::env::EnvironmentStore;
+
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum SidebarDock {
+    #[default]
+    Left,
+    Right,
+}
+
+impl SidebarDock {
+    pub fn to_side(self) -> Side {
+        match self {
+            Self::Left => Side::Left,
+            Self::Right => Side::Right,
+        }
+    }
+}
+
+#[derive(Clone, Debug, Default)]
+pub struct AppSettings {
+    pub sidebar_dock: SidebarDock,
+}
+
+impl Global for AppSettings {}
+
+impl AppSettings {
+    pub fn global(cx: &App) -> &AppSettings {
+        cx.global::<AppSettings>()
+    }
+
+    pub fn global_mut(cx: &mut App) -> &mut AppSettings {
+        cx.global_mut::<AppSettings>()
+    }
+}
 
 pub struct SettingsPanel {
     store: Entity<EnvironmentStore>,
@@ -91,6 +125,44 @@ impl SettingsPanel {
         ]
     }
 
+    fn project_panel_settings() -> SettingPage {
+        SettingPage::new("Project Panel")
+            .resettable(true)
+            .icon(Icon::new(IconName::PanelLeftOpen))
+            .group(
+                SettingGroup::new().item(
+                    SettingItem::new(
+                        "Dock Position",
+                        SettingField::<SharedString>::dropdown(
+                            vec![
+                                ("left".into(), "Dock Left".into()),
+                                ("right".into(), "Dock Right".into()),
+                            ],
+                            |cx: &App| {
+                                let dock = AppSettings::global(cx).sidebar_dock;
+                                SharedString::from(if dock == SidebarDock::Right {
+                                    "right"
+                                } else {
+                                    "left"
+                                })
+                            },
+                            |val: SharedString, cx: &mut App| {
+                                AppSettings::global_mut(cx).sidebar_dock =
+                                    if val == "right" {
+                                        SidebarDock::Right
+                                    } else {
+                                        SidebarDock::Left
+                                    };
+                                cx.refresh_windows();
+                            },
+                        )
+                        .default_value("left"),
+                    )
+                    .description("Dock the file sidebar on the left or right."),
+                ),
+            )
+    }
+
     fn setting_pages(&self, cx: &Context<Self>) -> Vec<SettingPage> {
         let store = self.store.clone();
 
@@ -100,6 +172,7 @@ impl SettingsPanel {
                 .default_open(true)
                 .icon(Icon::new(IconName::Settings2))
                 .groups(Self::appearance_settings(cx)),
+            Self::project_panel_settings(),
             SettingPage::new("Environment")
                 .resettable(true)
                 .icon(Icon::new(IconName::Variable))

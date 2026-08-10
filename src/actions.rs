@@ -27,3 +27,11 @@ pub struct RenameItem {
     pub node_name: String,
     pub new_name: String,
 }
+
+#[derive(Clone, PartialEq, Action)]
+#[action(namespace = fs, no_json)]
+pub struct DockSidebarLeft;
+
+#[derive(Clone, PartialEq, Action)]
+#[action(namespace = fs, no_json)]
+pub struct DockSidebarRight;

@@ -2,6 +2,7 @@
 use crate::actions::{CreateFile, CreateFolder, RenameItem, StressTestPlayground};
 use crate::fs::{self, read_request_method};
 use crate::helpers::{next_id, render_method_tag};
+use crate::settings_panel::AppSettings;
 use gpui::*;
 // use gpui_component::Icon;
 use gpui_component::input::{Input, InputEvent, InputState};
@@ -655,10 +656,12 @@ impl Render for ProjectPanel {
             return Sidebar::new("api-sidebar")
                 .collapsible(SidebarCollapsible::Offcanvas)
                 .collapsed(self.sidebar_collapsed)
+                .side(AppSettings::global(cx).sidebar_dock.to_side())
                 .into_element();
         };
         let sidebar = Sidebar::new("api-sidebar")
             .collapsible(SidebarCollapsible::Offcanvas)
+            .side(AppSettings::global(cx).sidebar_dock.to_side())
             .collapsed(self.sidebar_collapsed)
             .child(SidebarGroup::new(&ws.name).child(
                 SidebarMenu::new().children(ws.root_id.iter().map(|&id| self.render_node(id, cx))),

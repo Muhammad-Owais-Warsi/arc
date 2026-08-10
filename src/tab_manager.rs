@@ -1,11 +1,14 @@
+use crate::actions::{DockSidebarLeft, DockSidebarRight};
 use crate::fs::read_request_file;
 use crate::helpers::next_id;
 use crate::playground::PlaygroundHandle;
 use crate::project_panel::ProjectPanel;
 use crate::request_playground::{RequestPlayground, RequestPlaygroundEvent};
+use crate::settings_panel::AppSettings;
 use crate::stress_testing::StressTesting;
 use crate::tab::{TabEvent, Tabs};
 use gpui::*;
+use gpui_component::menu::ContextMenuExt;
 use gpui_component::sidebar::SidebarToggleButton;
 use gpui_component::tab::{Tab, TabBar};
 use gpui_component::{ActiveTheme as _, button::*, *};
@@ -211,7 +214,41 @@ impl TabManager {
         (pg, tab_entity)
     }
 
-    fn render_tab_bar(&self, cx: &mut Context<Self>) -> AnyElement {
+    fn render_sidebar_toggle(&mut self, cx: &mut Context<Self>) -> impl IntoElement {
+        let sidebar_collapsed = self.sidebar_collapsed;
+        let dock_position = AppSettings::global(cx).sidebar_dock.to_side();
+
+        div()
+            .child(
+                SidebarToggleButton::new()
+                    .collapsed(sidebar_collapsed)
+                    .on_click(cx.listener(|this: &mut Self, _, _window, cx| {
+                        this.sidebar_collapsed = !this.sidebar_collapsed;
+
+                        let collapsed = this.sidebar_collapsed;
+
+                        this.project_panel.update(cx, |pp, cx| {
+                            pp.set_collapsed(collapsed, cx);
+                        });
+
+                        cx.notify();
+                    })),
+            )
+            .context_menu(move |menu, _window, _cx| {
+                menu.menu_with_check(
+                    "Dock Left",
+                    dock_position == Side::Left,
+                    Box::new(DockSidebarLeft),
+                )
+                .menu_with_check(
+                    "Dock Right",
+                    dock_position == Side::Right,
+                    Box::new(DockSidebarRight),
+                )
+            })
+    }
+
+    fn render_tab_bar(&mut self, cx: &mut Context<Self>) -> AnyElement {
         let tab_ids: Vec<usize> = self.tabs.keys().copied().collect();
         let selected = self
             .active_tab_id
@@ -228,17 +265,10 @@ impl TabManager {
             .h(px(32.))
             .with_size(gpui_component::Size::Large)
             .prefix(
-                h_flex().px(px(8.)).items_center().child(
-                    SidebarToggleButton::new()
-                        .collapsed(self.sidebar_collapsed)
-                        .on_click(cx.listener(|this: &mut Self, _, _window, cx| {
-                            this.sidebar_collapsed = !this.sidebar_collapsed;
-                            let collapsed = this.sidebar_collapsed;
-                            this.project_panel
-                                .update(cx, |pp, cx| pp.set_collapsed(collapsed, cx));
-                            cx.notify();
-                        })),
-                ),
+                h_flex()
+                    .px(px(8.))
+                    .items_center()
+                    .child(self.render_sidebar_toggle(cx)),
             )
             .selected_index(selected)
             .on_click(
