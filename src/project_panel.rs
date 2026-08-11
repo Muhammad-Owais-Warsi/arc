@@ -165,10 +165,22 @@ impl ProjectPanel {
     // Called after the recursive scan of one workspace completes.
     pub fn set_workspace_tree(&mut self, ix: usize, tree: DirTree, cx: &mut Context<Self>) {
         if let Some(ws) = self.workspaces.get_mut(ix) {
-            ws.nodes = tree.nodes;
-            ws.root_id = tree.root_ids;
+            let mut nodes = tree.nodes;
+            let root_id = next_id();
+            nodes.insert(
+                root_id,
+                Node {
+                    id: root_id,
+                    path: ws.path.clone(),
+                    name: ws.name.clone(),
+                    method: String::new(),
+                    is_file: false,
+                    children: tree.root_ids,
+                },
+            );
+            ws.nodes = nodes;
+            ws.root_id = vec![root_id]; // the workspace folder is now the tree root
         }
-
         cx.notify();
     }
 
@@ -239,7 +251,7 @@ impl ProjectPanel {
         false
     }
 
-    pub fn render_node(&self, node_id: usize, cx: &mut Context<Self>) -> SidebarMenuItem {
+    pub fn render_node(&mut self, node_id: usize, cx: &mut Context<Self>) -> SidebarMenuItem {
         let Some(ws) = self.workspaces.get(self.selected_workspace) else {
             return SidebarMenuItem::new("???".to_string());
         };
@@ -251,6 +263,10 @@ impl ProjectPanel {
         let name = node.name.clone();
         let method = node.method.clone();
         let path = node.path.clone();
+        let children_ids: Vec<usize> = node.children.clone();
+        let workspace_path = ws.path.clone();
+        // `node` and `ws` are no longer referenced after this point,
+        // so the borrow of `self.workspaces` ends here (NLL).
 
         let method_for_suffix = method.clone();
         let _node_id_for_click = node_id;
@@ -278,6 +294,7 @@ impl ProjectPanel {
 
         let rename_node_name = name.clone();
         let stress_playground_node_path = path.clone();
+        let path_for_menu = path.clone(); // clone for the context_menu closure
 
         item = item.context_menu(move |menu, _, _| {
             let menu = if !is_file {
@@ -307,15 +324,20 @@ impl ProjectPanel {
                 )
                 .separator()
             };
-            menu.menu(
-                "Rename",
-                // IconName::Rename,
-                Box::new(RenameItem {
-                    node_id,
-                    node_name: rename_node_name.clone(),
-                    new_name: String::new(),
-                }),
-            )
+
+            if workspace_path != path_for_menu {
+                menu.menu(
+                    "Rename",
+                    // IconName::Rename,
+                    Box::new(RenameItem {
+                        node_id,
+                        node_name: rename_node_name.clone(),
+                        new_name: String::new(),
+                    }),
+                )
+            } else {
+                menu
+            }
         });
 
         let is_active = self.active_node_id == Some(node_id);
@@ -326,13 +348,14 @@ impl ProjectPanel {
                 IconName::FolderOpen
             } else {
                 IconName::Folder
-            })
+            });
+            // cx.notify();
         }
 
         if is_file {
             let name_for_click = name.clone();
-            let path_for_click = path.clone();
-            let method_for_click = node.method.clone();
+            let path_for_click = path.clone(); // `path` still owned here, untouched by the closure above
+            let method_for_click = method.clone();
             item = item.on_click(cx.listener(move |this, _event, _window, cx| {
                 this.active_node_id = Some(node_id);
                 cx.emit(ProjectPanelEvent::FileActivated {
@@ -354,7 +377,7 @@ impl ProjectPanel {
             .as_ref()
             .map_or(false, |(pid, _)| *pid == node_id);
 
-        if node.children.is_empty() && !is_pending_file && !is_pending_folder {
+        if children_ids.is_empty() && !is_pending_file && !is_pending_folder {
             item
         } else {
             let mut children = Vec::new();
@@ -382,7 +405,7 @@ impl ProjectPanel {
             }
 
             children.extend(
-                node.children
+                children_ids
                     .iter()
                     .map(|&child_id| self.render_node(child_id, cx)),
             );
@@ -659,14 +682,17 @@ impl Render for ProjectPanel {
                 .side(AppSettings::global(cx).sidebar_dock.to_side())
                 .into_element();
         };
+
+        let ws_name = ws.name.clone();
+        let root_ids: Vec<usize> = ws.root_id.clone();
+
         let sidebar = Sidebar::new("api-sidebar")
             .collapsible(SidebarCollapsible::Offcanvas)
             .side(AppSettings::global(cx).sidebar_dock.to_side())
             .collapsed(self.sidebar_collapsed)
-            .child(SidebarGroup::new(&ws.name).child(
-                SidebarMenu::new().children(ws.root_id.iter().map(|&id| self.render_node(id, cx))),
+            .child(SidebarGroup::new(&ws_name).child(
+                SidebarMenu::new().children(root_ids.iter().map(|&id| self.render_node(id, cx))),
             ));
-
         sidebar.into_element()
     }
 }
