@@ -22,7 +22,8 @@ mod tab;
 mod tab_manager;
 
 use crate::actions::{
-    CreateFile, CreateFolder, DockSidebarLeft, DockSidebarRight, RenameItem, StressTestPlayground,
+    CopyPath, CopyRelativePath, CreateFile, CreateFolder, DockSidebarLeft, DockSidebarRight,
+    RenameItem, StressTestPlayground,
 };
 use crate::assets::Assets;
 use crate::env::EnvironmentStore;
@@ -149,6 +150,12 @@ impl ApiClient {
                         tm.add_stress_test_tab(window, cx, path.clone(), node_name.clone());
                     });
                 }
+                ProjectPanelEvent::CopyPath { path } => {
+                    cx.write_to_clipboard(ClipboardItem::new_string(path.clone()));
+                }
+                ProjectPanelEvent::CopyRelativePath { path } => {
+                    cx.write_to_clipboard(ClipboardItem::new_string(path.clone()));
+                }
             }
         })
         .detach();
@@ -246,6 +253,24 @@ impl ApiClient {
         cx.refresh_windows();
     }
 
+    pub fn handle_copy_path(
+        &mut self,
+        action: &CopyPath,
+        _window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        cx.write_to_clipboard(ClipboardItem::new_string(action.path.clone()));
+    }
+
+    pub fn handle_copy_relative_path(
+        &mut self,
+        action: &CopyRelativePath,
+        _window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        cx.write_to_clipboard(ClipboardItem::new_string(action.path.clone()));
+    }
+
     fn render_footer(&mut self, cx: &mut Context<Self>) -> impl IntoElement {
         let has_tabs = self.tab_manager.read(cx).has_tabs();
         self.footer
@@ -266,6 +291,8 @@ impl Render for ApiClient {
             .on_action(cx.listener(Self::handle_create_folder))
             .on_action(cx.listener(Self::handle_rename))
             .on_action(cx.listener(Self::handle_stress_test_playground))
+            .on_action(cx.listener(Self::handle_copy_path))
+            .on_action(cx.listener(Self::handle_copy_relative_path))
             .on_action(cx.listener(Self::handle_dock_sidebar_left))
             .on_action(cx.listener(Self::handle_dock_sidebar_right))
             .child(

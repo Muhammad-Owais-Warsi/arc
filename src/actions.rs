@@ -30,6 +30,18 @@ pub struct RenameItem {
 
 #[derive(Clone, PartialEq, Action)]
 #[action(namespace = fs, no_json)]
+pub struct CopyPath {
+    pub path: String,
+}
+
+#[derive(Clone, PartialEq, Action)]
+#[action(namespace = fs, no_json)]
+pub struct CopyRelativePath {
+    pub path: String,
+}
+
+#[derive(Clone, PartialEq, Action)]
+#[action(namespace = fs, no_json)]
 pub struct DockSidebarLeft;
 
 #[derive(Clone, PartialEq, Action)]

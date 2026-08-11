@@ -1,5 +1,7 @@
 // use gpui::Window;
-use crate::actions::{CreateFile, CreateFolder, RenameItem, StressTestPlayground};
+use crate::actions::{
+    CopyPath, CopyRelativePath, CreateFile, CreateFolder, RenameItem, StressTestPlayground,
+};
 use crate::fs::{self, read_request_method};
 use crate::helpers::{next_id, render_method_tag};
 use crate::settings_panel::AppSettings;
@@ -8,7 +10,7 @@ use gpui::*;
 use gpui_component::input::{Input, InputEvent, InputState};
 
 use crate::icons::IconName;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 // use gpui_component::sidebar::Sidebar;
 use gpui_component::sidebar::{
     Sidebar, SidebarCollapsible, SidebarGroup, SidebarMenu, SidebarMenuItem,
@@ -35,8 +37,13 @@ pub enum ProjectPanelEvent {
     },
     StressTestPlayground {
         path: String,
-
         node_name: String,
+    },
+    CopyPath {
+        path: String,
+    },
+    CopyRelativePath {
+        path: String,
     },
 }
 
@@ -276,25 +283,34 @@ impl ProjectPanel {
             .as_ref()
             .map_or(false, |(id, _)| *id == node_id);
 
+        // let is_active = self.active_node_id == Some(node_id);
+
         let mut item = if is_renaming {
             let input = self.rename_item.as_ref().unwrap().1.clone();
             SidebarMenuItem::new("")
                 .suffix(move |_, _| Input::new(&input).appearance(false).into_any_element())
         } else {
-            SidebarMenuItem::new(name.clone()).suffix(move |_, _| {
-                if is_file {
-                    div()
-                        .child(render_method_tag(&method_for_suffix))
-                        .into_any_element()
-                } else {
-                    div().into_any_element()
-                }
-            })
+            SidebarMenuItem::new(name.clone())
+                // .active(is_active)
+                .suffix(move |_, _| {
+                    if is_file {
+                        div()
+                            .child(render_method_tag(&method_for_suffix))
+                            .into_any_element()
+                    } else {
+                        div().into_any_element()
+                    }
+                })
         };
 
         let rename_node_name = name.clone();
         let stress_playground_node_path = path.clone();
-        let path_for_menu = path.clone(); // clone for the context_menu closure
+        let path_for_menu = path.clone(); // for the `workspace_path != path_for_menu` comparison
+        let path_for_copy = path.clone(); // for CopyPath
+        let path_for_copy_relative = Path::new(&path)
+            .strip_prefix(&workspace_path)
+            .map(|rel| rel.to_string_lossy().into_owned())
+            .unwrap_or_default(); // empty for the workspace root / non-workspace paths
 
         item = item.context_menu(move |menu, _, _| {
             let menu = if !is_file {
@@ -324,6 +340,21 @@ impl ProjectPanel {
                 )
                 .separator()
             };
+
+            let menu = menu
+                .menu(
+                    "Copy Path",
+                    Box::new(CopyPath {
+                        path: path_for_copy.clone(),
+                    }),
+                )
+                .menu(
+                    "Copy Relative Path",
+                    Box::new(CopyRelativePath {
+                        path: path_for_copy_relative.clone(),
+                    }),
+                )
+                .separator();
 
             if workspace_path != path_for_menu {
                 menu.menu(
