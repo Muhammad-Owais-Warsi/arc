@@ -6,10 +6,17 @@ use crate::request_playground::RequestPlayground;
 use crate::response_panel::ResponsePanel;
 use std::path::Path;
 
+pub enum StressTestingStatus {
+    Running,
+    Cancelled,
+}
+
 pub struct StressTesting {
     request_playground: Option<WeakEntity<RequestPlayground>>,
     path: String,
     request_per_second: usize,
+    status: StressTestingStatus,
+    duration: std::time::Duration,
 }
 
 impl StressTesting {
@@ -18,6 +25,8 @@ impl StressTesting {
             request_playground,
             path,
             request_per_second: 5,
+            status: StressTestingStatus::Cancelled,
+            duration: std::time::Duration::ZERO,
         }
     }
 

@@ -10,7 +10,7 @@ use gpui_component::{ActiveTheme, ColorName, Icon, Sizable, StyledExt, h_flex, v
 use crate::helpers::format_size;
 use crate::icons::IconName;
 
-use crate::http::Response;
+use crate::http_response::Response;
 
 #[derive(Clone)]
 pub struct ResponsePanel {

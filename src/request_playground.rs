@@ -4,7 +4,7 @@ use gpui_component::button::{Button, ButtonVariants};
 use gpui_component::clipboard::Clipboard;
 use gpui_component::input::Input;
 use gpui_component::scroll::ScrollableElement;
-use gpui_component::{ActiveTheme, Disableable, StyledExt, h_flex};
+use gpui_component::{ActiveTheme, StyledExt, h_flex};
 use gpui_component::{
     IndexPath,
     input::{InputEvent, InputState},
@@ -14,7 +14,8 @@ use gpui_component::{
 };
 
 use crate::fs;
-use crate::http::{self, AuthPayload, Response};
+use crate::http_client::HttpClient;
+use crate::http_response::{AuthPayload, RequestStats, Response, ResponseBody, ResponseHeaders};
 use crate::playground::Playground;
 use crate::{
     auth::{Auth, AuthEvent, AuthType},
@@ -35,7 +36,7 @@ pub struct RequestPlayground {
     headers: Entity<Headers>,
     body: Entity<Body>,
     selected_config: usize,
-    pending: bool,
+    pending: Option<tokio::task::AbortHandle>,
     dirty: bool,
     response_panel: Entity<ResponsePanel>,
     snapshot: FileContent,
@@ -97,7 +98,7 @@ impl RequestPlayground {
             headers,
             body,
             selected_config: 0,
-            pending: false,
+            pending: None,
             dirty: false,
             response_panel,
             snapshot: FileContent::default(),
@@ -318,17 +319,19 @@ impl RequestPlayground {
 
         response_panel.update(cx, |panel, cx| panel.open(cx));
 
+        let request = HttpClient::global()
+            .request(&method_str, &url_str)
+            .headers(headers)
+            .queries(query_params)
+            .body(&body)
+            .auth(auth);
+        let pending = HttpClient::global().send(&request);
+        self.pending = Some(pending.cancel_handle());
+        // cx.notify();
+
         let rp = response_panel;
         cx.spawn(async move |this, cx| {
-            let result = http::HttpRequest::new()
-                .url(&url_str)
-                .method(&method_str)
-                .headers(headers)
-                .queries(query_params)
-                .body(&body)
-                .auth(auth)
-                .send()
-                .await;
+            let result = pending.wait().await;
             let _ = this.update_in(cx, |_this, window, cx| {
                 match result {
                     Ok(response) => {
@@ -342,16 +345,16 @@ impl RequestPlayground {
                                 Response {
                                     status_code: 0,
                                     status_text: "Error".to_string(),
-                                    headers: http::ResponseHeaders {
+                                    headers: ResponseHeaders {
                                         headers: vec![],
                                         response_size: 0,
                                     },
-                                    body: http::ResponseBody {
+                                    body: ResponseBody {
                                         body: format!("Error: {err}"),
                                         response_size: 0,
                                     },
                                     cookies: vec![],
-                                    request: http::RequestStats {
+                                    request: RequestStats {
                                         header_size: 0,
                                         body_size: 0,
                                         size: 0,
@@ -365,7 +368,7 @@ impl RequestPlayground {
                         });
                     }
                 }
-                _this.pending = false;
+                _this.pending = None;
                 cx.notify();
             });
         })
@@ -399,15 +402,26 @@ impl RequestPlayground {
             )
             .child(
                 Button::new("send")
-                    .primary()
-                    .icon(IconName::Send)
-                    .label("Send")
-                    .disabled(self.pending)
-                    .loading(self.pending)
-                    .loading_icon(IconName::Spinner)
+                    .when(self.pending.is_some(), |this| this.danger())
+                    .when(self.pending.is_none(), |this| this.primary())
+                    .icon(if self.pending.is_some() {
+                        IconName::Stop
+                    } else {
+                        IconName::Send
+                    })
+                    .label(if self.pending.is_some() {
+                        "Stop"
+                    } else {
+                        "Send"
+                    })
                     .on_click(cx.listener(|this: &mut Self, _, window, cx| {
-                        this.pending = true;
-                        this.send_request(window, cx);
+                        if this.pending.is_some() {
+                            if let Some(abort) = this.pending.take() {
+                                abort.abort();
+                            }
+                        } else {
+                            this.send_request(window, cx);
+                        }
                         cx.notify();
                     })),
             )
@@ -504,6 +518,14 @@ impl Render for RequestPlayground {
                 .into_any_element()
         } else {
             editor_content.into_any_element()
+        }
+    }
+}
+
+impl Drop for RequestPlayground {
+    fn drop(&mut self) {
+        if let Some(abort) = self.pending.take() {
+            abort.abort();
         }
     }
 }
