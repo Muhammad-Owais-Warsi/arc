@@ -4,9 +4,10 @@ use crate::helpers::next_id;
 use crate::playground::PlaygroundHandle;
 use crate::project_panel::ProjectPanel;
 use crate::request_playground::{RequestPlayground, RequestPlaygroundEvent};
-use crate::settings_panel::AppSettings;
+use crate::settings_panel::{AppSettings, SidebarDock};
 use crate::stress_testing::StressTesting;
 use crate::tab::{TabEvent, Tabs};
+use gpui::prelude::FluentBuilder;
 use gpui::*;
 use gpui_component::menu::ContextMenuExt;
 use gpui_component::sidebar::SidebarToggleButton;
@@ -115,7 +116,7 @@ impl TabManager {
             .and_then(|content| content.entity().downcast::<RequestPlayground>().ok())
             .map(|pg| pg.downgrade());
 
-        let stress_test_playground = cx.new(|cx| StressTesting::new(source, path));
+        let stress_test_playground = cx.new(|cx| StressTesting::new(source, path, window, cx));
 
         let content: Box<dyn PlaygroundHandle> = stress_test_playground.clone_box();
         let tab_entity = cx.new(|cx| Tabs::new(tab_key, tab_key, node_name, content));
@@ -261,6 +262,8 @@ impl TabManager {
             .map(|(_, tab)| tab.update(cx, |this, cx| this.to_tab_element(cx)))
             .collect();
 
+        let sidebar_dock = AppSettings::global(cx).sidebar_dock;
+
         TabBar::new("tabs")
             .h(px(32.))
             .with_size(gpui_component::Size::Large)
@@ -268,7 +271,12 @@ impl TabManager {
                 h_flex()
                     .px(px(8.))
                     .items_center()
-                    .child(self.render_sidebar_toggle(cx)),
+                    .when(sidebar_dock == SidebarDock::Left, |tb| {
+                        tb.child(self.render_sidebar_toggle(cx))
+                    })
+                    .when(sidebar_dock == SidebarDock::Right, |tb| {
+                        tb.child(self.render_new_tab_button(cx))
+                    }),
             )
             .selected_index(selected)
             .on_click(
@@ -286,7 +294,12 @@ impl TabManager {
                 }),
             )
             .track_scroll(&self.scroll_handle)
-            .suffix(self.render_new_tab_button(cx))
+            .when(sidebar_dock == SidebarDock::Left, |tb| {
+                tb.suffix(self.render_new_tab_button(cx))
+            })
+            .when(sidebar_dock == SidebarDock::Right, |tb| {
+                tb.suffix(self.render_sidebar_toggle(cx))
+            })
             .children(tabs)
             .into_any_element()
     }

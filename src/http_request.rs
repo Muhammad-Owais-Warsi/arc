@@ -1,3 +1,5 @@
+use crate::auth::AuthType;
+use crate::fs::FileContent;
 use crate::http_response::AuthPayload;
 
 #[derive(Clone)]
@@ -18,6 +20,55 @@ impl HttpRequest {
             headers: vec![],
             body: String::new(),
             auth: AuthPayload::None,
+        }
+    }
+
+    pub fn from_file_content(content: &FileContent) -> Self {
+        let auth = match &content.auth.auth_type {
+            AuthType::Basic => {
+                if !content.auth.username.is_empty() && !content.auth.password.is_empty() {
+                    AuthPayload::Basic {
+                        username: content.auth.username.clone(),
+                        password: content.auth.password.clone(),
+                    }
+                } else {
+                    AuthPayload::None
+                }
+            }
+            AuthType::Bearer => {
+                if !content.auth.token.is_empty() {
+                    AuthPayload::Bearer {
+                        token: content.auth.token.clone(),
+                    }
+                } else {
+                    AuthPayload::None
+                }
+            }
+            AuthType::None => AuthPayload::None,
+        };
+
+        // Convert KeyValue to (String, String) and filter active only
+        let query_params: Vec<(String, String)> = content
+            .params
+            .iter()
+            .filter(|kv| kv.active)
+            .map(|kv| (kv.key.clone(), kv.value.clone()))
+            .collect();
+
+        let headers: Vec<(String, String)> = content
+            .headers
+            .iter()
+            .filter(|kv| kv.active)
+            .map(|kv| (kv.key.clone(), kv.value.clone()))
+            .collect();
+
+        Self {
+            url: content.url.clone(),
+            method: content.method.clone(),
+            query_params,
+            headers,
+            body: content.body.body.clone(),
+            auth,
         }
     }
     pub fn method(mut self, method: &str) -> Self {

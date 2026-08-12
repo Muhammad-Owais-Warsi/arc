@@ -19,6 +19,7 @@ mod request_playground;
 mod response_panel;
 mod settings_panel;
 mod settings_window;
+mod stress_engine;
 mod stress_testing;
 mod tab;
 mod tab_manager;
