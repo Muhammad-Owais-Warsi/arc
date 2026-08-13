@@ -9,7 +9,7 @@ use crate::stress_engine::{RequestMetric, StressEngine, StressTestConfig, Stress
 use gpui::prelude::FluentBuilder;
 use gpui::*;
 use gpui_component::button::{Button, ButtonVariants};
-use gpui_component::chart::LineChart;
+use gpui_component::chart::AreaChart;
 use gpui_component::input::{Input, InputState, NumberInput};
 use gpui_component::{ActiveTheme, StyledExt};
 use std::path::Path;
@@ -22,8 +22,19 @@ pub enum StressTestingStatus {
 
 #[derive(Clone)]
 struct DataPoint {
+    timestamp: f64,
     x: String,
     y: f64,
+    success: bool,
+}
+
+fn format_duration(duration: std::time::Duration) -> String {
+    let total_secs = duration.as_secs_f64();
+    if total_secs >= 60.0 {
+        format!("{}m {:02.0}s", total_secs as u64 / 60, total_secs % 60.0)
+    } else {
+        format!("{:.1}s", total_secs)
+    }
 }
 
 pub struct StressTesting {
@@ -34,9 +45,10 @@ pub struct StressTesting {
     duration: Entity<InputState>,
     url_display: Entity<InputState>,
     data: Vec<DataPoint>,
-    // Stress test state
     cancel_token: Option<CancellationToken>,
     stats: StressTestStats,
+    started_at: Option<std::time::Instant>,
+    elapsed: std::time::Duration,
 }
 
 impl StressTesting {
@@ -57,11 +69,11 @@ impl StressTesting {
 
         let duration_counter = cx.new(|cx| {
             InputState::new(window, cx)
-                .placeholder("Duration (min)")
-                .default_value("1")
+                .placeholder("Duration (sec)")
+                .default_value("10")
                 .step(1.)
                 .min(1.)
-                .max(10.)
+                .max(30.)
         });
 
         let url_display = cx.new(|cx| InputState::new(window, cx));
@@ -76,6 +88,8 @@ impl StressTesting {
             data: vec![],
             cancel_token: None,
             stats: StressTestStats::new(),
+            started_at: None,
+            elapsed: std::time::Duration::ZERO,
         }
     }
 
@@ -88,8 +102,8 @@ impl StressTesting {
     }
 
     fn duration_value(&self, cx: &App) -> std::time::Duration {
-        let minutes: f64 = self.duration.read(cx).value().parse().unwrap_or(1.0);
-        std::time::Duration::from_secs_f64(minutes * 60.0)
+        let seconds: f64 = self.duration.read(cx).value().parse().unwrap_or(10.0);
+        std::time::Duration::from_secs_f64(seconds)
     }
 
     fn rps_value(&self, cx: &App) -> usize {
@@ -107,11 +121,17 @@ impl StressTesting {
     fn toggle_run(&mut self, _window: &mut Window, cx: &mut Context<Self>) {
         match self.status {
             StressTestingStatus::Running => {
-                // STOP the test
                 if let Some(token) = &self.cancel_token {
                     token.cancel();
                 }
                 self.cancel_token = None;
+                // self.is_running = false;
+                if self.started_at.is_some() {
+                    self.elapsed = self
+                        .started_at
+                        .take()
+                        .map_or(std::time::Duration::ZERO, |started| started.elapsed());
+                }
                 self.status = StressTestingStatus::Cancelled;
                 cx.notify();
             }
@@ -119,27 +139,24 @@ impl StressTesting {
                 self.status = StressTestingStatus::Running;
                 self.data.clear();
                 self.stats = StressTestStats::new();
+                self.started_at = Some(std::time::Instant::now());
+                self.elapsed = std::time::Duration::ZERO;
 
-                // Get configuration
                 let config = self.config(cx);
                 let request = HttpRequest::from_file_content(&config);
                 let rps = self.rps_value(cx);
                 let duration = self.duration_value(cx);
 
-                // Create test config
                 let test_config = StressTestConfig {
                     request,
                     requests_per_second: rps,
                     duration_secs: duration.as_secs(),
-                    background_executor: cx.background_executor().clone(),
                 };
 
-                // Start the stress test
                 let handle = StressEngine::start(test_config);
                 let (cancel_token, mut metrics_rx) = handle.split();
                 self.cancel_token = Some(cancel_token);
 
-                // Spawn task to process incoming metrics
                 cx.spawn(async move |this, cx| {
                     while let Some(metric) = metrics_rx.recv().await {
                         let _ = this.update(cx, |this, cx| {
@@ -147,12 +164,32 @@ impl StressTesting {
                         });
                     }
 
-                    // Test completed
                     let _ = this.update(cx, |this, cx| {
                         this.cancel_token = None;
+                        if let Some(started) = this.started_at.take() {
+                            this.elapsed = started.elapsed();
+                        }
                         this.status = StressTestingStatus::Cancelled;
                         cx.notify();
                     });
+                })
+                .detach();
+
+                cx.spawn(async move |this, cx| {
+                    while this
+                        .update(cx, |this, cx| {
+                            if !this.is_running() {
+                                return false;
+                            }
+                            cx.notify();
+                            true
+                        })
+                        .unwrap_or(false)
+                    {
+                        cx.background_executor()
+                            .timer(std::time::Duration::from_millis(250))
+                            .await;
+                    }
                 })
                 .detach();
 
@@ -162,14 +199,20 @@ impl StressTesting {
     }
 
     fn process_metric(&mut self, metric: RequestMetric, cx: &mut Context<Self>) {
-        // Update stats
         self.stats.update(&metric);
 
-        // Add to chart data (keep last 100 points for performance)
-        self.data.push(DataPoint {
+        let data_point = DataPoint {
+            timestamp: metric.timestamp,
             x: format!("{:.1}s", metric.timestamp),
             y: metric.response_time_ms,
-        });
+            success: metric.success,
+        };
+
+        let idx = self
+            .data
+            .partition_point(|p| p.timestamp <= data_point.timestamp);
+
+        self.data.insert(idx, data_point);
 
         if self.data.len() > 100 {
             self.data.remove(0);
@@ -181,6 +224,9 @@ impl StressTesting {
     fn config_bar(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let config = self.config(cx);
         let is_running = self.is_running();
+        let elapsed = self
+            .started_at
+            .map_or(self.elapsed, |started| started.elapsed());
 
         self.url_display.update(cx, |state, cx| {
             if state.value() != config.url {
@@ -194,7 +240,6 @@ impl StressTesting {
             .gap_3()
             .p_4()
             .child(
-                // URL + Start/Stop on the same line
                 div()
                     .h_flex()
                     .items_center()
@@ -224,7 +269,6 @@ impl StressTesting {
                     ),
             )
             .child(
-                // RPS + Duration, packed together
                 div()
                     .h_flex()
                     .items_center()
@@ -241,7 +285,7 @@ impl StressTesting {
                                     .text_color(cx.theme().muted_foreground)
                                     .child("RPS:"),
                             )
-                            .child(NumberInput::new(&self.request_per_second).w(px(100.))),
+                            .child(NumberInput::new(&self.request_per_second).w(px(140.))),
                     )
                     .child(
                         div()
@@ -253,9 +297,28 @@ impl StressTesting {
                                     .text_xs()
                                     .font_medium()
                                     .text_color(cx.theme().muted_foreground)
-                                    .child("Duration (min):"),
+                                    .child("Duration (sec):"),
                             )
-                            .child(NumberInput::new(&self.duration).w(px(100.))),
+                            .child(NumberInput::new(&self.duration).w(px(120.))),
+                    )
+                    .child(
+                        div()
+                            .h_flex()
+                            .items_center()
+                            .gap_2()
+                            .child(
+                                div()
+                                    .text_xs()
+                                    .font_medium()
+                                    .text_color(cx.theme().muted_foreground)
+                                    .child("Elapsed:"),
+                            )
+                            .child(
+                                div()
+                                    .text_sm()
+                                    .font_semibold()
+                                    .child(format_duration(elapsed)),
+                            ),
                     ),
             )
     }
@@ -263,99 +326,58 @@ impl StressTesting {
     fn stats_panel(&self, cx: &mut Context<Self>) -> impl IntoElement {
         div()
             .h_flex()
-            .gap_6()
+            .w_full()
+            .justify_between()
             .px_4()
             .py_3()
             .bg(cx.theme().background)
             .border_1()
             .border_color(cx.theme().border)
             .rounded_md()
+            .child(self.stat_block("Total", self.stats.total_requests.to_string(), None, cx))
+            .child(self.stat_block(
+                "Success",
+                self.stats.successful_requests.to_string(),
+                None,
+                cx,
+            ))
+            .child(self.stat_block("Failed", self.stats.failed_requests.to_string(), None, cx))
+            .child(self.stat_block(
+                "Success Rate",
+                format!("{:.1}%", self.stats.success_rate()),
+                None,
+                cx,
+            ))
+            .child(self.stat_block(
+                "Avg Latency",
+                format!("{:.1}ms", self.stats.avg_latency_ms),
+                None,
+                cx,
+            ))
+    }
+
+    fn stat_block(
+        &self,
+        label: &str,
+        value: String,
+        color: Option<Hsla>,
+        cx: &mut Context<Self>,
+    ) -> impl IntoElement {
+        div()
+            .v_flex()
+            .gap_1()
             .child(
                 div()
-                    .v_flex()
-                    .gap_1()
-                    .child(
-                        div()
-                            .text_xs()
-                            .text_color(cx.theme().muted_foreground)
-                            .child("Total"),
-                    )
-                    .child(
-                        div()
-                            .text_2xl()
-                            .font_bold()
-                            .child(self.stats.total_requests.to_string()),
-                    ),
+                    .text_xs()
+                    .text_color(color.unwrap_or(cx.theme().muted_foreground))
+                    .child(label.to_string()),
             )
             .child(
                 div()
-                    .v_flex()
-                    .gap_1()
-                    .child(
-                        div()
-                            .text_xs()
-                            .text_color(cx.theme().success_foreground)
-                            .child("Success"),
-                    )
-                    .child(
-                        div()
-                            .text_2xl()
-                            .font_bold()
-                            .text_color(cx.theme().success_foreground)
-                            .child(self.stats.successful_requests.to_string()),
-                    ),
-            )
-            .child(
-                div()
-                    .v_flex()
-                    .gap_1()
-                    .child(
-                        div()
-                            .text_xs()
-                            .text_color(cx.theme().danger_foreground)
-                            .child("Failed"),
-                    )
-                    .child(
-                        div()
-                            .text_2xl()
-                            .font_bold()
-                            .text_color(cx.theme().danger_foreground)
-                            .child(self.stats.failed_requests.to_string()),
-                    ),
-            )
-            .child(
-                div()
-                    .v_flex()
-                    .gap_1()
-                    .child(
-                        div()
-                            .text_xs()
-                            .text_color(cx.theme().muted_foreground)
-                            .child("Success Rate"),
-                    )
-                    .child(
-                        div()
-                            .text_2xl()
-                            .font_bold()
-                            .child(format!("{:.1}%", self.stats.success_rate())),
-                    ),
-            )
-            .child(
-                div()
-                    .v_flex()
-                    .gap_1()
-                    .child(
-                        div()
-                            .text_xs()
-                            .text_color(cx.theme().muted_foreground)
-                            .child("Avg Latency"),
-                    )
-                    .child(
-                        div()
-                            .text_2xl()
-                            .font_bold()
-                            .child(format!("{:.1}ms", self.stats.avg_latency_ms)),
-                    ),
+                    .text_2xl()
+                    .font_bold()
+                    .when_some(color, |this, c| this.text_color(c))
+                    .child(value),
             )
     }
 
@@ -373,7 +395,7 @@ impl StressTesting {
                 div()
                     .text_xs()
                     .text_color(cx.theme().muted_foreground)
-                    .child("Latency (ms) per request, live"),
+                    .child("Latency (ms) per request"),
             )
             .child(
                 div()
@@ -383,12 +405,19 @@ impl StressTesting {
                     .pt_4()
                     .when(!self.data.is_empty(), |this| {
                         this.child(
-                            LineChart::new(self.data.clone())
+                            AreaChart::new(self.data.clone())
                                 .x(|d: &DataPoint| d.x.clone())
-                                .y(|d: &DataPoint| d.y)
+                                .y(|d: &DataPoint| if d.success { d.y } else { 0.0 })
                                 .stroke(cx.theme().chart_1)
+                                .fill(transparent_black())
+                                .name("Latency")
                                 .linear()
-                                .dot(),
+                                .y(|d: &DataPoint| if d.success { 0.0 } else { d.y })
+                                .stroke(cx.theme().danger)
+                                .fill(transparent_black())
+                                .name("Failed")
+                                .tick_margin((self.data.len() / 10).max(1))
+                                .id("stress-chart"),
                         )
                     }),
             )
@@ -413,10 +442,8 @@ impl Render for StressTesting {
             .bg(cx.theme().background)
             .child(self.config_bar(window, cx))
             .child(div().h(px(1.)).w_full().my_3().bg(cx.theme().border))
-            .when(self.stats.total_requests > 0, |this| {
-                this.child(self.stats_panel(cx))
-                    .child(div().h(px(1.)).w_full().my_3().bg(cx.theme().border))
-            })
+            .child(self.stats_panel(cx))
+            .child(div().h(px(1.)).w_full().my_3().bg(cx.theme().border))
             .child(self.graph_panel(cx))
     }
 }

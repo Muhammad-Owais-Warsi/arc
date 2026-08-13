@@ -39,10 +39,10 @@ impl HttpClient {
             client: reqwest::Client::new(),
         })
     }
-    fn runtime() -> &'static tokio::runtime::Runtime {
+    pub fn runtime() -> &'static tokio::runtime::Runtime {
         RUNTIME.get_or_init(|| {
             tokio::runtime::Builder::new_multi_thread()
-                .worker_threads(1)
+                .worker_threads(4)
                 .enable_all()
                 .build()
                 .expect("failed to build tokio runtime")

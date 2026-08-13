@@ -1,30 +1,27 @@
 use crate::http_client::HttpClient;
 use crate::http_request::HttpRequest;
-use gpui::BackgroundExecutor;
 use std::sync::Arc;
 use std::time::Instant;
 use tokio::sync::mpsc;
 use tokio_util::sync::CancellationToken;
 
-/// Lightweight metric for stress testing - minimal memory footprint
+const REQUEST_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(5);
+
 #[derive(Debug, Clone)]
 pub struct RequestMetric {
-    pub timestamp: f64, // seconds since test start
+    pub timestamp: f64,
     pub response_time_ms: f64,
     pub status_code: u16,
     pub success: bool,
     pub response_size: usize,
 }
 
-/// Configuration for stress test run
 pub struct StressTestConfig {
     pub request: HttpRequest,
     pub requests_per_second: usize,
     pub duration_secs: u64,
-    pub background_executor: BackgroundExecutor,
 }
 
-/// Handle to control a running stress test
 pub struct StressTestHandle {
     pub cancel_token: CancellationToken,
     pub metrics_rx: mpsc::UnboundedReceiver<RequestMetric>,
@@ -44,23 +41,18 @@ impl StressTestHandle {
     }
 }
 
-/// Stress test engine - manages concurrent HTTP requests with rate limiting
 pub struct StressEngine;
 
 impl StressEngine {
-    /// Start a new stress test run
     pub fn start(config: StressTestConfig) -> StressTestHandle {
         let cancel_token = CancellationToken::new();
         let (metrics_tx, metrics_rx) = mpsc::unbounded_channel();
 
         let cancel_clone = cancel_token.clone();
-        let executor = config.background_executor.clone();
 
-        executor
-            .spawn(async move {
-                Self::run_test(config, cancel_clone, metrics_tx).await;
-            })
-            .detach();
+        HttpClient::runtime().spawn(async move {
+            Self::run_test(config, cancel_clone, metrics_tx).await;
+        });
 
         StressTestHandle {
             cancel_token,
@@ -68,7 +60,6 @@ impl StressEngine {
         }
     }
 
-    /// Main test loop - rate-limited request spawning
     async fn run_test(
         config: StressTestConfig,
         cancel_token: CancellationToken,
@@ -76,44 +67,42 @@ impl StressEngine {
     ) {
         let test_start = Instant::now();
         let client = HttpClient::global();
-        let executor = config.background_executor.clone();
         let request = Arc::new(config.request);
 
-        // Calculate interval between requests for target RPS
         let interval_ms = 1000 / config.requests_per_second.max(1);
         let mut interval =
             tokio::time::interval(std::time::Duration::from_millis(interval_ms as u64));
 
-        // Skip missed ticks to avoid bursts after slow periods
         interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
 
-        loop {
-            // Check stop conditions
-            if cancel_token.is_cancelled() {
-                break;
-            }
+        let total_requests = config.requests_per_second.saturating_mul(config.duration_secs as usize);
+        let mut tasks = tokio::task::JoinSet::new();
 
-            if test_start.elapsed().as_secs() >= config.duration_secs {
+        for _ in 0..total_requests {
+            if cancel_token.is_cancelled() {
                 break;
             }
 
             interval.tick().await;
 
-            // Spawn individual request task (non-blocking)
             let request_clone = request.clone();
             let metrics_tx_clone = metrics_tx.clone();
             let elapsed = test_start.elapsed();
 
-            executor
-                .spawn(async move {
-                    let metric = Self::execute_request(client, &request_clone, elapsed).await;
-                    let _ = metrics_tx_clone.send(metric);
-                })
-                .detach();
+            tasks.spawn(async move {
+                let metric = Self::execute_request(client, &request_clone, elapsed).await;
+                let _ = metrics_tx_clone.send(metric);
+            });
+        }
+
+        while tasks.join_next().await.is_some() {
+            if cancel_token.is_cancelled() {
+                tasks.abort_all();
+                break;
+            }
         }
     }
 
-    /// Execute a single request and capture metrics
     async fn execute_request(
         client: &HttpClient,
         request: &HttpRequest,
@@ -121,17 +110,24 @@ impl StressEngine {
     ) -> RequestMetric {
         let timestamp = test_elapsed.as_secs_f64();
 
-        match client.execute_lean(request).await {
-            Ok((status, latency_ms, size)) => RequestMetric {
+        match tokio::time::timeout(REQUEST_TIMEOUT, client.execute_lean(request)).await {
+            Ok(Ok((status, latency_ms, size))) => RequestMetric {
                 timestamp,
                 response_time_ms: latency_ms,
                 status_code: status,
                 success: (200..300).contains(&status),
                 response_size: size,
             },
-            Err(_) => RequestMetric {
+            Ok(Err(_)) => RequestMetric {
                 timestamp,
                 response_time_ms: 0.0,
+                status_code: 0,
+                success: false,
+                response_size: 0,
+            },
+            Err(_) => RequestMetric {
+                timestamp,
+                response_time_ms: REQUEST_TIMEOUT.as_secs_f64() * 1000.0,
                 status_code: 0,
                 success: false,
                 response_size: 0,
@@ -140,7 +136,6 @@ impl StressEngine {
     }
 }
 
-/// Aggregated statistics for a stress test
 #[derive(Default, Clone)]
 pub struct StressTestStats {
     pub total_requests: usize,
@@ -168,12 +163,10 @@ impl StressTestStats {
         if metric.success {
             self.successful_requests += 1;
 
-            // Update latency stats (only for successful requests)
             if metric.response_time_ms > 0.0 {
                 self.min_latency_ms = self.min_latency_ms.min(metric.response_time_ms);
                 self.max_latency_ms = self.max_latency_ms.max(metric.response_time_ms);
 
-                // Running average
                 let prev_total = (self.successful_requests - 1) as f64 * self.avg_latency_ms;
                 self.avg_latency_ms =
                     (prev_total + metric.response_time_ms) / self.successful_requests as f64;
