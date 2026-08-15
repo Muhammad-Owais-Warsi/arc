@@ -43,7 +43,9 @@ use gpui_component::button::{Button, ButtonVariants};
 use gpui_component::list::{List, ListState};
 use gpui_component::popover::Popover;
 use gpui_component::{Theme, *};
+use std::os::windows::ffi::EncodeWide;
 use std::path::PathBuf;
+use tokio::signal::windows;
 
 // use crate::icons::IconName;
 
@@ -53,7 +55,7 @@ pub struct ApiClient {
     footer: Entity<Footer>,
     env_store: Entity<EnvironmentStore>,
     workspace_list: Entity<ListState<WorkspaceListItem>>,
-    settings_window: Option<WeakEntity<SettingsWindow>>,
+    settings_window: Option<(WeakEntity<SettingsWindow>, AnyWindowHandle)>,
 }
 
 impl ApiClient {
@@ -171,11 +173,16 @@ impl ApiClient {
                     tab_manager.update(cx, |tm, cx| tm.toggle_active_response(cx));
                 }
                 FooterEvent::ToggleSettings(_) => {
-                    if this
-                        .settings_window
-                        .as_ref()
-                        .is_none_or(|w| w.upgrade().is_none())
-                    {
+                    if let Some((settings_entity, window_handle)) = this.settings_window.clone() {
+                        if settings_entity.upgrade().is_some() {
+                            cx.update_window(window_handle, |_root, window, _cx| {
+                                window.activate_window();
+                            })
+                            .ok();
+                        } else {
+                            open_settings_window(cx.entity(), env_store.clone(), cx);
+                        }
+                    } else {
                         open_settings_window(cx.entity(), env_store.clone(), cx);
                     }
                 }
@@ -286,6 +293,7 @@ impl Render for ApiClient {
     fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let project_panel = self.project_panel.clone();
         let workspace_list = self.workspace_list.clone();
+        let settings_window = self.settings_window.clone();
         div()
             .size_full()
             .flex()
@@ -299,26 +307,38 @@ impl Render for ApiClient {
             .on_action(cx.listener(Self::handle_dock_sidebar_left))
             .on_action(cx.listener(Self::handle_dock_sidebar_right))
             .child(
-                TitleBar::new().h(px(40.)).bg(cx.theme().background).child(
-                    h_flex().gap_2().items_center().px_2().w_full().child(
-                        Popover::new("workspace-switcher")
-                            .anchor(Anchor::TopLeft)
-                            .trigger(
-                                Button::new("workspace")
-                                    .ghost()
-                                    .small()
-                                    .label(project_panel.read(cx).get_selected_workspace()),
-                            )
-                            .content(move |_, _window, cx| {
-                                v_flex()
-                                    .w(px(260.))
-                                    .py_1()
-                                    .gap_0()
-                                    .child(List::new(&workspace_list).max_h(px(320.)))
-                                    .child(div().h(px(1.)).w_full().my_1().bg(cx.theme().border))
-                            }),
+                TitleBar::new()
+                    .h(px(40.))
+                    .bg(cx.theme().background)
+                    .on_close_window(move |_, _, cx| {
+                        if let Some((_, settings_handle)) = settings_window.clone() {
+                            cx.update_window(settings_handle, |_root, window, _cx| {
+                                window.remove_window();
+                            });
+                        }
+                    })
+                    .child(
+                        h_flex().gap_2().items_center().px_2().w_full().child(
+                            Popover::new("workspace-switcher")
+                                .anchor(Anchor::TopLeft)
+                                .trigger(
+                                    Button::new("workspace")
+                                        .ghost()
+                                        .small()
+                                        .label(project_panel.read(cx).get_selected_workspace()),
+                                )
+                                .content(move |_, _window, cx| {
+                                    v_flex()
+                                        .w(px(260.))
+                                        .py_1()
+                                        .gap_0()
+                                        .child(List::new(&workspace_list).max_h(px(320.)))
+                                        .child(
+                                            div().h(px(1.)).w_full().my_1().bg(cx.theme().border),
+                                        )
+                                }),
+                        ),
                     ),
-                ),
             )
             .child({
                 div()
@@ -358,9 +378,10 @@ fn open_settings_window(
                 ..Default::default()
             },
             |window, cx| {
+                let window_handle = window.window_handle();
                 let settings = cx.new(|cx| SettingsWindow::new(env_store, window, cx));
                 api_client.update(cx, |client, cx| {
-                    client.settings_window = Some(settings.downgrade());
+                    client.settings_window = Some((settings.downgrade(), window_handle));
                     cx.notify();
                 });
                 cx.new(|cx| Root::new(settings, window, cx))
