@@ -1,7 +1,7 @@
 use gpui::*;
 use gpui_component::{
     ActiveTheme, IndexPath, StyledExt,
-    input::{Input, InputEvent, InputState, TabSize},
+    input::{Editor, EditorState, Input, InputEvent, InputState, TabSize},
     select::{Select, SelectEvent, SelectState},
 };
 
@@ -32,7 +32,7 @@ const BODY_TYPES: [BodyType; 3] = [
 ];
 
 pub struct Body {
-    body: Entity<InputState>,
+    body: Entity<EditorState>,
     body_type: Entity<SelectState<Vec<String>>>,
 }
 
@@ -61,13 +61,12 @@ impl Body {
         });
 
         let body = cx.new(|cx| {
-            InputState::new(window, cx)
-                .multi_line(true)
+            EditorState::new(window, cx)
                 .tab_size(TabSize {
                     tab_size: 4,
                     hard_tabs: false,
                 })
-                .code_editor(&initial_language)
+                .language(&initial_language)
         });
 
         cx.subscribe_in(
@@ -121,7 +120,10 @@ impl Body {
         let Some(body) = data.get("body") else {
             return;
         };
-        let body_type = body.get("body_type").and_then(|v| v.as_str()).unwrap_or("JSON");
+        let body_type = body
+            .get("body_type")
+            .and_then(|v| v.as_str())
+            .unwrap_or("JSON");
         let body_value = body.get("body").and_then(|v| v.as_str()).unwrap_or("");
 
         let row = BODY_TYPES
@@ -156,7 +158,12 @@ impl Render for Body {
                     .border_color(cx.theme().border)
                     .rounded_md()
                     .overflow_hidden()
-                    .child(Input::new(&self.body).size_full().appearance(false)),
+                    .child(
+                        Editor::new(&self.body)
+                            .size_full()
+                            .appearance(false)
+                            .bordered(false),
+                    ),
             )
             .into_any_element()
     }

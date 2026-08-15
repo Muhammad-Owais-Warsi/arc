@@ -308,13 +308,13 @@ impl Render for ApiClient {
             .on_action(cx.listener(Self::handle_dock_sidebar_right))
             .child(
                 TitleBar::new()
-                    .h(px(40.))
-                    .bg(cx.theme().background)
+                    .h(px(32.))
                     .on_close_window(move |_, _, cx| {
                         if let Some((_, settings_handle)) = settings_window.clone() {
                             cx.update_window(settings_handle, |_root, window, _cx| {
                                 window.remove_window();
-                            });
+                            })
+                            .ok();
                         }
                     })
                     .child(
@@ -398,16 +398,29 @@ fn main() {
         cx.set_global::<AppSettings>(AppSettings::default());
 
         let theme_name = SharedString::from("One Dark");
-        if let Some(theme) = ThemeRegistry::global(cx).themes().get(&theme_name).cloned() {
-            Theme::global_mut(cx).apply_config(&theme);
-        }
-        if let Err(err) =
-            ThemeRegistry::watch_dir(PathBuf::from("./assets/themes"), cx, move |cx| {
-                if let Some(theme) = ThemeRegistry::global(cx).themes().get(&theme_name).cloned() {
-                    Theme::global_mut(cx).apply_config(&theme);
+        for theme_file in ["themes/one.json", "themes/ayu.json"] {
+            if let Some(file) = Assets::get(theme_file) {
+                if let Ok(content) = std::str::from_utf8(file.data.as_ref()) {
+                    let _ = ThemeRegistry::global_mut(cx).load_themes_from_str(content);
                 }
-            })
-        {
+            }
+        }
+        let apply_theme = move |cx: &mut App| {
+            if let Some(theme) = ThemeRegistry::global(cx).themes().get(&theme_name).cloned() {
+                let mode = theme.mode;
+                let t = Theme::global_mut(cx);
+                if mode.is_dark() {
+                    t.dark_theme = theme.clone();
+                } else {
+                    t.light_theme = theme.clone();
+                }
+                Theme::change(mode, None, cx);
+            }
+        };
+        apply_theme(cx);
+        if let Err(err) = ThemeRegistry::watch_dir(PathBuf::from("./assets/themes"), cx, move |cx| {
+            apply_theme(cx);
+        }) {
             eprintln!("Failed to watch themes directory: {}", err);
         }
         cx.spawn(async move |cx| {

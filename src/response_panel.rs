@@ -1,10 +1,12 @@
 use gpui::*;
 use gpui_component::button::{Button, ButtonVariants};
-use gpui_component::input::{Input, InputState, TabSize};
+use gpui_component::input::{Editor, EditorState, Input, InputState, TabSize};
 use gpui_component::popover::Popover;
 use gpui_component::scroll::ScrollableElement;
 use gpui_component::tab::{self, Tab, TabBar};
 use gpui_component::tag::Tag;
+// use gpui_component::input::{}
+use gpui_component::text::TextView;
 use gpui_component::{ActiveTheme, ColorName, Icon, Sizable, StyledExt, h_flex, v_flex};
 
 use crate::helpers::format_size;
@@ -16,15 +18,16 @@ use crate::http_response::Response;
 pub struct ResponsePanel {
     show: bool,
     selected_config: usize,
-    body: Entity<InputState>,
+    body: Entity<EditorState>,
     data: Option<Response>,
 }
 
 impl ResponsePanel {
     pub fn new(window: &mut Window, cx: &mut Context<Self>) -> Self {
         let body = cx.new(|cx| {
-            InputState::new(window, cx)
-                .code_editor("json")
+            EditorState::new(window, cx)
+                .language("html")
+                .folding(true)
                 .line_number(true)
                 .tab_size(TabSize {
                     tab_size: 10,
@@ -184,6 +187,7 @@ impl ResponsePanel {
                     )
             })
     }
+
     fn render_headers_table(headers: &[(String, String)], cx: &App) -> impl IntoElement {
         use gpui_component::StyledExt;
         use gpui_component::scroll::ScrollableElement;
@@ -328,7 +332,14 @@ impl Render for ResponsePanel {
                     .min_w(px(0.))
                     .overflow_hidden()
                     .px(px(24.))
-                    .child(Input::new(&self.body).flex_1().h_full().appearance(false))
+                    .child(
+                        Editor::new(&self.body)
+                            .flex_1()
+                            .h_full()
+                            .appearance(false)
+                            .bordered(false)
+                            .readonly(true),
+                    )
                     .into_any_element(),
                 1 => {
                     let headers = self

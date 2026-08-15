@@ -147,12 +147,11 @@ impl SettingsPanel {
                                 })
                             },
                             |val: SharedString, cx: &mut App| {
-                                AppSettings::global_mut(cx).sidebar_dock =
-                                    if val == "right" {
-                                        SidebarDock::Right
-                                    } else {
-                                        SidebarDock::Left
-                                    };
+                                AppSettings::global_mut(cx).sidebar_dock = if val == "right" {
+                                    SidebarDock::Right
+                                } else {
+                                    SidebarDock::Left
+                                };
                                 cx.refresh_windows();
                             },
                         )
@@ -170,7 +169,7 @@ impl SettingsPanel {
             SettingPage::new("General")
                 .resettable(true)
                 .default_open(true)
-                .icon(Icon::new(IconName::Settings2))
+                .icon(Icon::new(IconName::SlidersHorizontal))
                 .groups(Self::appearance_settings(cx)),
             Self::project_panel_settings(),
             SettingPage::new("Environment")

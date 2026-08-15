@@ -4,9 +4,12 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
-gpui = { git = "https://github.com/zed-industries/zed", rev = "1d217ee39d381ac101b7cf49d3d22451ac1093fe" }
-gpui_platform = { git = "https://github.com/zed-industries/zed", rev = "1d217ee39d381ac101b7cf49d3d22451ac1093fe", features = ["font-kit", "runtime_shaders"] }
-gpui-component = { git = "https://github.com/longbridge/gpui-component" }
+# zed rev is pinned via Cargo.lock (currently 9bde578ef5afa84920c4300af25f9dee31c96fcf).
+# Do NOT add `rev` here: gpui-component main tracks zed HEAD unpinned, and a `?rev=` source
+# would be treated as a different crate version, causing duplicate gpui type mismatches.
+gpui = { git = "https://github.com/zed-industries/zed" }
+gpui_platform = { git = "https://github.com/zed-industries/zed", features = ["font-kit", "runtime_shaders"] }
+gpui-component = { git = "https://github.com/longbridge/gpui-component", rev = "41bee9c280b6708d3671b5e9b137a78f49394568", features = ["tree-sitter"] }
 # # Optional, for default bundled assets
 # gpui-component-assets = { git = "https://github.com/longbridge/gpui-component" }
 anyhow = "1.0"

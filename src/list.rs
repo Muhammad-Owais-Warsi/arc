@@ -1,9 +1,9 @@
-use gpui::{AnyElement, Component, *};
+use gpui::{AnyElement, *};
 use gpui_component::{
     ActiveTheme, Icon, IconName, IndexPath, Selectable, h_flex,
     input::{Input, InputEvent, InputState},
     label::Label,
-    list::{ListDelegate, ListItem, ListSeparatorItem, ListState},
+    list::{ListDelegate, ListItem, ListState},
 };
 
 use crate::fs;
@@ -24,7 +24,7 @@ pub struct WorkspaceListItem {
 
 pub enum WorkspaceListRow {
     Workspace(ListItem),
-    Separator(ListSeparatorItem),
+    Separator(ListItem),
     CreateWorkspace(ListItem),
 }
 
@@ -60,7 +60,7 @@ impl IntoElement for WorkspaceListRow {
     fn into_element(self) -> Self::Element {
         match self {
             Self::Workspace(item) => item.into_element().into_any(),
-            Self::Separator(item) => Component::new(item).into_element().into_any(),
+            Self::Separator(item) => item.into_element().into_any(),
             Self::CreateWorkspace(item) => item.into_element().into_any(),
         }
     }
@@ -181,7 +181,9 @@ impl ListDelegate for WorkspaceListItem {
             })
         } else if ix.row == separator_row {
             Some(WorkspaceListRow::Separator(
-                ListSeparatorItem::new().child(div().h_px().w_full().bg(cx.theme().border)),
+                ListItem::new("separator")
+                    .separator()
+                    .child(div().h_px().w_full().bg(cx.theme().border)),
             ))
         } else if let Some((row, input)) = &self.new_workspace {
             if ix.row == *row {

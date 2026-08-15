@@ -37,6 +37,7 @@ pub enum IconName {
     Variable,
     Settings2,
     Monitor,
+    SlidersHorizontal,
 }
 
 impl IconNamed for IconName {
