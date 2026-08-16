@@ -1,4 +1,5 @@
 use crate::{
+    fs,
     helpers::{get_active_font, get_active_theme, get_fonts, get_theme_config, get_themes},
     icons::IconName,
 };
@@ -12,10 +13,12 @@ use gpui_component::{
     setting::{NumberFieldOptions, SettingField, SettingGroup, SettingItem, SettingPage, Settings},
     v_flex,
 };
+use serde::{Deserialize, Serialize};
 
 use crate::env::EnvironmentStore;
 
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
 pub enum SidebarDock {
     #[default]
     Left,
@@ -31,9 +34,26 @@ impl SidebarDock {
     }
 }
 
-#[derive(Clone, Debug, Default)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(default)]
 pub struct AppSettings {
     pub sidebar_dock: SidebarDock,
+    pub save_on_close: bool,
+    pub theme: String,
+    pub font_family: String,
+    pub font_size: f32,
+}
+
+impl Default for AppSettings {
+    fn default() -> Self {
+        Self {
+            sidebar_dock: SidebarDock::Left,
+            save_on_close: false,
+            theme: "One Dark".to_string(),
+            font_family: ".ZedSans".to_string(),
+            font_size: 16.0,
+        }
+    }
 }
 
 impl Global for AppSettings {}
@@ -45,6 +65,17 @@ impl AppSettings {
 
     pub fn global_mut(cx: &mut App) -> &mut AppSettings {
         cx.global_mut::<AppSettings>()
+    }
+
+    pub fn get() -> Self {
+        let content = fs::get_settings();
+        serde_json::from_str(content.as_str()).unwrap_or_default()
+    }
+
+    pub fn save(&self) {
+        if let Ok(content) = serde_json::to_string_pretty(self) {
+            let _ = fs::save_settings(&content);
+        }
     }
 }
 
@@ -79,6 +110,8 @@ impl SettingsPanel {
                                     t.light_theme = theme_config.clone();
                                 }
                                 Theme::change(mode, None, cx);
+                                AppSettings::global_mut(cx).theme = name.to_string();
+                                AppSettings::global_mut(cx).save();
                                 cx.refresh_windows();
                             }
                         },
@@ -95,7 +128,9 @@ impl SettingsPanel {
                         get_fonts(cx),
                         |cx: &App| get_active_font(cx),
                         |val: SharedString, cx: &mut App| {
-                            Theme::global_mut(cx).font_family = val;
+                            Theme::global_mut(cx).font_family = val.clone();
+                            AppSettings::global_mut(cx).font_family = val.to_string();
+                            AppSettings::global_mut(cx).save();
                             cx.refresh_windows();
                         },
                     )
@@ -114,6 +149,8 @@ impl SettingsPanel {
                         |cx: &App| Theme::global(cx).font_size.as_f32() as f64,
                         |val: f64, cx: &mut App| {
                             Theme::global_mut(cx).font_size = px(val as f32);
+                            AppSettings::global_mut(cx).font_size = val as f32;
+                            AppSettings::global_mut(cx).save();
                             cx.refresh_windows();
                         },
                     )
@@ -152,12 +189,38 @@ impl SettingsPanel {
                                 } else {
                                     SidebarDock::Left
                                 };
+                                AppSettings::global_mut(cx).save();
                                 cx.refresh_windows();
                             },
                         )
                         .default_value("left"),
                     )
                     .description("Dock the file sidebar on the left or right."),
+                ),
+            )
+    }
+
+    fn request_playground_settings() -> SettingPage {
+        SettingPage::new("Request Playground")
+            .resettable(true)
+            .icon(Icon::new(IconName::Send))
+            .group(
+                SettingGroup::new().item(
+                    SettingItem::new(
+                        "Save on Close",
+                        SettingField::<bool>::switch(
+                            |cx: &App| AppSettings::global(cx).save_on_close,
+                            |val: bool, cx: &mut App| {
+                                AppSettings::global_mut(cx).save_on_close = val;
+                                AppSettings::global_mut(cx).save();
+                                cx.refresh_windows();
+                            },
+                        )
+                        .default_value(false),
+                    )
+                    .description(
+                        "Automatically save the request to its file when the tab is closed.",
+                    ),
                 ),
             )
     }
@@ -172,6 +235,7 @@ impl SettingsPanel {
                 .icon(Icon::new(IconName::SlidersHorizontal))
                 .groups(Self::appearance_settings(cx)),
             Self::project_panel_settings(),
+            Self::request_playground_settings(),
             SettingPage::new("Environment")
                 .resettable(true)
                 .icon(Icon::new(IconName::Variable))

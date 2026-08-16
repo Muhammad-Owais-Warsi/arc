@@ -173,6 +173,10 @@ impl RequestPlayground {
         this
     }
 
+    pub fn path(&self) -> Option<String> {
+        self.path.clone()
+    }
+
     pub fn mark_dirty(&mut self, status: bool) {
         self.dirty = status
     }

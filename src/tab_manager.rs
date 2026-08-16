@@ -1,5 +1,5 @@
 use crate::actions::{DockSidebarLeft, DockSidebarRight};
-use crate::fs::read_request_file;
+use crate::fs::{self, read_request_file, write_request_file};
 use crate::helpers::next_id;
 use crate::playground::PlaygroundHandle;
 use crate::project_panel::ProjectPanel;
@@ -192,8 +192,17 @@ impl TabManager {
         cx.subscribe_in(
             &tab_entity,
             window,
-            |this: &mut Self, _, event, _window, cx| {
+            move |this: &mut Self, _, event, _window, cx| {
                 if let TabEvent::Close(node_id) = event {
+                    let save_on_close = AppSettings::global(cx).save_on_close;
+
+                    if save_on_close {
+                        let content = playground.read(cx).current_content(cx);
+                        if let Some(path) = playground.read(cx).path() {
+                            write_request_file(Path::new(&path), &content).ok();
+                        }
+                    }
+
                     this.tabs.remove(&node_id);
                     this.active_tab_id = this
                         .tabs

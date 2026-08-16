@@ -395,9 +395,10 @@ fn main() {
     let app = gpui_platform::application().with_assets(Assets);
     app.run(move |cx| {
         gpui_component::init(cx);
-        cx.set_global::<AppSettings>(AppSettings::default());
+        cx.set_global::<AppSettings>(AppSettings::get());
+        AppSettings::global(cx).save();
 
-        let theme_name = SharedString::from("One Dark");
+        let theme_name = SharedString::from(AppSettings::global(cx).theme.clone());
         for theme_file in ["themes/one.json", "themes/ayu.json"] {
             if let Some(file) = Assets::get(theme_file) {
                 if let Ok(content) = std::str::from_utf8(file.data.as_ref()) {
@@ -418,9 +419,15 @@ fn main() {
             }
         };
         apply_theme(cx);
-        if let Err(err) = ThemeRegistry::watch_dir(PathBuf::from("./assets/themes"), cx, move |cx| {
-            apply_theme(cx);
-        }) {
+        let settings = AppSettings::global(cx).clone();
+        let theme = Theme::global_mut(cx);
+        theme.font_family = settings.font_family.into();
+        theme.font_size = px(settings.font_size);
+        if let Err(err) =
+            ThemeRegistry::watch_dir(PathBuf::from("./assets/themes"), cx, move |cx| {
+                apply_theme(cx);
+            })
+        {
             eprintln!("Failed to watch themes directory: {}", err);
         }
         cx.spawn(async move |cx| {

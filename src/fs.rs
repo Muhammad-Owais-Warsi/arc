@@ -1,6 +1,10 @@
 use crate::auth::AuthType;
 use serde::{Deserialize, Serialize};
-use std::{fs::OpenOptions, fs::read_to_string, io, path::Path};
+use std::{
+    fs::{OpenOptions, read_to_string},
+    io,
+    path::{Path, PathBuf},
+};
 use tokio::fs::File;
 
 #[derive(Serialize, Deserialize, Default, PartialEq)]
@@ -122,4 +126,16 @@ pub fn rename_item(old_path: &str, new_path: &str) -> io::Result<String> {
     std::fs::rename(old_path, new_path)?;
 
     Ok(new_path.to_string())
+}
+
+pub fn settings_file_path() -> PathBuf {
+    PathBuf::from("./settings.json")
+}
+
+pub fn get_settings() -> String {
+    std::fs::read_to_string(settings_file_path()).unwrap_or_default()
+}
+
+pub fn save_settings(content: &str) -> io::Result<()> {
+    std::fs::write(settings_file_path(), content)
 }

@@ -10,7 +10,7 @@ use gpui_component::tab::Tab;
 use crate::icons::IconName;
 
 pub enum TabEvent {
-    Close(usize), // node_id
+    Close(usize),
 }
 
 impl EventEmitter<TabEvent> for Tabs {}
@@ -40,14 +40,6 @@ impl Tabs {
     pub fn playground(&self) -> Box<dyn PlaygroundHandle> {
         self.playground.clone_box()
     }
-
-    // pub fn name(&self) -> String {
-    //     self.name.clone()
-    // }
-
-    // pub fn node_id(&self) -> usize {
-    //     self.node_id
-    // }
 
     pub fn update_name(&mut self, new_name: String) {
         self.name = new_name

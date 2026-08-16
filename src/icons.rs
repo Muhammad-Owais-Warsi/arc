@@ -36,6 +36,7 @@ pub enum IconName {
     Info,
     Variable,
     Settings2,
+    Menu,
     Monitor,
     SlidersHorizontal,
 }
