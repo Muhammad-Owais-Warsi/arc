@@ -270,11 +270,12 @@ impl SettingsPanel {
                                 })
                             },
                             |val: SharedString, cx: &mut App| {
-                                AppSettings::global_mut(cx).panel.project_panel.sidebar_dock = if val == "right" {
-                                    SidebarDock::Right
-                                } else {
-                                    SidebarDock::Left
-                                };
+                                AppSettings::global_mut(cx).panel.project_panel.sidebar_dock =
+                                    if val == "right" {
+                                        SidebarDock::Right
+                                    } else {
+                                        SidebarDock::Left
+                                    };
                                 AppSettings::global_mut(cx).save();
                                 cx.refresh_windows();
                             },
@@ -295,9 +296,17 @@ impl SettingsPanel {
                     SettingItem::new(
                         "Save on Close",
                         SettingField::<bool>::switch(
-                            |cx: &App| AppSettings::global(cx).playground.request_playground.save_on_close,
+                            |cx: &App| {
+                                AppSettings::global(cx)
+                                    .playground
+                                    .request_playground
+                                    .save_on_close
+                            },
                             |val: bool, cx: &mut App| {
-                                AppSettings::global_mut(cx).playground.request_playground.save_on_close = val;
+                                AppSettings::global_mut(cx)
+                                    .playground
+                                    .request_playground
+                                    .save_on_close = val;
                                 AppSettings::global_mut(cx).save();
                                 cx.refresh_windows();
                             },

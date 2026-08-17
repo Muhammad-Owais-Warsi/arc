@@ -25,8 +25,9 @@ mod tab;
 mod tab_manager;
 
 use crate::actions::{
-    CopyPath, CopyRelativePath, CreateFile, CreateFolder, DeleteItem, DockSidebarLeft,
-    DockSidebarRight, RenameItem, StressTestPlayground,
+    CopyPath, CopyRelativePath, CopySettings, CreateFile, CreateFolder, DeleteItem,
+    DockSidebarLeft, DockSidebarRight, OpenSettings, QuitArc, RenameItem, StressTestPlayground,
+    TrashItem,
 };
 use crate::assets::Assets;
 use crate::env::EnvironmentStore;
@@ -153,12 +154,19 @@ impl ApiClient {
                         tm.rename_tab(*node_id, new_name.clone(), cx);
                     });
                 }
-                ProjectPanelEvent::FileDeleted { node_id, path: _, is_file: _ } => {
-                    if let Some(nid) = node_id {
-                        tab_manager.update(cx, |tm, cx| {
-                            tm.close_tab(*nid, &project_panel, cx);
-                        });
-                    }
+                ProjectPanelEvent::FileDeleted {
+                    node_id,
+                    path: _,
+                    is_file: _,
+                } => {
+                    tab_manager.update(cx, |tm, cx| {
+                        tm.close_tab(*node_id, &project_panel, cx);
+                    });
+                }
+                ProjectPanelEvent::FileTrashed { node_id, path: _ } => {
+                    tab_manager.update(cx, |tm, cx| {
+                        tm.close_tab(*node_id, &project_panel, cx);
+                    });
                 }
                 ProjectPanelEvent::StressTestPlayground { path, node_name } => {
                     tab_manager.update(cx, |tm, cx| {
@@ -181,20 +189,6 @@ impl ApiClient {
             move |this: &mut Self, _, event, _window, cx| match event {
                 FooterEvent::ToggleResponse => {
                     tab_manager.update(cx, |tm, cx| tm.toggle_active_response(cx));
-                }
-                FooterEvent::ToggleSettings(_) => {
-                    if let Some((settings_entity, window_handle)) = this.settings_window.clone() {
-                        if settings_entity.upgrade().is_some() {
-                            cx.update_window(window_handle, |_root, window, _cx| {
-                                window.activate_window();
-                            })
-                            .ok();
-                        } else {
-                            open_settings_window(cx.entity(), env_store.clone(), cx);
-                        }
-                    } else {
-                        open_settings_window(cx.entity(), env_store.clone(), cx);
-                    }
                 }
             }
         })
@@ -250,6 +244,16 @@ impl ApiClient {
     ) {
         self.project_panel
             .update(cx, |s, cx| s.handle_delete_item(action, cx));
+    }
+
+    pub fn handle_trash_item(
+        &mut self,
+        action: &TrashItem,
+        _window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.project_panel
+            .update(cx, |s, cx| s.handle_trash_item(action, cx));
     }
 
     pub fn handle_stress_test_playground(
@@ -309,6 +313,31 @@ impl ApiClient {
             .update(cx, |f, cx| f.set_show_toggle(has_tabs, cx));
         self.footer.clone()
     }
+
+    fn handle_open_settings(
+        &mut self,
+        _: &OpenSettings,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        open_settings_window(cx.entity(), self.env_store.clone(), cx);
+    }
+
+    fn handle_quit_arc(&mut self, _: &QuitArc, window: &mut Window, cx: &mut Context<Self>) {
+        cx.quit();
+    }
+
+    fn handle_copy_settings(
+        &mut self,
+        _: &CopySettings,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let content = AppSettings::get();
+        if let Ok(json_string) = serde_json::to_string_pretty(&content) {
+            cx.write_to_clipboard(ClipboardItem::new_string(json_string));
+        }
+    }
 }
 
 impl Render for ApiClient {
@@ -320,6 +349,9 @@ impl Render for ApiClient {
             .size_full()
             .flex()
             .flex_col()
+            .on_action(cx.listener(Self::handle_copy_settings))
+            .on_action(cx.listener(Self::handle_quit_arc))
+            .on_action(cx.listener(Self::handle_open_settings))
             .on_action(cx.listener(Self::handle_create_file))
             .on_action(cx.listener(Self::handle_create_folder))
             .on_action(cx.listener(Self::handle_rename))
@@ -329,6 +361,7 @@ impl Render for ApiClient {
             .on_action(cx.listener(Self::handle_copy_relative_path))
             .on_action(cx.listener(Self::handle_dock_sidebar_left))
             .on_action(cx.listener(Self::handle_dock_sidebar_right))
+            .on_action(cx.listener(Self::handle_trash_item))
             .child(
                 TitleBar::new()
                     .h(px(32.))
@@ -348,29 +381,14 @@ impl Render for ApiClient {
                             .tooltip("Open Application Menu")
                             .dropdown_menu(|menu, window, cx| {
                                 menu.min_w(px(200.))
-                                    .menu(
-                                        "New File",
-                                        Box::new(actions::CopyRelativePath {
-                                            path: "".to_string(),
-                                        }),
-                                    )
-                                    .menu(
-                                        "Open File",
-                                        Box::new(actions::CopyRelativePath {
-                                            path: "".to_string(),
-                                        }),
-                                    )
+                                    .menu("Open Settings", Box::new(actions::OpenSettings))
+                                    .menu("Copy Settings", Box::new(actions::CopySettings))
                                     .link(
-                                        "Documentation",
-                                        "https://longbridge.github.io/gpui-component/",
+                                        "About Arc",
+                                        "https://github.com/Muhammad-Owais-Warsi/arc",
                                     )
                                     .separator()
-                                    .menu(
-                                        "Exit",
-                                        Box::new(actions::CopyRelativePath {
-                                            path: "".to_string(),
-                                        }),
-                                    )
+                                    .menu("Quit Arc", Box::new(actions::QuitArc))
                             }),
                     )
                     .child(
@@ -401,14 +419,16 @@ impl Render for ApiClient {
                     .flex_1()
                     .flex()
                     .when(
-                        AppSettings::global(cx).panel.project_panel.sidebar_dock == SidebarDock::Right,
+                        AppSettings::global(cx).panel.project_panel.sidebar_dock
+                            == SidebarDock::Right,
                         |this| {
                             this.child(self.tab_manager.clone())
                                 .child(self.project_panel.clone())
                         },
                     )
                     .when(
-                        AppSettings::global(cx).panel.project_panel.sidebar_dock == SidebarDock::Left,
+                        AppSettings::global(cx).panel.project_panel.sidebar_dock
+                            == SidebarDock::Left,
                         |this| {
                             this.child(self.project_panel.clone())
                                 .child(self.tab_manager.clone())

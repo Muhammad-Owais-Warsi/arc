@@ -24,6 +24,7 @@ pub enum IconName {
     Trash,
     File,
     Rename,
+    ExternalLink,
     WindowClose,
     WindowMaximize,
     WindowMinimize,

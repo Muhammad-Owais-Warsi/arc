@@ -15,8 +15,16 @@ pub struct CreateFolder {
 #[derive(Clone, PartialEq, Action)]
 #[action(namespace = fs, no_json)]
 pub struct DeleteItem {
+    pub node_id: usize,
     pub path: String,
     pub is_file: bool,
+}
+
+#[derive(Clone, PartialEq, Action)]
+#[action(namespace = fs, no_json)]
+pub struct TrashItem {
+    pub node_id: usize,
+    pub path: String,
 }
 
 #[derive(Clone, PartialEq, Action)]
@@ -54,3 +62,12 @@ pub struct DockSidebarLeft;
 #[derive(Clone, PartialEq, Action)]
 #[action(namespace = fs, no_json)]
 pub struct DockSidebarRight;
+
+#[derive(Clone, PartialEq, Action)]
+pub struct OpenSettings;
+
+#[derive(Clone, PartialEq, Action)]
+pub struct QuitArc;
+
+#[derive(Clone, PartialEq, Action)]
+pub struct CopySettings;

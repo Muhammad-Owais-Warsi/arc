@@ -7,23 +7,18 @@ use crate::icons::IconName;
 
 pub struct Footer {
     show_toggle: bool,
-    show_settings: bool,
 }
 
 #[derive(Clone, Debug)]
 pub enum FooterEvent {
     ToggleResponse,
-    ToggleSettings(bool),
 }
 
 impl EventEmitter<FooterEvent> for Footer {}
 
 impl Footer {
     pub fn new(_window: &mut Window, _cx: &mut Context<Self>) -> Self {
-        Self {
-            show_toggle: false,
-            show_settings: false,
-        }
+        Self { show_toggle: false }
     }
 
     pub fn set_show_toggle(&mut self, show: bool, cx: &mut Context<Self>) {
@@ -44,6 +39,7 @@ impl Render for Footer {
             .flex()
             .items_center()
             .px(px(16.0))
+            .child(div().flex_1())
             .when(self.show_toggle, |this| {
                 this.child(
                     Button::new("toggle-response")
@@ -56,18 +52,5 @@ impl Render for Footer {
                         })),
                 )
             })
-            .child(div().flex_1())
-            .child(
-                Button::new("toggle-settings")
-                    .ghost()
-                    .small()
-                    .icon(IconName::Settings)
-                    .tooltip("Settings")
-                    .on_click(cx.listener(|this: &mut Self, _, _window, cx| {
-                        this.show_settings = !this.show_settings;
-                        cx.emit(FooterEvent::ToggleSettings(this.show_settings));
-                        cx.notify();
-                    })),
-            )
     }
 }

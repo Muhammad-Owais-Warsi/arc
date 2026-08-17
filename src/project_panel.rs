@@ -1,7 +1,7 @@
 // use gpui::Window;
 use crate::actions::{
     CopyPath, CopyRelativePath, CreateFile, CreateFolder, DeleteItem, RenameItem,
-    StressTestPlayground,
+    StressTestPlayground, TrashItem,
 };
 use crate::fs::{self, read_request_method};
 use crate::helpers::{next_id, render_method_tag};
@@ -37,9 +37,13 @@ pub enum ProjectPanelEvent {
         new_name: String,
     },
     FileDeleted {
-        node_id: Option<usize>,
+        node_id: usize,
         path: String,
         is_file: bool,
+    },
+    FileTrashed {
+        node_id: usize,
+        path: String,
     },
     StressTestPlayground {
         path: String,
@@ -192,7 +196,7 @@ impl ProjectPanel {
                 },
             );
             ws.nodes = nodes;
-            ws.root_id = vec![root_id]; // the workspace folder is now the tree root
+            ws.root_id = vec![root_id];
         }
         cx.notify();
     }
@@ -376,8 +380,16 @@ impl ProjectPanel {
                     }),
                 )
                 .menu(
+                    "Trash",
+                    Box::new(TrashItem {
+                        node_id,
+                        path: path_for_delete.clone(),
+                    }),
+                )
+                .menu(
                     "Delete",
                     Box::new(DeleteItem {
+                        node_id,
                         path: path_for_delete.clone(),
                         is_file: is_file_for_delete.clone(),
                     }),
@@ -693,28 +705,9 @@ impl ProjectPanel {
         cx.notify();
     }
 
-    pub fn handle_delete_item(
-        &mut self,
-        action: &DeleteItem,
-        cx: &mut Context<Self>,
-    ) {
-        let path = action.path.clone();
-        let is_file = action.is_file;
-
-        if fs::delete_file_or_folder(Path::new(&path)).is_err() {
-            return;
-        }
-
-        let mut deleted_node_id = None;
-
+    fn remove_node_from_tree(&mut self, node_id: usize) {
         if let Some(ws) = self.workspaces.get_mut(self.selected_workspace) {
-            let node_id = ws
-                .nodes
-                .iter()
-                .find(|(_, n)| n.path == path)
-                .map(|(&id, _)| id);
-
-            if let Some(node_id) = node_id {
+            if ws.nodes.contains_key(&node_id) {
                 let parent_ids: Vec<usize> = ws
                     .nodes
                     .values()
@@ -727,14 +720,35 @@ impl ProjectPanel {
                     }
                 }
                 ws.nodes.remove(&node_id);
-                deleted_node_id = Some(node_id);
             }
         }
+    }
+
+    pub fn handle_delete_item(&mut self, action: &DeleteItem, cx: &mut Context<Self>) {
+        if fs::delete_file_or_folder(Path::new(&action.path)).is_err() {
+            return;
+        }
+
+        self.remove_node_from_tree(action.node_id);
 
         cx.emit(ProjectPanelEvent::FileDeleted {
-            node_id: deleted_node_id,
-            path,
-            is_file,
+            node_id: action.node_id,
+            path: action.path.clone(),
+            is_file: action.is_file,
+        });
+        cx.notify();
+    }
+
+    pub fn handle_trash_item(&mut self, action: &TrashItem, cx: &mut Context<Self>) {
+        if fs::trash_file_or_folder(Path::new(&action.path)).is_err() {
+            return;
+        }
+
+        self.remove_node_from_tree(action.node_id);
+
+        cx.emit(ProjectPanelEvent::FileTrashed {
+            node_id: action.node_id,
+            path: action.path.clone(),
         });
         cx.notify();
     }
@@ -772,7 +786,13 @@ impl Render for ProjectPanel {
             return Sidebar::new("api-sidebar")
                 .collapsible(SidebarCollapsible::Offcanvas)
                 .collapsed(self.sidebar_collapsed)
-                .side(AppSettings::global(cx).panel.project_panel.sidebar_dock.to_side())
+                .side(
+                    AppSettings::global(cx)
+                        .panel
+                        .project_panel
+                        .sidebar_dock
+                        .to_side(),
+                )
                 .into_element();
         };
 
@@ -781,7 +801,13 @@ impl Render for ProjectPanel {
 
         let sidebar = Sidebar::new("api-sidebar")
             .collapsible(SidebarCollapsible::Offcanvas)
-            .side(AppSettings::global(cx).panel.project_panel.sidebar_dock.to_side())
+            .side(
+                AppSettings::global(cx)
+                    .panel
+                    .project_panel
+                    .sidebar_dock
+                    .to_side(),
+            )
             .collapsed(self.sidebar_collapsed)
             .child(SidebarGroup::new(&ws_name).child(
                 SidebarMenu::new().children(root_ids.iter().map(|&id| self.render_node(id, cx))),

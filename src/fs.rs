@@ -5,7 +5,7 @@ use std::{
     io,
     path::{Path, PathBuf},
 };
-
+use trash;
 #[derive(Serialize, Deserialize, Default, PartialEq)]
 pub struct KeyValue {
     pub key: String,
@@ -92,6 +92,10 @@ pub fn delete_file_or_folder(path: &Path) -> io::Result<()> {
         remove_file(path)?;
     }
     Ok(())
+}
+
+pub fn trash_file_or_folder(path: &Path) -> io::Result<()> {
+    trash::delete(path).map_err(io::Error::other)
 }
 
 pub fn write_request_file(path: &Path, content: &FileContent) -> io::Result<()> {

@@ -21,3 +21,4 @@ serde_json = "1.0"
 dirs = "5"
 rust-embed = "8.11"
 strum = { version = "0.26", features = ["derive"] }
+trash = "5.2.6"
