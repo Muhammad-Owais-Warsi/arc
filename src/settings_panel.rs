@@ -165,17 +165,11 @@ impl AppSettings {
     }
 }
 
-pub struct SettingsPanel {
-    store: Entity<EnvironmentStore>,
-}
+pub struct SettingsPanel;
 
 impl SettingsPanel {
-    pub fn new(store: Entity<EnvironmentStore>, cx: &mut Context<Self>) -> Self {
-        Self { store }
-    }
-
-    pub fn store(&self) -> Entity<EnvironmentStore> {
-        self.store.clone()
+    pub fn new(cx: &mut Context<Self>) -> Self {
+        Self
     }
 
     fn appearance_settings(cx: &Context<Self>) -> Vec<SettingGroup> {
@@ -321,8 +315,6 @@ impl SettingsPanel {
     }
 
     fn setting_pages(&self, cx: &Context<Self>) -> Vec<SettingPage> {
-        let store = self.store.clone();
-
         vec![
             SettingPage::new("General")
                 .resettable(true)
@@ -331,16 +323,7 @@ impl SettingsPanel {
                 .groups(Self::appearance_settings(cx)),
             Self::project_panel_settings(),
             Self::request_playground_settings(),
-            SettingPage::new("Environment")
-                .resettable(true)
-                .icon(Icon::new(IconName::Variable))
-                .group(
-                    SettingGroup::new().item(SettingItem::render(move |_, _, _| {
-                        store.clone().into_any_element()
-                    })),
-                ),
             SettingPage::new("About")
-                .resettable(true)
                 .icon(Icon::new(IconName::Info))
                 .group(
                     SettingGroup::new().item(SettingItem::render(|_options, _, cx| {

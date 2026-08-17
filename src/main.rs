@@ -26,8 +26,8 @@ mod tab_manager;
 
 use crate::actions::{
     CopyPath, CopyRelativePath, CopySettings, CreateFile, CreateFolder, DeleteItem,
-    DockSidebarLeft, DockSidebarRight, OpenSettings, QuitArc, RenameItem, StressTestPlayground,
-    TrashItem,
+    DockSidebarLeft, DockSidebarRight, OpenEnvironmentVariables, OpenSettings, QuitArc, RenameItem,
+    StressTestPlayground, TrashItem,
 };
 use crate::assets::Assets;
 use crate::env::EnvironmentStore;
@@ -64,9 +64,6 @@ pub struct ApiClient {
 impl ApiClient {
     fn new(window: &mut Window, cx: &mut Context<Self>) -> Self {
         let project_panel = cx.new(|cx| ProjectPanel::new(window, cx));
-        let tab_manager =
-            cx.new(|cx| tab_manager::TabManager::new(window, cx, project_panel.clone()));
-        let footer = cx.new(|cx| Footer::new(window, cx));
         let env_store = cx.new(|cx| EnvironmentStore::new(window, cx));
         let workspace_list = cx.new(|cx| {
             ListState::new(WorkspaceListItem::new(project_panel.clone()), window, cx)
@@ -97,6 +94,11 @@ impl ApiClient {
             }
         })
         .detach();
+
+        let tab_manager = cx.new(|cx| {
+            tab_manager::TabManager::new(window, cx, project_panel.clone(), env_store.clone())
+        });
+        let footer = cx.new(|cx| Footer::new(window, cx));
 
         cx.subscribe_in(&workspace_list, window, {
             let project_panel = project_panel.clone();
@@ -320,7 +322,7 @@ impl ApiClient {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        open_settings_window(cx.entity(), self.env_store.clone(), cx);
+        open_settings_window(cx.entity(), cx);
     }
 
     fn handle_quit_arc(&mut self, _: &QuitArc, window: &mut Window, cx: &mut Context<Self>) {
@@ -338,6 +340,17 @@ impl ApiClient {
             cx.write_to_clipboard(ClipboardItem::new_string(json_string));
         }
     }
+
+    fn handle_open_environment_variables(
+        &mut self,
+        _: &OpenEnvironmentVariables,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.tab_manager.update(cx, |tm, cx| {
+            tm.add_env_tab(window, cx);
+        });
+    }
 }
 
 impl Render for ApiClient {
@@ -345,6 +358,7 @@ impl Render for ApiClient {
         let project_panel = self.project_panel.clone();
         let workspace_list = self.workspace_list.clone();
         let settings_window = self.settings_window.clone();
+        let workspace_name = project_panel.read(cx).get_selected_workspace().to_string();
         div()
             .size_full()
             .flex()
@@ -362,6 +376,7 @@ impl Render for ApiClient {
             .on_action(cx.listener(Self::handle_dock_sidebar_left))
             .on_action(cx.listener(Self::handle_dock_sidebar_right))
             .on_action(cx.listener(Self::handle_trash_item))
+            .on_action(cx.listener(Self::handle_open_environment_variables))
             .child(
                 TitleBar::new()
                     .h(px(32.))
@@ -374,44 +389,51 @@ impl Render for ApiClient {
                         }
                     })
                     .child(
-                        Button::new("menu")
-                            .icon(IconName::Menu)
-                            .ghost()
-                            .xsmall()
-                            .tooltip("Open Application Menu")
-                            .dropdown_menu(|menu, window, cx| {
-                                menu.min_w(px(200.))
-                                    .menu("Open Settings", Box::new(actions::OpenSettings))
-                                    .menu("Copy Settings", Box::new(actions::CopySettings))
-                                    .link(
-                                        "About Arc",
-                                        "https://github.com/Muhammad-Owais-Warsi/arc",
+                        h_flex()
+                            .h_full()
+                            .items_center()
+                            .gap_0p5()
+                            .child(
+                                Button::new("menu")
+                                    .icon(IconName::Menu)
+                                    .ghost()
+                                    .small()
+                                    .tooltip("Open Application Menu")
+                                    .dropdown_menu(|menu, _, _| {
+                                        menu.min_w(px(270.))
+                                            .link(
+                                                "About Arc",
+                                                "https://github.com/Muhammad-Owais-Warsi/arc",
+                                            )
+                                            .separator()
+                                            .menu("Open Settings", Box::new(actions::OpenSettings))
+                                            .menu("Copy Settings", Box::new(actions::CopySettings))
+                                            .separator()
+                                            .menu(
+                                                "Open Environment Variables",
+                                                Box::new(actions::OpenEnvironmentVariables),
+                                            )
+                                            .separator()
+                                            .menu("Quit Arc", Box::new(actions::QuitArc))
+                                    }),
+                            )
+                            .child(
+                                Popover::new("workspace-switcher")
+                                    .anchor(Anchor::TopLeft)
+                                    .trigger(
+                                        Button::new("workspace")
+                                            .ghost()
+                                            .small()
+                                            .mb(px(2.))
+                                            .label(workspace_name.clone())
+                                            .tooltip("Switch Workspace"),
                                     )
-                                    .separator()
-                                    .menu("Quit Arc", Box::new(actions::QuitArc))
-                            }),
-                    )
-                    .child(
-                        h_flex().gap_2().items_center().px_2().w_full().child(
-                            Popover::new("workspace-switcher")
-                                .anchor(Anchor::TopLeft)
-                                .trigger(
-                                    Button::new("workspace")
-                                        .ghost()
-                                        .small()
-                                        .label(project_panel.read(cx).get_selected_workspace()),
-                                )
-                                .content(move |_, _window, cx| {
-                                    v_flex()
-                                        .w(px(260.))
-                                        .py_1()
-                                        .gap_0()
-                                        .child(List::new(&workspace_list).max_h(px(320.)))
-                                        .child(
-                                            div().h(px(1.)).w_full().my_1().bg(cx.theme().border),
-                                        )
-                                }),
-                        ),
+                                    .content(move |_, _window, cx| {
+                                        v_flex()
+                                            .w(px(260.))
+                                            .child(List::new(&workspace_list).max_h(px(320.)))
+                                    }),
+                            ),
                     ),
             )
             .child({
@@ -439,11 +461,7 @@ impl Render for ApiClient {
     }
 }
 
-fn open_settings_window(
-    api_client: Entity<ApiClient>,
-    env_store: Entity<EnvironmentStore>,
-    cx: &mut App,
-) {
+fn open_settings_window(api_client: Entity<ApiClient>, cx: &mut App) {
     let window_bounds = WindowBounds::centered(size(px(960.), px(680.)), cx);
     cx.spawn(async move |cx| {
         cx.open_window(
@@ -455,7 +473,7 @@ fn open_settings_window(
             },
             |window, cx| {
                 let window_handle = window.window_handle();
-                let settings = cx.new(|cx| SettingsWindow::new(env_store, window, cx));
+                let settings = cx.new(|cx| SettingsWindow::new(window, cx));
                 api_client.update(cx, |client, cx| {
                     client.settings_window = Some((settings.downgrade(), window_handle));
                     cx.notify();

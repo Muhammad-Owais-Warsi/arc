@@ -6,9 +6,12 @@ use gpui_component::button::{Button, ButtonVariants};
 use gpui_component::input::{Input, InputState};
 use gpui_component::select::{Select, SelectEvent, SelectState};
 use gpui_component::table::{Table, TableBody, TableCell, TableHead, TableHeader, TableRow};
+use gpui_component::scroll::ScrollableElement;
 use gpui_component::{ActiveTheme, IndexPath, Sizable, h_flex, v_flex};
 
 use crate::icons::IconName;
+use crate::playground::Playground;
+use crate::response_panel::ResponsePanel;
 
 #[derive(Clone, Debug)]
 pub struct Environment {
@@ -70,21 +73,32 @@ impl EnvironmentStore {
     }
 }
 
+impl Playground for EnvironmentStore {
+    fn method(&self, _cx: &App) -> String {
+        "ENV".to_string()
+    }
+    fn response_panel(&self, _cx: &App) -> Option<Entity<ResponsePanel>> {
+        None
+    }
+}
+
 impl Render for EnvironmentStore {
     fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         v_flex()
+            .size_full()
+            .min_h(px(0.))
             .gap(rems(0.75))
-            .w_full()
+            .px(px(24.))
+            .pt(rems(1.0))
             .child(
-                div()
+                h_flex()
                     .w_full()
-                    .flex()
                     .items_center()
                     .justify_between()
                     .child(
-                        div()
-                            .w(px(130.))
-                            .child(Select::new(&self.select).placeholder("Environment")),
+                        div().w(px(180.)).child(
+                            Select::new(&self.select).placeholder("Environment"),
+                        ),
                     )
                     .child(
                         Button::new("add-env-var")
@@ -102,10 +116,12 @@ impl Render for EnvironmentStore {
             )
             .child(
                 div()
-                    .w_full()
-                    .overflow_hidden()
+                    .flex_1()
+                    .min_h(px(0.))
+                    .overflow_y_scrollbar()
                     .child(
                         Table::new()
+                            .w_full()
                             .child(
                                 TableHeader::new().w_full().child(
                                     TableRow::new()

@@ -71,3 +71,6 @@ pub struct QuitArc;
 
 #[derive(Clone, PartialEq, Action)]
 pub struct CopySettings;
+
+#[derive(Clone, PartialEq, Action)]
+pub struct OpenEnvironmentVariables;

@@ -9,8 +9,8 @@ pub struct SettingsWindow {
 }
 
 impl SettingsWindow {
-    pub fn new(store: Entity<EnvironmentStore>, _: &mut Window, cx: &mut Context<Self>) -> Self {
-        let settings_panel = cx.new(|cx| SettingsPanel::new(store, cx));
+    pub fn new(_: &mut Window, cx: &mut Context<Self>) -> Self {
+        let settings_panel = cx.new(|cx| SettingsPanel::new(cx));
         Self { settings_panel }
     }
 }

@@ -1,4 +1,5 @@
 use crate::actions::{DockSidebarLeft, DockSidebarRight};
+use crate::env::EnvironmentStore;
 use crate::fs::{self, read_request_file, write_request_file};
 use crate::helpers::next_id;
 use crate::playground::PlaygroundHandle;
@@ -18,8 +19,11 @@ use crate::icons::IconName;
 use std::collections::HashMap;
 use std::path::Path;
 
+const ENV_NODE_ID: usize = usize::MAX - 1;
+
 pub struct TabManager {
     project_panel: Entity<ProjectPanel>,
+    env_store: Entity<EnvironmentStore>,
     tabs: HashMap<usize, Entity<Tabs>>,
     active_tab_id: Option<usize>,
     scroll_handle: ScrollHandle,
@@ -31,9 +35,11 @@ impl TabManager {
         window: &mut Window,
         cx: &mut Context<Self>,
         project_panel: Entity<ProjectPanel>,
+        env_store: Entity<EnvironmentStore>,
     ) -> Self {
         Self {
             project_panel,
+            env_store,
             tabs: HashMap::new(),
             active_tab_id: None,
             scroll_handle: ScrollHandle::new(),
@@ -157,6 +163,49 @@ impl TabManager {
 
         self.tabs.insert(tab_key, tab_entity);
         self.active_tab_id = Some(tab_key);
+        cx.notify();
+    }
+
+    pub fn add_env_tab(
+        &mut self,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let node_id = ENV_NODE_ID;
+        if self.tabs.contains_key(&node_id) {
+            self.active_tab_id = Some(node_id);
+            cx.notify();
+            return;
+        }
+
+        let env_store = self.env_store.clone();
+        let tab_entity = cx.new(|cx| Tabs::new(node_id, node_id, "Environment".to_string(), env_store.clone_box()));
+
+        cx.subscribe_in(
+            &tab_entity,
+            window,
+            |this: &mut Self, _, event, _window, cx| {
+                if let TabEvent::Close(node_id) = event {
+                    this.tabs.remove(&node_id);
+                    this.active_tab_id = this
+                        .tabs
+                        .keys()
+                        .copied()
+                        .filter(|id| *id != *node_id)
+                        .max();
+                    let active = this.active_tab_id;
+                    this.project_panel.update(cx, |pp, cx| {
+                        pp.set_active_node(active);
+                        cx.notify();
+                    });
+                    cx.notify();
+                }
+            },
+        )
+        .detach();
+
+        self.tabs.insert(node_id, tab_entity);
+        self.active_tab_id = Some(node_id);
         cx.notify();
     }
 
