@@ -1,6 +1,7 @@
 // use gpui::Window;
 use crate::actions::{
-    CopyPath, CopyRelativePath, CreateFile, CreateFolder, RenameItem, StressTestPlayground,
+    CopyPath, CopyRelativePath, CreateFile, CreateFolder, DeleteItem, RenameItem,
+    StressTestPlayground,
 };
 use crate::fs::{self, read_request_method};
 use crate::helpers::{next_id, render_method_tag};
@@ -34,6 +35,11 @@ pub enum ProjectPanelEvent {
     FileRenamed {
         node_id: usize,
         new_name: String,
+    },
+    FileDeleted {
+        node_id: Option<usize>,
+        path: String,
+        is_file: bool,
     },
     StressTestPlayground {
         path: String,
@@ -305,6 +311,8 @@ impl ProjectPanel {
 
         let rename_node_name = name.clone();
         let stress_playground_node_path = path.clone();
+        let is_file_for_delete = is_file.clone();
+        let path_for_delete = path.clone();
         let path_for_menu = path.clone(); // for the `workspace_path != path_for_menu` comparison
         let path_for_copy = path.clone(); // for CopyPath
         let path_for_copy_relative = Path::new(&path)
@@ -313,6 +321,7 @@ impl ProjectPanel {
             .unwrap_or_default(); // empty for the workspace root / non-workspace paths
 
         item = item.context_menu(move |menu, _, _| {
+            let menu = menu.min_w(px(200.));
             let menu = if !is_file {
                 menu.menu(
                     "Create File",
@@ -364,6 +373,13 @@ impl ProjectPanel {
                         node_id,
                         node_name: rename_node_name.clone(),
                         new_name: String::new(),
+                    }),
+                )
+                .menu(
+                    "Delete",
+                    Box::new(DeleteItem {
+                        path: path_for_delete.clone(),
+                        is_file: is_file_for_delete.clone(),
                     }),
                 )
             } else {
@@ -677,6 +693,52 @@ impl ProjectPanel {
         cx.notify();
     }
 
+    pub fn handle_delete_item(
+        &mut self,
+        action: &DeleteItem,
+        cx: &mut Context<Self>,
+    ) {
+        let path = action.path.clone();
+        let is_file = action.is_file;
+
+        if fs::delete_file_or_folder(Path::new(&path)).is_err() {
+            return;
+        }
+
+        let mut deleted_node_id = None;
+
+        if let Some(ws) = self.workspaces.get_mut(self.selected_workspace) {
+            let node_id = ws
+                .nodes
+                .iter()
+                .find(|(_, n)| n.path == path)
+                .map(|(&id, _)| id);
+
+            if let Some(node_id) = node_id {
+                let parent_ids: Vec<usize> = ws
+                    .nodes
+                    .values()
+                    .filter(|n| n.children.contains(&node_id))
+                    .map(|n| n.id)
+                    .collect();
+                for parent_id in parent_ids {
+                    if let Some(parent) = ws.nodes.get_mut(&parent_id) {
+                        parent.children.retain(|&id| id != node_id);
+                    }
+                }
+                ws.nodes.remove(&node_id);
+                deleted_node_id = Some(node_id);
+            }
+        }
+
+        cx.emit(ProjectPanelEvent::FileDeleted {
+            node_id: deleted_node_id,
+            path,
+            is_file,
+        });
+        cx.notify();
+    }
+
     pub fn set_node_method(&mut self, node_id: usize, method: &str) {
         if let Some(ws) = self.workspaces.get_mut(self.selected_workspace) {
             Self::update_node_method(&mut ws.nodes, node_id, method);
@@ -710,7 +772,7 @@ impl Render for ProjectPanel {
             return Sidebar::new("api-sidebar")
                 .collapsible(SidebarCollapsible::Offcanvas)
                 .collapsed(self.sidebar_collapsed)
-                .side(AppSettings::global(cx).sidebar_dock.to_side())
+                .side(AppSettings::global(cx).panel.project_panel.sidebar_dock.to_side())
                 .into_element();
         };
 
@@ -719,7 +781,7 @@ impl Render for ProjectPanel {
 
         let sidebar = Sidebar::new("api-sidebar")
             .collapsible(SidebarCollapsible::Offcanvas)
-            .side(AppSettings::global(cx).sidebar_dock.to_side())
+            .side(AppSettings::global(cx).panel.project_panel.sidebar_dock.to_side())
             .collapsed(self.sidebar_collapsed)
             .child(SidebarGroup::new(&ws_name).child(
                 SidebarMenu::new().children(root_ids.iter().map(|&id| self.render_node(id, cx))),

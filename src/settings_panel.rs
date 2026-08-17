@@ -36,22 +36,108 @@ impl SidebarDock {
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(default)]
-pub struct AppSettings {
+pub struct ThemeSettings {
+    pub name: String,
+    pub mode: String,
+}
+
+impl Default for ThemeSettings {
+    fn default() -> Self {
+        Self {
+            name: "Ayu Dark".into(),
+            mode: "dark".into(),
+        }
+    }
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(default)]
+pub struct FontSettings {
+    pub family: String,
+    pub size: f32,
+}
+
+impl Default for FontSettings {
+    fn default() -> Self {
+        Self {
+            family: ".ZedSans".into(),
+            size: 16.0,
+        }
+    }
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(default)]
+pub struct ProjectPanelSettings {
     pub sidebar_dock: SidebarDock,
+}
+
+impl Default for ProjectPanelSettings {
+    fn default() -> Self {
+        Self {
+            sidebar_dock: SidebarDock::Left,
+        }
+    }
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(default)]
+pub struct RequestPlaygroundSettings {
     pub save_on_close: bool,
-    pub theme: String,
-    pub font_family: String,
-    pub font_size: f32,
+}
+
+impl Default for RequestPlaygroundSettings {
+    fn default() -> Self {
+        Self {
+            save_on_close: false,
+        }
+    }
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(default)]
+pub struct PanelSettings {
+    pub project_panel: ProjectPanelSettings,
+}
+
+impl Default for PanelSettings {
+    fn default() -> Self {
+        Self {
+            project_panel: ProjectPanelSettings::default(),
+        }
+    }
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(default)]
+pub struct PlaygroundSettings {
+    pub request_playground: RequestPlaygroundSettings,
+}
+
+impl Default for PlaygroundSettings {
+    fn default() -> Self {
+        Self {
+            request_playground: RequestPlaygroundSettings::default(),
+        }
+    }
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(default)]
+pub struct AppSettings {
+    pub theme: ThemeSettings,
+    pub font: FontSettings,
+    pub panel: PanelSettings,
+    pub playground: PlaygroundSettings,
 }
 
 impl Default for AppSettings {
     fn default() -> Self {
         Self {
-            sidebar_dock: SidebarDock::Left,
-            save_on_close: false,
-            theme: "One Dark".to_string(),
-            font_family: ".ZedSans".to_string(),
-            font_size: 16.0,
+            theme: ThemeSettings::default(),
+            font: FontSettings::default(),
+            panel: PanelSettings::default(),
+            playground: PlaygroundSettings::default(),
         }
     }
 }
@@ -110,13 +196,13 @@ impl SettingsPanel {
                                     t.light_theme = theme_config.clone();
                                 }
                                 Theme::change(mode, None, cx);
-                                AppSettings::global_mut(cx).theme = name.to_string();
+                                AppSettings::global_mut(cx).theme.name = name.to_string();
                                 AppSettings::global_mut(cx).save();
                                 cx.refresh_windows();
                             }
                         },
                     )
-                    .default_value("One Dark"),
+                    .default_value("Ayu Dark"),
                 )
                 .description("Select the application theme.")
                 .disabled(false),
@@ -129,7 +215,7 @@ impl SettingsPanel {
                         |cx: &App| get_active_font(cx),
                         |val: SharedString, cx: &mut App| {
                             Theme::global_mut(cx).font_family = val.clone();
-                            AppSettings::global_mut(cx).font_family = val.to_string();
+                            AppSettings::global_mut(cx).font.family = val.to_string();
                             AppSettings::global_mut(cx).save();
                             cx.refresh_windows();
                         },
@@ -149,7 +235,7 @@ impl SettingsPanel {
                         |cx: &App| Theme::global(cx).font_size.as_f32() as f64,
                         |val: f64, cx: &mut App| {
                             Theme::global_mut(cx).font_size = px(val as f32);
-                            AppSettings::global_mut(cx).font_size = val as f32;
+                            AppSettings::global_mut(cx).font.size = val as f32;
                             AppSettings::global_mut(cx).save();
                             cx.refresh_windows();
                         },
@@ -176,7 +262,7 @@ impl SettingsPanel {
                                 ("right".into(), "Dock Right".into()),
                             ],
                             |cx: &App| {
-                                let dock = AppSettings::global(cx).sidebar_dock;
+                                let dock = AppSettings::global(cx).panel.project_panel.sidebar_dock;
                                 SharedString::from(if dock == SidebarDock::Right {
                                     "right"
                                 } else {
@@ -184,7 +270,7 @@ impl SettingsPanel {
                                 })
                             },
                             |val: SharedString, cx: &mut App| {
-                                AppSettings::global_mut(cx).sidebar_dock = if val == "right" {
+                                AppSettings::global_mut(cx).panel.project_panel.sidebar_dock = if val == "right" {
                                     SidebarDock::Right
                                 } else {
                                     SidebarDock::Left
@@ -209,9 +295,9 @@ impl SettingsPanel {
                     SettingItem::new(
                         "Save on Close",
                         SettingField::<bool>::switch(
-                            |cx: &App| AppSettings::global(cx).save_on_close,
+                            |cx: &App| AppSettings::global(cx).playground.request_playground.save_on_close,
                             |val: bool, cx: &mut App| {
-                                AppSettings::global_mut(cx).save_on_close = val;
+                                AppSettings::global_mut(cx).playground.request_playground.save_on_close = val;
                                 AppSettings::global_mut(cx).save();
                                 cx.refresh_windows();
                             },
@@ -255,7 +341,7 @@ impl SettingsPanel {
                             .items_center()
                             .justify_center()
                             .child(Icon::new(IconName::Info))
-                            .child("Arc API Client")
+                            .child("Arc is a minimal and GPU-rendered API client built for speed")
                             .into_any_element()
                     })),
                 ),

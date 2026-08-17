@@ -1,11 +1,10 @@
 use crate::auth::AuthType;
 use serde::{Deserialize, Serialize};
 use std::{
-    fs::{OpenOptions, read_to_string},
+    fs::{OpenOptions, read_to_string, remove_dir_all, remove_file},
     io,
     path::{Path, PathBuf},
 };
-use tokio::fs::File;
 
 #[derive(Serialize, Deserialize, Default, PartialEq)]
 pub struct KeyValue {
@@ -84,6 +83,15 @@ pub fn create_file(name: &str, parent_dir: &str) -> io::Result<String> {
     serde_json::to_writer_pretty(file, &content).map_err(io::Error::other)?;
 
     Ok(path)
+}
+
+pub fn delete_file_or_folder(path: &Path) -> io::Result<()> {
+    if path.is_dir() {
+        remove_dir_all(path)?;
+    } else {
+        remove_file(path)?;
+    }
+    Ok(())
 }
 
 pub fn write_request_file(path: &Path, content: &FileContent) -> io::Result<()> {

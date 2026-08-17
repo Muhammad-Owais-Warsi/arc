@@ -14,6 +14,13 @@ pub struct CreateFolder {
 
 #[derive(Clone, PartialEq, Action)]
 #[action(namespace = fs, no_json)]
+pub struct DeleteItem {
+    pub path: String,
+    pub is_file: bool,
+}
+
+#[derive(Clone, PartialEq, Action)]
+#[action(namespace = fs, no_json)]
 pub struct StressTestPlayground {
     pub path: String,
     pub node_id: usize,

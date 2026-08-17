@@ -25,12 +25,13 @@ mod tab;
 mod tab_manager;
 
 use crate::actions::{
-    CopyPath, CopyRelativePath, CreateFile, CreateFolder, DockSidebarLeft, DockSidebarRight,
-    RenameItem, StressTestPlayground,
+    CopyPath, CopyRelativePath, CreateFile, CreateFolder, DeleteItem, DockSidebarLeft,
+    DockSidebarRight, RenameItem, StressTestPlayground,
 };
 use crate::assets::Assets;
 use crate::env::EnvironmentStore;
 use crate::footer::{Footer, FooterEvent};
+use crate::icons::IconName;
 use crate::list::{WorkspaceListItem, WorkspaceListItemEvent};
 use crate::project_panel::{ProjectPanel, ProjectPanelEvent};
 use crate::settings_panel::{AppSettings, SidebarDock};
@@ -41,6 +42,7 @@ use gpui::*;
 use gpui_component::Side;
 use gpui_component::button::{Button, ButtonVariants};
 use gpui_component::list::{List, ListState};
+use gpui_component::menu::DropdownMenu;
 use gpui_component::popover::Popover;
 use gpui_component::{Theme, *};
 use std::os::windows::ffi::EncodeWide;
@@ -127,6 +129,7 @@ impl ApiClient {
 
         cx.subscribe_in(&project_panel, window, {
             let tab_manager = tab_manager.clone();
+            let project_panel = project_panel.clone();
             move |_, _, event, window, cx| match event {
                 ProjectPanelEvent::FileActivated {
                     node_id,
@@ -149,6 +152,13 @@ impl ApiClient {
                     tab_manager.update(cx, |tm, cx| {
                         tm.rename_tab(*node_id, new_name.clone(), cx);
                     });
+                }
+                ProjectPanelEvent::FileDeleted { node_id, path: _, is_file: _ } => {
+                    if let Some(nid) = node_id {
+                        tab_manager.update(cx, |tm, cx| {
+                            tm.close_tab(*nid, &project_panel, cx);
+                        });
+                    }
                 }
                 ProjectPanelEvent::StressTestPlayground { path, node_name } => {
                     tab_manager.update(cx, |tm, cx| {
@@ -232,6 +242,16 @@ impl ApiClient {
             .update(cx, |s, cx| s.handle_rename_item(action, window, cx));
     }
 
+    pub fn handle_delete_item(
+        &mut self,
+        action: &DeleteItem,
+        _window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.project_panel
+            .update(cx, |s, cx| s.handle_delete_item(action, cx));
+    }
+
     pub fn handle_stress_test_playground(
         &mut self,
         action: &StressTestPlayground,
@@ -249,7 +269,8 @@ impl ApiClient {
         _window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        AppSettings::global_mut(cx).sidebar_dock = SidebarDock::Left;
+        AppSettings::global_mut(cx).panel.project_panel.sidebar_dock = SidebarDock::Left;
+        AppSettings::global_mut(cx).save();
         cx.refresh_windows();
     }
 
@@ -259,7 +280,8 @@ impl ApiClient {
         _window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        AppSettings::global_mut(cx).sidebar_dock = SidebarDock::Right;
+        AppSettings::global_mut(cx).panel.project_panel.sidebar_dock = SidebarDock::Right;
+        AppSettings::global_mut(cx).save();
         cx.refresh_windows();
     }
 
@@ -301,6 +323,7 @@ impl Render for ApiClient {
             .on_action(cx.listener(Self::handle_create_file))
             .on_action(cx.listener(Self::handle_create_folder))
             .on_action(cx.listener(Self::handle_rename))
+            .on_action(cx.listener(Self::handle_delete_item))
             .on_action(cx.listener(Self::handle_stress_test_playground))
             .on_action(cx.listener(Self::handle_copy_path))
             .on_action(cx.listener(Self::handle_copy_relative_path))
@@ -317,6 +340,39 @@ impl Render for ApiClient {
                             .ok();
                         }
                     })
+                    .child(
+                        Button::new("menu")
+                            .icon(IconName::Menu)
+                            .ghost()
+                            .xsmall()
+                            .tooltip("Open Application Menu")
+                            .dropdown_menu(|menu, window, cx| {
+                                menu.min_w(px(200.))
+                                    .menu(
+                                        "New File",
+                                        Box::new(actions::CopyRelativePath {
+                                            path: "".to_string(),
+                                        }),
+                                    )
+                                    .menu(
+                                        "Open File",
+                                        Box::new(actions::CopyRelativePath {
+                                            path: "".to_string(),
+                                        }),
+                                    )
+                                    .link(
+                                        "Documentation",
+                                        "https://longbridge.github.io/gpui-component/",
+                                    )
+                                    .separator()
+                                    .menu(
+                                        "Exit",
+                                        Box::new(actions::CopyRelativePath {
+                                            path: "".to_string(),
+                                        }),
+                                    )
+                            }),
+                    )
                     .child(
                         h_flex().gap_2().items_center().px_2().w_full().child(
                             Popover::new("workspace-switcher")
@@ -345,14 +401,14 @@ impl Render for ApiClient {
                     .flex_1()
                     .flex()
                     .when(
-                        AppSettings::global(cx).sidebar_dock == SidebarDock::Right,
+                        AppSettings::global(cx).panel.project_panel.sidebar_dock == SidebarDock::Right,
                         |this| {
                             this.child(self.tab_manager.clone())
                                 .child(self.project_panel.clone())
                         },
                     )
                     .when(
-                        AppSettings::global(cx).sidebar_dock == SidebarDock::Left,
+                        AppSettings::global(cx).panel.project_panel.sidebar_dock == SidebarDock::Left,
                         |this| {
                             this.child(self.project_panel.clone())
                                 .child(self.tab_manager.clone())
@@ -398,7 +454,7 @@ fn main() {
         cx.set_global::<AppSettings>(AppSettings::get());
         AppSettings::global(cx).save();
 
-        let theme_name = SharedString::from(AppSettings::global(cx).theme.clone());
+        let theme_name = SharedString::from(AppSettings::global(cx).theme.name.clone());
         for theme_file in ["themes/one.json", "themes/ayu.json"] {
             if let Some(file) = Assets::get(theme_file) {
                 if let Ok(content) = std::str::from_utf8(file.data.as_ref()) {
@@ -421,8 +477,8 @@ fn main() {
         apply_theme(cx);
         let settings = AppSettings::global(cx).clone();
         let theme = Theme::global_mut(cx);
-        theme.font_family = settings.font_family.into();
-        theme.font_size = px(settings.font_size);
+        theme.font_family = settings.font.family.into();
+        theme.font_size = px(settings.font.size);
         if let Err(err) =
             ThemeRegistry::watch_dir(PathBuf::from("./assets/themes"), cx, move |cx| {
                 apply_theme(cx);

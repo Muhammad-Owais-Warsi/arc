@@ -84,6 +84,17 @@ impl TabManager {
         }
     }
 
+    pub fn close_tab(&mut self, node_id: usize, project_panel: &Entity<ProjectPanel>, cx: &mut Context<Self>) {
+        self.tabs.remove(&node_id);
+        self.active_tab_id = self.tabs.keys().copied().max();
+        let active = self.active_tab_id;
+        project_panel.update(cx, |pp, cx| {
+            pp.set_active_node(active);
+            cx.notify();
+        });
+        cx.notify();
+    }
+
     pub fn has_tabs(&self) -> bool {
         self.active_tab_id.is_some()
     }
@@ -194,7 +205,7 @@ impl TabManager {
             window,
             move |this: &mut Self, _, event, _window, cx| {
                 if let TabEvent::Close(node_id) = event {
-                    let save_on_close = AppSettings::global(cx).save_on_close;
+                    let save_on_close = AppSettings::global(cx).playground.request_playground.save_on_close;
 
                     if save_on_close {
                         let content = playground.read(cx).current_content(cx);
@@ -226,7 +237,7 @@ impl TabManager {
 
     fn render_sidebar_toggle(&mut self, cx: &mut Context<Self>) -> impl IntoElement {
         let sidebar_collapsed = self.sidebar_collapsed;
-        let dock_position = AppSettings::global(cx).sidebar_dock.to_side();
+        let dock_position = AppSettings::global(cx).panel.project_panel.sidebar_dock.to_side();
 
         div()
             .child(
@@ -244,8 +255,8 @@ impl TabManager {
                         cx.notify();
                     })),
             )
-            .context_menu(move |menu, _window, _cx| {
-                menu.menu_with_check(
+                .context_menu(move |menu, _window, _cx| {
+                    menu.min_w(px(150.)).menu_with_check(
                     "Dock Left",
                     dock_position == Side::Left,
                     Box::new(DockSidebarLeft),
@@ -271,7 +282,7 @@ impl TabManager {
             .map(|(_, tab)| tab.update(cx, |this, cx| this.to_tab_element(cx)))
             .collect();
 
-        let sidebar_dock = AppSettings::global(cx).sidebar_dock;
+        let sidebar_dock = AppSettings::global(cx).panel.project_panel.sidebar_dock;
 
         TabBar::new("tabs")
             .h(px(32.))
