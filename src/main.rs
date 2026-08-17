@@ -187,7 +187,6 @@ impl ApiClient {
 
         cx.subscribe_in(&footer, window, {
             let tab_manager = tab_manager.clone();
-            let env_store = env_store.clone();
             move |this: &mut Self, _, event, _window, cx| match event {
                 FooterEvent::ToggleResponse => {
                     tab_manager.update(cx, |tm, cx| tm.toggle_active_response(cx));
@@ -310,9 +309,14 @@ impl ApiClient {
     }
 
     fn render_footer(&mut self, cx: &mut Context<Self>) -> impl IntoElement {
-        let has_tabs = self.tab_manager.read(cx).has_tabs();
+        let show_toggle = self
+            .tab_manager
+            .read(cx)
+            .active_playground(cx)
+            .and_then(|p| p.response_panel(cx))
+            .is_some();
         self.footer
-            .update(cx, |f, cx| f.set_show_toggle(has_tabs, cx));
+            .update(cx, |f, cx| f.set_show_toggle(show_toggle, cx));
         self.footer.clone()
     }
 

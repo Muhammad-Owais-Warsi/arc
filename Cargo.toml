@@ -9,7 +9,7 @@ edition = "2024"
 # would be treated as a different crate version, causing duplicate gpui type mismatches.
 gpui = { git = "https://github.com/zed-industries/zed" }
 gpui_platform = { git = "https://github.com/zed-industries/zed", features = ["font-kit", "runtime_shaders"] }
-gpui-component = { git = "https://github.com/longbridge/gpui-component", rev = "41bee9c280b6708d3671b5e9b137a78f49394568", features = ["tree-sitter"] }
+gpui-component = { git = "https://github.com/longbridge/gpui-component", rev = "972a3ebfd01afca7da6d8b6f31c9a51288ea5565", features = ["tree-sitter"] }
 # # Optional, for default bundled assets
 # gpui-component-assets = { git = "https://github.com/longbridge/gpui-component" }
 anyhow = "1.0"

@@ -6,7 +6,7 @@ use std::{
     path::{Path, PathBuf},
 };
 use trash;
-#[derive(Serialize, Deserialize, Default, PartialEq)]
+#[derive(Clone, Debug, Serialize, Deserialize, Default, PartialEq)]
 pub struct KeyValue {
     pub key: String,
     pub value: String,
@@ -142,6 +142,10 @@ pub fn rename_item(old_path: &str, new_path: &str) -> io::Result<String> {
 
 pub fn settings_file_path() -> PathBuf {
     PathBuf::from("./settings.json")
+}
+
+pub fn environments_path() -> PathBuf {
+    PathBuf::from("./environments.json")
 }
 
 pub fn get_settings() -> String {
