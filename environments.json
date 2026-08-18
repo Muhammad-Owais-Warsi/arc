@@ -1,0 +1,32 @@
+[
+  {
+    "name": "Local",
+    "variables": [
+      {
+        "key": "base_url",
+        "value": "http://localhost:3000",
+        "active": true
+      },
+      {
+        "key": "api_key",
+        "value": "dev-key-123",
+        "active": true
+      }
+    ]
+  },
+  {
+    "name": "Production",
+    "variables": [
+      {
+        "key": "base_url",
+        "value": "https://api.example.com",
+        "active": true
+      },
+      {
+        "key": "api_key",
+        "value": "prod-key-789",
+        "active": true
+      }
+    ]
+  }
+]

@@ -38,19 +38,12 @@ use crate::project_panel::{ProjectPanel, ProjectPanelEvent};
 use crate::settings_panel::{AppSettings, SidebarDock};
 use crate::settings_window::SettingsWindow;
 use gpui::prelude::FluentBuilder;
-// use gpui::prelude::FluentBuilder as _;
 use gpui::*;
-use gpui_component::Side;
 use gpui_component::button::{Button, ButtonVariants};
 use gpui_component::list::{List, ListState};
 use gpui_component::menu::DropdownMenu;
 use gpui_component::popover::Popover;
 use gpui_component::{Theme, *};
-use std::os::windows::ffi::EncodeWide;
-use std::path::PathBuf;
-use tokio::signal::windows;
-
-// use crate::icons::IconName;
 
 pub struct ApiClient {
     project_panel: Entity<project_panel::ProjectPanel>,
@@ -70,15 +63,39 @@ impl ApiClient {
                 .searchable(true)
         });
 
-        let pp = project_panel.clone();
+        let tab_manager = cx.new(|cx| {
+            tab_manager::TabManager::new(window, cx, project_panel.clone(), env_store.clone())
+        });
+        let footer = cx.new(|cx| Footer::new(window, cx));
+
+        Self {
+            project_panel,
+            tab_manager,
+            footer,
+            env_store,
+            workspace_list,
+            settings_window: None,
+        }
+    }
+
+    fn init(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        self.start_walkdir(window, cx);
+        self.footer_event_handler(window, cx);
+        self.workspace_event_handler(window, cx);
+        self.project_panel_event_handler(window, cx);
+    }
+
+    fn start_walkdir(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let project_panel = self.project_panel.clone();
         cx.spawn(async move |_, cx| {
             let dirs = cx
                 .background_executor()
                 .spawn(ProjectPanel::list_workspace_dirs())
                 .await;
 
-            let selected_ix = pp.update(cx, |pp, cx| pp.set_workspaces(dirs, cx));
-            if let Some(path) = pp.update(cx, |pp, _| pp.get_workspace(selected_ix).map(|(_, p)| p))
+            let selected_ix = project_panel.update(cx, |pp, cx| pp.set_workspaces(dirs, cx));
+            if let Some(path) =
+                project_panel.update(cx, |pp, _| pp.get_workspace(selected_ix).map(|(_, p)| p))
             {
                 let tree = cx
                     .background_executor()
@@ -87,22 +104,31 @@ impl ApiClient {
                     )
                     .await;
 
-                pp.update(cx, |pp, cx| {
+                project_panel.update(cx, |pp, cx| {
                     pp.set_workspace_tree(selected_ix, tree, cx);
                     cx.notify();
                 });
             }
         })
         .detach();
+    }
 
-        let tab_manager = cx.new(|cx| {
-            tab_manager::TabManager::new(window, cx, project_panel.clone(), env_store.clone())
-        });
-        let footer = cx.new(|cx| Footer::new(window, cx));
+    fn footer_event_handler(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        cx.subscribe_in(&self.footer, window, {
+            let tab_manager = self.tab_manager.clone();
+            move |this: &mut Self, _, event, _window, cx| match event {
+                FooterEvent::ToggleResponse => {
+                    tab_manager.update(cx, |tm, cx| tm.toggle_active_response(cx));
+                }
+            }
+        })
+        .detach();
+    }
 
-        cx.subscribe_in(&workspace_list, window, {
-            let project_panel = project_panel.clone();
-            let tab_manager = tab_manager.clone();
+    fn workspace_event_handler(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        cx.subscribe_in(&self.workspace_list, window, {
+            let project_panel = self.project_panel.clone();
+            let tab_manager = self.tab_manager.clone();
             move |_, _, event, window, cx| match event {
                 WorkspaceListItemEvent::WorkspaceChanged(name) => {
                     let ix = project_panel.update(cx, |pp, cx| pp.reset(window, cx, name.clone()));
@@ -129,10 +155,12 @@ impl ApiClient {
             }
         })
         .detach();
+    }
 
-        cx.subscribe_in(&project_panel, window, {
-            let tab_manager = tab_manager.clone();
-            let project_panel = project_panel.clone();
+    fn project_panel_event_handler(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        cx.subscribe_in(&self.project_panel, window, {
+            let tab_manager = self.tab_manager.clone();
+            let project_panel = self.project_panel.clone();
             move |_, _, event, window, cx| match event {
                 ProjectPanelEvent::FileActivated {
                     node_id,
@@ -184,30 +212,9 @@ impl ApiClient {
             }
         })
         .detach();
-
-        cx.subscribe_in(&footer, window, {
-            let tab_manager = tab_manager.clone();
-            move |this: &mut Self, _, event, _window, cx| match event {
-                FooterEvent::ToggleResponse => {
-                    tab_manager.update(cx, |tm, cx| tm.toggle_active_response(cx));
-                }
-            }
-        })
-        .detach();
-
-        Self {
-            project_panel,
-            tab_manager,
-            footer,
-            env_store,
-            workspace_list,
-            settings_window: None,
-        }
     }
-}
 
-impl ApiClient {
-    pub fn handle_create_file(
+    fn handle_create_file(
         &mut self,
         action: &CreateFile,
         window: &mut Window,
@@ -217,7 +224,7 @@ impl ApiClient {
             .update(cx, |s, cx| s.handle_create_file(action, window, cx));
     }
 
-    pub fn handle_create_folder(
+    fn handle_create_folder(
         &mut self,
         action: &CreateFolder,
         window: &mut Window,
@@ -227,17 +234,12 @@ impl ApiClient {
             .update(cx, |s, cx| s.handle_create_folder(action, window, cx));
     }
 
-    pub fn handle_rename(
-        &mut self,
-        action: &RenameItem,
-        window: &mut Window,
-        cx: &mut Context<Self>,
-    ) {
+    fn handle_rename(&mut self, action: &RenameItem, window: &mut Window, cx: &mut Context<Self>) {
         self.project_panel
             .update(cx, |s, cx| s.handle_rename_item(action, window, cx));
     }
 
-    pub fn handle_delete_item(
+    fn handle_delete_item(
         &mut self,
         action: &DeleteItem,
         _window: &mut Window,
@@ -247,7 +249,7 @@ impl ApiClient {
             .update(cx, |s, cx| s.handle_delete_item(action, cx));
     }
 
-    pub fn handle_trash_item(
+    fn handle_trash_item(
         &mut self,
         action: &TrashItem,
         _window: &mut Window,
@@ -257,7 +259,7 @@ impl ApiClient {
             .update(cx, |s, cx| s.handle_trash_item(action, cx));
     }
 
-    pub fn handle_stress_test_playground(
+    fn handle_stress_test_playground(
         &mut self,
         action: &StressTestPlayground,
         window: &mut Window,
@@ -268,7 +270,7 @@ impl ApiClient {
         });
     }
 
-    pub fn handle_dock_sidebar_left(
+    fn handle_dock_sidebar_left(
         &mut self,
         _: &DockSidebarLeft,
         _window: &mut Window,
@@ -279,7 +281,7 @@ impl ApiClient {
         cx.refresh_windows();
     }
 
-    pub fn handle_dock_sidebar_right(
+    fn handle_dock_sidebar_right(
         &mut self,
         _: &DockSidebarRight,
         _window: &mut Window,
@@ -290,7 +292,7 @@ impl ApiClient {
         cx.refresh_windows();
     }
 
-    pub fn handle_copy_path(
+    fn handle_copy_path(
         &mut self,
         action: &CopyPath,
         _window: &mut Window,
@@ -299,7 +301,7 @@ impl ApiClient {
         cx.write_to_clipboard(ClipboardItem::new_string(action.path.clone()));
     }
 
-    pub fn handle_copy_relative_path(
+    fn handle_copy_relative_path(
         &mut self,
         action: &CopyRelativePath,
         _window: &mut Window,
@@ -355,6 +357,73 @@ impl ApiClient {
             tm.add_env_tab(window, cx);
         });
     }
+
+    fn render_titlebar(&mut self, cx: &mut Context<Self>) -> impl IntoElement {
+        let workspace_list = self.workspace_list.clone();
+        let settings_window = self.settings_window.clone();
+        let workspace_name = self
+            .project_panel
+            .read(cx)
+            .get_selected_workspace()
+            .to_string();
+        TitleBar::new()
+            .h(px(32.))
+            .on_close_window(move |_, _, cx| {
+                if let Some((_, settings_handle)) = settings_window.clone() {
+                    cx.update_window(settings_handle, |_root, window, _cx| {
+                        window.remove_window();
+                    })
+                    .ok();
+                }
+            })
+            .child(
+                h_flex()
+                    .h_full()
+                    .items_center()
+                    .gap_0p5()
+                    .child(
+                        Button::new("menu")
+                            .icon(IconName::Menu)
+                            .ghost()
+                            .small()
+                            .tooltip("Open Application Menu")
+                            .dropdown_menu(|menu, _, _| {
+                                menu.min_w(px(270.))
+                                    .link(
+                                        "About Arc",
+                                        "https://github.com/Muhammad-Owais-Warsi/arc",
+                                    )
+                                    .separator()
+                                    .menu("Open Settings", Box::new(actions::OpenSettings))
+                                    .menu("Copy Settings", Box::new(actions::CopySettings))
+                                    .separator()
+                                    .menu(
+                                        "Open Environment Variables",
+                                        Box::new(actions::OpenEnvironmentVariables),
+                                    )
+                                    .separator()
+                                    .menu("Quit Arc", Box::new(actions::QuitArc))
+                            }),
+                    )
+                    .child(
+                        Popover::new("workspace-switcher")
+                            .anchor(Anchor::TopLeft)
+                            .trigger(
+                                Button::new("workspace")
+                                    .ghost()
+                                    .small()
+                                    .mb(px(2.))
+                                    .label(workspace_name.clone())
+                                    .tooltip("Switch Workspace"),
+                            )
+                            .content(move |_, _window, cx| {
+                                v_flex()
+                                    .w(px(260.))
+                                    .child(List::new(&workspace_list).max_h(px(320.)))
+                            }),
+                    ),
+            )
+    }
 }
 
 impl Render for ApiClient {
@@ -381,65 +450,7 @@ impl Render for ApiClient {
             .on_action(cx.listener(Self::handle_dock_sidebar_right))
             .on_action(cx.listener(Self::handle_trash_item))
             .on_action(cx.listener(Self::handle_open_environment_variables))
-            .child(
-                TitleBar::new()
-                    .h(px(32.))
-                    .on_close_window(move |_, _, cx| {
-                        if let Some((_, settings_handle)) = settings_window.clone() {
-                            cx.update_window(settings_handle, |_root, window, _cx| {
-                                window.remove_window();
-                            })
-                            .ok();
-                        }
-                    })
-                    .child(
-                        h_flex()
-                            .h_full()
-                            .items_center()
-                            .gap_0p5()
-                            .child(
-                                Button::new("menu")
-                                    .icon(IconName::Menu)
-                                    .ghost()
-                                    .small()
-                                    .tooltip("Open Application Menu")
-                                    .dropdown_menu(|menu, _, _| {
-                                        menu.min_w(px(270.))
-                                            .link(
-                                                "About Arc",
-                                                "https://github.com/Muhammad-Owais-Warsi/arc",
-                                            )
-                                            .separator()
-                                            .menu("Open Settings", Box::new(actions::OpenSettings))
-                                            .menu("Copy Settings", Box::new(actions::CopySettings))
-                                            .separator()
-                                            .menu(
-                                                "Open Environment Variables",
-                                                Box::new(actions::OpenEnvironmentVariables),
-                                            )
-                                            .separator()
-                                            .menu("Quit Arc", Box::new(actions::QuitArc))
-                                    }),
-                            )
-                            .child(
-                                Popover::new("workspace-switcher")
-                                    .anchor(Anchor::TopLeft)
-                                    .trigger(
-                                        Button::new("workspace")
-                                            .ghost()
-                                            .small()
-                                            .mb(px(2.))
-                                            .label(workspace_name.clone())
-                                            .tooltip("Switch Workspace"),
-                                    )
-                                    .content(move |_, _window, cx| {
-                                        v_flex()
-                                            .w(px(260.))
-                                            .child(List::new(&workspace_list).max_h(px(320.)))
-                                    }),
-                            ),
-                    ),
-            )
+            .child(self.render_titlebar(cx))
             .child({
                 div()
                     .flex_1()
@@ -489,6 +500,7 @@ fn open_settings_window(api_client: Entity<ApiClient>, cx: &mut App) {
     })
     .detach();
 }
+
 fn main() {
     let app = gpui_platform::application().with_assets(Assets);
     app.run(move |cx| {
@@ -504,30 +516,20 @@ fn main() {
                 }
             }
         }
-        let apply_theme = move |cx: &mut App| {
-            if let Some(theme) = ThemeRegistry::global(cx).themes().get(&theme_name).cloned() {
-                let mode = theme.mode;
-                let t = Theme::global_mut(cx);
-                if mode.is_dark() {
-                    t.dark_theme = theme.clone();
-                } else {
-                    t.light_theme = theme.clone();
-                }
-                Theme::change(mode, None, cx);
+        if let Some(theme) = ThemeRegistry::global(cx).themes().get(&theme_name).cloned() {
+            let mode = theme.mode;
+            let t = Theme::global_mut(cx);
+            if mode.is_dark() {
+                t.dark_theme = theme.clone();
+            } else {
+                t.light_theme = theme.clone();
             }
-        };
-        apply_theme(cx);
+            Theme::change(mode, None, cx);
+        }
         let settings = AppSettings::global(cx).clone();
         let theme = Theme::global_mut(cx);
         theme.font_family = settings.font.family.into();
         theme.font_size = px(settings.font.size);
-        if let Err(err) =
-            ThemeRegistry::watch_dir(PathBuf::from("./assets/themes"), cx, move |cx| {
-                apply_theme(cx);
-            })
-        {
-            eprintln!("Failed to watch themes directory: {}", err);
-        }
         cx.spawn(async move |cx| {
             cx.open_window(
                 WindowOptions {
@@ -536,7 +538,11 @@ fn main() {
                     ..Default::default()
                 },
                 |window, cx| {
-                    let view = cx.new(|view_cx| ApiClient::new(window, view_cx));
+                    let view = cx.new(|cx| {
+                        let mut client = ApiClient::new(window, cx);
+                        client.init(window, cx);
+                        client
+                    });
                     cx.new(|cx| Root::new(view, window, cx))
                 },
             )

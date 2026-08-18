@@ -1,0 +1,20 @@
+{
+  "theme": {
+    "name": "Ayu Dark",
+    "mode": "dark"
+  },
+  "font": {
+    "family": ".ZedSans",
+    "size": 16.0
+  },
+  "panel": {
+    "project_panel": {
+      "sidebar_dock": "left"
+    }
+  },
+  "playground": {
+    "request_playground": {
+      "save_on_close": false
+    }
+  }
+}

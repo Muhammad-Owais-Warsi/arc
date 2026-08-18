@@ -2404,6 +2404,7 @@ dependencies = [
  "tokio",
  "tokio-util",
  "trash",
+ "walkdir",
 ]
 
 [[package]]

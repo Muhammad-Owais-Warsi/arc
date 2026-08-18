@@ -4,14 +4,9 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
-# zed rev is pinned via Cargo.lock (currently 9bde578ef5afa84920c4300af25f9dee31c96fcf).
-# Do NOT add `rev` here: gpui-component main tracks zed HEAD unpinned, and a `?rev=` source
-# would be treated as a different crate version, causing duplicate gpui type mismatches.
 gpui = { git = "https://github.com/zed-industries/zed" }
 gpui_platform = { git = "https://github.com/zed-industries/zed", features = ["font-kit", "runtime_shaders"] }
 gpui-component = { git = "https://github.com/longbridge/gpui-component", rev = "972a3ebfd01afca7da6d8b6f31c9a51288ea5565", features = ["tree-sitter"] }
-# # Optional, for default bundled assets
-# gpui-component-assets = { git = "https://github.com/longbridge/gpui-component" }
 anyhow = "1.0"
 reqwest = { version = "0.13", features = ["json", "query", "cookies"] }
 tokio = { version = "1", features = ["full"] }
@@ -22,3 +17,4 @@ dirs = "5"
 rust-embed = "8.11"
 strum = { version = "0.26", features = ["derive"] }
 trash = "5.2.6"
+walkdir = "2"
