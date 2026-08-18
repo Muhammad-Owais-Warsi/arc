@@ -30,6 +30,7 @@ pub enum IconName {
     WindowMinimize,
     WindowRestore,
     Copy,
+    Inbox,
     Settings,
     Minus,
     Search,
