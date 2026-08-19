@@ -46,8 +46,7 @@ pub fn create_folder(name: &str, parent_dir: &str) -> io::Result<String> {
 }
 
 pub fn create_workspace(name: &str) -> io::Result<String> {
-    let home = dirs::home_dir().unwrap_or_else(|| std::path::PathBuf::from("."));
-    let projects_dir = home.join("projects");
+    let projects_dir = config_dir();
     let path = projects_dir.join(name);
 
     std::fs::create_dir(&path)?;
@@ -140,12 +139,59 @@ pub fn rename_item(old_path: &str, new_path: &str) -> io::Result<String> {
     Ok(new_path.to_string())
 }
 
+pub fn config_dir() -> PathBuf {
+    dirs::config_dir()
+        .unwrap_or_else(|| PathBuf::from("."))
+        .join(".arc")
+}
+
 pub fn settings_file_path() -> PathBuf {
-    PathBuf::from("./settings.json")
+    config_dir().join("settings.json")
 }
 
 pub fn environments_path() -> PathBuf {
-    PathBuf::from("./environments.json")
+    config_dir().join("environments.json")
+}
+
+/// Create the app config directory (`%APPDATA%\.arc`) and seed it with default
+/// `settings.json` and `environments.json` files when they don't exist yet.
+/// This is called once on startup so a fresh install always has both files.
+pub fn ensure_config_dir() -> io::Result<()> {
+    let dir = config_dir();
+    std::fs::create_dir_all(&dir)?;
+
+    fn write_if_missing(path: &Path, content: &str) -> io::Result<()> {
+        if path.exists() {
+            return Ok(());
+        }
+        std::fs::write(path, content)
+    }
+
+    write_if_missing(
+        &dir.join("settings.json"),
+        serde_json::to_string_pretty(&serde_json::json!({}))
+            .unwrap_or_else(|_| "{}".to_string())
+            .as_str(),
+    )?;
+
+    let default_envs = serde_json::json!([
+        {
+            "name": "Local",
+            "variables": []
+        },
+        {
+            "name": "Production",
+            "variables": []
+        }
+    ]);
+    write_if_missing(
+        &dir.join("environments.json"),
+        serde_json::to_string_pretty(&default_envs)
+            .unwrap_or_else(|_| "[]".to_string())
+            .as_str(),
+    )?;
+
+    Ok(())
 }
 
 pub fn get_settings() -> String {

@@ -5,6 +5,7 @@ use crate::helpers::next_id;
 use crate::playground::PlaygroundHandle;
 use crate::project_panel::ProjectPanel;
 use crate::request_playground::{RequestPlayground, RequestPlaygroundEvent};
+use crate::welcome::WelcomeScreen;
 use crate::settings_panel::{AppSettings, SidebarDock};
 use crate::stress_testing::StressTesting;
 use crate::tab::{TabEvent, Tabs};
@@ -20,6 +21,7 @@ use std::collections::HashMap;
 use std::path::Path;
 
 const ENV_NODE_ID: usize = usize::MAX - 1;
+const WELCOME_NODE_ID: usize = usize::MAX - 2;
 
 pub struct TabManager {
     project_panel: Entity<ProjectPanel>,
@@ -168,6 +170,46 @@ impl TabManager {
 
         self.tabs.insert(tab_key, tab_entity);
         self.active_tab_id = Some(tab_key);
+        cx.notify();
+    }
+
+    pub fn open_welcome_tab(
+        &mut self,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+        welcome: Entity<WelcomeScreen>,
+    ) {
+        let node_id = WELCOME_NODE_ID;
+        if self.tabs.contains_key(&node_id) {
+            self.active_tab_id = Some(node_id);
+            cx.notify();
+            return;
+        }
+
+        let content: Box<dyn PlaygroundHandle> = welcome.clone_box();
+        let tab_entity = cx.new(|cx| Tabs::new(WELCOME_NODE_ID, WELCOME_NODE_ID, "Welcome".into(), content));
+
+        cx.subscribe_in(
+            &tab_entity,
+            window,
+            |this: &mut Self, _, event, _window, cx| {
+                if let TabEvent::Close(node_id) = event {
+                    this.tabs.remove(&node_id);
+                    this.active_tab_id =
+                        this.tabs.keys().copied().filter(|id| *id != *node_id).max();
+                    let active = this.active_tab_id;
+                    this.project_panel.update(cx, |pp, cx| {
+                        pp.set_active_node(active);
+                        cx.notify();
+                    });
+                    cx.notify();
+                }
+            },
+        )
+        .detach();
+
+        self.tabs.insert(node_id, tab_entity);
+        self.active_tab_id = Some(node_id);
         cx.notify();
     }
 
@@ -445,6 +487,6 @@ impl Render for TabManager {
                     .overflow_x_hidden()
                     .child(self.render_tab_bar(cx)),
             )
-            .child(div().flex_1().min_h(px(0.)).child(main_content))
+            .child(div().flex_1().v_flex().min_h(px(0.)).child(main_content))
     }
 }

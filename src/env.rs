@@ -264,7 +264,7 @@ impl EnvironmentStore {
 
                 Button::new("add-new")
                     .ghost()
-                    .label("Add")
+                    .label("Add Environment")
                     .icon(IconName::Plus)
                     .w_full()
                     .justify_start()

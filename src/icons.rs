@@ -11,6 +11,7 @@ pub enum IconName {
     ChevronDown,
     ChevronRight,
     ChevronUp,
+    BriefcaseBusiness,
     Stop,
     Close,
     Folder,

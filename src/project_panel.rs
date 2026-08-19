@@ -58,11 +58,11 @@ pub enum ProjectPanelEvent {
 }
 
 #[derive(Clone)]
-struct Workspace {
-    name: String,
-    path: String,
-    nodes: HashMap<usize, Node>,
-    root_id: Vec<usize>,
+pub struct Workspace {
+    pub name: String,
+    pub path: String,
+    pub nodes: HashMap<usize, Node>,
+    pub root_id: Vec<usize>,
 }
 
 #[derive(Clone)]
@@ -91,8 +91,10 @@ enum PendingAction {
 }
 
 pub struct ProjectPanel {
-    workspaces: Vec<Workspace>,
-    selected_workspace: usize,
+    name: String,
+    path: String,
+    nodes: HashMap<usize, Node>,
+    root_id: Vec<usize>,
     sidebar_collapsed: bool,
     active_node_id: Option<usize>,
     pending_action: Option<PendingAction>,
@@ -103,37 +105,42 @@ impl EventEmitter<ProjectPanelEvent> for ProjectPanel {}
 impl ProjectPanel {
     pub fn new(_window: &mut Window, _cx: &mut Context<Self>) -> Self {
         Self {
-            workspaces: Vec::new(),
-            selected_workspace: 0,
+            name: String::new(),
+            path: String::new(),
+            nodes: HashMap::new(),
+            root_id: Vec::new(),
             sidebar_collapsed: false,
             active_node_id: None,
             pending_action: None,
         }
     }
 
-    pub fn get_workspace(&self, idx: usize) -> Option<(String, String)> {
-        self.workspaces
-            .get(idx)
-            .map(|w| (w.name.clone(), w.path.clone()))
+    pub fn set_tree(&mut self, name: String, path: String, tree: DirTree, cx: &mut Context<Self>) {
+        let mut nodes = tree.nodes;
+        let root_id = next_id();
+        nodes.insert(
+            root_id,
+            Node {
+                id: root_id,
+                path: path.clone(),
+                name: name.clone(),
+                method: String::new(),
+                is_file: false,
+                children: tree.root_ids,
+            },
+        );
+        self.name = name;
+        self.path = path;
+        self.nodes = nodes;
+        self.root_id = vec![root_id];
+        self.active_node_id = None;
+        self.pending_action = None;
+
+        cx.notify();
     }
 
-    pub fn reset(&mut self, _window: &mut Window, cx: &mut Context<Self>, name: String) -> usize {
-        let Some(ix) = self.workspaces.iter().position(|w| w.name == name) else {
-            return self.selected_workspace;
-        };
-        if ix != self.selected_workspace {
-            self.selected_workspace = ix;
-            self.active_node_id = None;
-            self.pending_action = None;
-
-            cx.notify();
-        }
-        ix
-    }
-
-    pub async fn list_workspace_dirs() -> Vec<(String, PathBuf)> {
-        let home = dirs::home_dir().unwrap_or_else(|| PathBuf::from("."));
-        let projects_dir = home.join("projects");
+    pub fn list_workspace_dirs() -> Vec<(String, PathBuf)> {
+        let projects_dir = fs::config_dir();
 
         let mut dirs: Vec<(String, PathBuf)> = WalkDir::new(&projects_dir)
             .max_depth(1)
@@ -153,65 +160,6 @@ impl ProjectPanel {
 
         dirs.sort_by(|a, b| a.0.cmp(&b.0));
         dirs
-    }
-
-    pub fn set_workspaces(
-        &mut self,
-        dirs: Vec<(String, PathBuf)>,
-        cx: &mut Context<Self>,
-    ) -> usize {
-        self.workspaces = dirs
-            .into_iter()
-            .map(|(name, path)| Workspace {
-                name,
-                path: path.to_string_lossy().to_string(),
-                nodes: HashMap::new(),
-                root_id: Vec::new(),
-            })
-            .collect();
-        self.selected_workspace = self
-            .workspaces
-            .iter()
-            .position(|w| w.name == "react-app") // for now hardcoded
-            .unwrap_or(0);
-
-        cx.notify();
-        self.selected_workspace
-    }
-
-    pub fn add_workspace(&mut self, name: String, path: String, cx: &mut Context<Self>) {
-        self.workspaces.push(Workspace {
-            name,
-            path,
-            nodes: HashMap::new(),
-            root_id: Vec::new(),
-        });
-        self.selected_workspace = self.workspaces.len() - 1;
-        self.active_node_id = None;
-        self.pending_action = None;
-
-        cx.notify();
-    }
-
-    pub fn set_workspace_tree(&mut self, ix: usize, tree: DirTree, cx: &mut Context<Self>) {
-        if let Some(ws) = self.workspaces.get_mut(ix) {
-            let mut nodes = tree.nodes;
-            let root_id = next_id();
-            nodes.insert(
-                root_id,
-                Node {
-                    id: root_id,
-                    path: ws.path.clone(),
-                    name: ws.name.clone(),
-                    method: String::new(),
-                    is_file: false,
-                    children: tree.root_ids,
-                },
-            );
-            ws.nodes = nodes;
-            ws.root_id = vec![root_id];
-        }
-        cx.notify();
     }
 
     pub fn read_dir_to_nodes(active_dir_path: &Path) -> DirTree {
@@ -414,10 +362,7 @@ impl ProjectPanel {
     }
 
     pub fn render_node(&mut self, node_id: usize, cx: &mut Context<Self>) -> SidebarMenuItem {
-        let Some(ws) = self.workspaces.get(self.selected_workspace) else {
-            return SidebarMenuItem::new("???".to_string());
-        };
-        let Some(node) = ws.nodes.get(&node_id) else {
+        let Some(node) = self.nodes.get(&node_id) else {
             return SidebarMenuItem::new("???".to_string());
         };
 
@@ -462,7 +407,7 @@ impl ProjectPanel {
             });
         }
 
-        item = Self::build_node_context(item, &ws.path, &path, &name, node_id, is_file, cx);
+        item = Self::build_node_context(item, &self.path, &path, &name, node_id, is_file, cx);
 
         let is_active = self.active_node_id == Some(node_id);
         item = item.active(is_active);
@@ -618,11 +563,12 @@ impl ProjectPanel {
             None => return,
         };
 
-        let Some(ws) = self.workspaces.get_mut(self.selected_workspace) else {
-            return;
+        let mut ws = Workspace {
+            name: self.name.clone(),
+            path: self.path.clone(),
+            nodes: self.nodes.clone(),
+            root_id: self.root_id.clone(),
         };
-
-        let mut ws = ws.clone();
 
         match pending {
             PendingAction::CreateFile { parent_id, input } => {
@@ -656,7 +602,7 @@ impl ProjectPanel {
 
                         Self::insert_child_sorted(&mut ws.nodes, parent_id, id);
 
-                        self.workspaces[self.selected_workspace] = ws;
+                        self.nodes = ws.nodes;
                         cx.notify();
                     }
                     Err(err) => {
@@ -695,7 +641,7 @@ impl ProjectPanel {
 
                         Self::insert_child_sorted(&mut ws.nodes, parent_id, id);
 
-                        self.workspaces[self.selected_workspace] = ws;
+                        self.nodes = ws.nodes;
                         cx.notify();
                     }
                     Err(err) => {
@@ -735,7 +681,7 @@ impl ProjectPanel {
                     eprintln!("Failed to rename");
                 }
 
-                self.workspaces[self.selected_workspace] = ws;
+                self.nodes = ws.nodes;
                 cx.notify();
             }
         }
@@ -747,21 +693,19 @@ impl ProjectPanel {
     }
 
     fn remove_node_from_tree(&mut self, node_id: usize) {
-        if let Some(ws) = self.workspaces.get_mut(self.selected_workspace) {
-            if ws.nodes.contains_key(&node_id) {
-                let parent_ids: Vec<usize> = ws
-                    .nodes
-                    .values()
-                    .filter(|n| n.children.contains(&node_id))
-                    .map(|n| n.id)
-                    .collect();
-                for parent_id in parent_ids {
-                    if let Some(parent) = ws.nodes.get_mut(&parent_id) {
-                        parent.children.retain(|&id| id != node_id);
-                    }
+        if self.nodes.contains_key(&node_id) {
+            let parent_ids: Vec<usize> = self
+                .nodes
+                .values()
+                .filter(|n| n.children.contains(&node_id))
+                .map(|n| n.id)
+                .collect();
+            for parent_id in parent_ids {
+                if let Some(parent) = self.nodes.get_mut(&parent_id) {
+                    parent.children.retain(|&id| id != node_id);
                 }
-                ws.nodes.remove(&node_id);
             }
+            self.nodes.remove(&node_id);
         }
     }
 
@@ -795,25 +739,12 @@ impl ProjectPanel {
     }
 
     pub fn set_node_method(&mut self, node_id: usize, method: &str) {
-        if let Some(ws) = self.workspaces.get_mut(self.selected_workspace) {
-            Self::update_node_method(&mut ws.nodes, node_id, method);
-        }
+        Self::update_node_method(&mut self.nodes, node_id, method);
     }
 
     pub fn set_collapsed(&mut self, collapsed: bool, cx: &mut Context<Self>) {
         self.sidebar_collapsed = collapsed;
         cx.notify();
-    }
-
-    pub fn get_selected_workspace(&self) -> &str {
-        self.workspaces
-            .get(self.selected_workspace)
-            .map(|w| w.name.as_str())
-            .unwrap_or("no workspace")
-    }
-
-    pub fn workspace_names(&self) -> Vec<String> {
-        self.workspaces.iter().map(|w| w.name.clone()).collect()
     }
 
     pub fn set_active_node(&mut self, node_id: Option<usize>) {
@@ -823,7 +754,7 @@ impl ProjectPanel {
 
 impl Render for ProjectPanel {
     fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
-        let Some(ws) = self.workspaces.get(self.selected_workspace) else {
+        if self.nodes.is_empty() {
             return Sidebar::new("api-sidebar")
                 .collapsible(SidebarCollapsible::Offcanvas)
                 .collapsed(self.sidebar_collapsed)
@@ -835,10 +766,10 @@ impl Render for ProjectPanel {
                         .to_side(),
                 )
                 .into_element();
-        };
+        }
 
-        let ws_name = ws.name.clone();
-        let root_ids: Vec<usize> = ws.root_id.clone();
+        let ws_name = self.name.clone();
+        let root_ids: Vec<usize> = self.root_id.clone();
 
         Sidebar::new("api-sidebar")
             .collapsible(SidebarCollapsible::Offcanvas)
