@@ -1,21 +1,49 @@
 use crate::{
     fs,
-    helpers::{get_active_font, get_active_theme, get_fonts, get_theme_config, get_themes},
+    helpers::{get_active_theme, get_theme_config, get_themes},
     icons::IconName,
 };
 use gpui::{
-    App, Context, Entity, Global, IntoElement, ParentElement as _, Render, SharedString, Styled,
-    Window, px,
+    App, AppContext, Context, Entity, Global, IntoElement, ParentElement as _, Render,
+    SharedString, Styled, Window, px,
 };
 use gpui_component::{
-    Icon, Side, Sizable, Size, Theme,
+    Icon, IndexPath, Side, Sizable, Size, Theme,
+    combobox::{Combobox, ComboboxEvent, ComboboxState},
     group_box::GroupBoxVariant,
+    searchable_list::{SearchableListItem, SearchableVec},
     setting::{NumberFieldOptions, SettingField, SettingGroup, SettingItem, SettingPage, Settings},
     v_flex,
 };
 use serde::{Deserialize, Serialize};
 
-use crate::env::EnvironmentStore;
+#[derive(Clone)]
+struct FontItem {
+    family: String,
+}
+
+fn font_display_name(family: &str) -> SharedString {
+    match family {
+        "Lilex" => "ZedMono",
+        "IBMPlexSans" => "ZedSans",
+        other => other,
+    }
+    .into()
+}
+
+impl SearchableListItem for FontItem {
+    type Value = String;
+
+    fn title(&self) -> SharedString {
+        font_display_name(&self.family)
+    }
+
+    fn value(&self) -> &Self::Value {
+        &self.family
+    }
+}
+
+type FontSelect = ComboboxState<SearchableVec<FontItem>>;
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
@@ -44,7 +72,7 @@ pub struct ThemeSettings {
 impl Default for ThemeSettings {
     fn default() -> Self {
         Self {
-            name: "Ayu Dark".into(),
+            name: "One Dark".into(),
             mode: "dark".into(),
         }
     }
@@ -60,7 +88,7 @@ pub struct FontSettings {
 impl Default for FontSettings {
     fn default() -> Self {
         Self {
-            family: ".ZedSans".into(),
+            family: "Lilex".into(),
             size: 16.0,
         }
     }
@@ -165,14 +193,60 @@ impl AppSettings {
     }
 }
 
-pub struct SettingsPanel;
+pub struct SettingsPanel {
+    font_state: Option<Entity<FontSelect>>,
+}
 
 impl SettingsPanel {
     pub fn new(cx: &mut Context<Self>) -> Self {
-        Self
+        Self { font_state: None }
     }
 
-    fn appearance_settings(cx: &Context<Self>) -> Vec<SettingGroup> {
+    fn ensure_font_state(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        if self.font_state.is_some() {
+            return;
+        }
+
+        let fonts: Vec<FontItem> = cx
+            .text_system()
+            .all_font_names()
+            .into_iter()
+            .map(|f| FontItem { family: f })
+            .collect();
+        let entity: Entity<FontSelect> = cx.new(|cx| {
+            ComboboxState::new(
+                SearchableVec::new(fonts),
+                vec![IndexPath::default()],
+                window,
+                cx,
+            )
+            .searchable(true)
+        });
+
+        cx.subscribe_in(
+            &entity,
+            window,
+            |this: &mut SettingsPanel, _, event: &ComboboxEvent<SearchableVec<FontItem>>, _, cx| {
+                if let ComboboxEvent::Confirm(selected) = event {
+                    if let Some(val) = selected.first() {
+                        let val = val.clone();
+                        Theme::global_mut(cx).font_family = val.clone().into();
+                        AppSettings::global_mut(cx).font.family = val.clone();
+                        AppSettings::global_mut(cx).save();
+                        cx.refresh_windows();
+                    }
+                }
+            },
+        )
+        .detach();
+
+        self.font_state = Some(entity);
+    }
+
+    fn appearance_settings(
+        font_state: Entity<FontSelect>,
+        cx: &Context<Self>,
+    ) -> Vec<SettingGroup> {
         vec![
             SettingGroup::new().title("Appearance").items(vec![
                 SettingItem::new(
@@ -190,13 +264,19 @@ impl SettingsPanel {
                                     t.light_theme = theme_config.clone();
                                 }
                                 Theme::change(mode, None, cx);
+                                let app_settings = AppSettings::global(cx).clone();
+                                let t = Theme::global_mut(cx);
+
+                                // theme change resets the font, re-applying it here
+                                t.font_family = app_settings.font.family.clone().into();
+                                t.font_size = px(app_settings.font.size);
                                 AppSettings::global_mut(cx).theme.name = name.to_string();
                                 AppSettings::global_mut(cx).save();
                                 cx.refresh_windows();
                             }
                         },
                     )
-                    .default_value("Ayu Dark"),
+                    .default_value("One Dark"),
                 )
                 .description("Select the application theme.")
                 .disabled(false),
@@ -204,17 +284,13 @@ impl SettingsPanel {
             SettingGroup::new().title("Font").items(vec![
                 SettingItem::new(
                     "Font Family",
-                    SettingField::<SharedString>::scrollable_dropdown(
-                        get_fonts(cx),
-                        |cx: &App| get_active_font(cx),
-                        |val: SharedString, cx: &mut App| {
-                            Theme::global_mut(cx).font_family = val.clone();
-                            AppSettings::global_mut(cx).font.family = val.to_string();
-                            AppSettings::global_mut(cx).save();
-                            cx.refresh_windows();
-                        },
-                    )
-                    .default_value(".ZedSans"),
+                    SettingField::<SharedString>::render(move |_options, _window, _cx| {
+                        Combobox::new(&font_state)
+                            .placeholder("Search and select a font")
+                            .search_placeholder("Search fonts...")
+                            // .with_size(Size::Medium)
+                            .w(px(240.))
+                    }),
                 )
                 .description("Select the font family.")
                 .disabled(false),
@@ -314,13 +390,17 @@ impl SettingsPanel {
             )
     }
 
-    fn setting_pages(&self, cx: &Context<Self>) -> Vec<SettingPage> {
+    fn setting_pages(
+        &self,
+        font_state: &Entity<FontSelect>,
+        cx: &Context<Self>,
+    ) -> Vec<SettingPage> {
         vec![
             SettingPage::new("General")
                 .resettable(true)
                 .default_open(true)
                 .icon(Icon::new(IconName::SlidersHorizontal))
-                .groups(Self::appearance_settings(cx)),
+                .groups(Self::appearance_settings(font_state.clone(), cx)),
             Self::project_panel_settings(),
             Self::request_playground_settings(),
             SettingPage::new("About")
@@ -348,10 +428,17 @@ impl Render for SettingsPanel {
         header_style.flex_shrink = Some(1.);
         header_style.flex_basis = Some(gpui::relative(0.).into());
 
+        self.ensure_font_state(window, cx);
+        let font_state = self.font_state.as_ref().unwrap().clone();
+        let active_font = Theme::global(cx).font_family.to_string();
+        font_state.update(cx, |s, cx| {
+            s.set_selected_values(&[active_font], window, cx);
+        });
+
         Settings::new("arc-settings")
             .with_size(Size::default())
             .with_group_variant(GroupBoxVariant::Outline)
             .header_style(&header_style)
-            .pages(self.setting_pages(cx))
+            .pages(self.setting_pages(&font_state, cx))
     }
 }

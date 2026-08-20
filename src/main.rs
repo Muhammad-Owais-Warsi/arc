@@ -96,6 +96,7 @@ impl ApiClient {
             return;
         };
         self.selected_workspace = Some(ix);
+        fs::save_last_workspace(&name, &path);
         self.workspace_palette.update(cx, |state, cx| {
             state.set_selected_index(Some(IndexPath::new(ix)), window, cx);
         });
@@ -123,35 +124,27 @@ impl ApiClient {
             .into_iter()
             .map(|(name, path)| (name, path.to_string_lossy().to_string()))
             .collect();
-        self.selected_workspace = self.workspaces.first().map(|_| 0);
+        self.selected_workspace = None;
 
-        let project_panel = self.project_panel.clone();
-        if let Some((name, path)) = self
-            .selected_workspace
-            .and_then(|ix| self.workspaces.get(ix))
-            .cloned()
-        {
-            cx.spawn(async move |_, cx| {
-                let tree_path = path.clone();
-                let tree = cx
-                    .background_executor()
-                    .spawn(async move {
-                        ProjectPanel::read_dir_to_nodes(std::path::Path::new(&tree_path))
-                    })
-                    .await;
-
-                project_panel.update(cx, |pp, cx| {
-                    pp.set_tree(name, path, tree, cx);
+        if let Some((name, path)) = fs::load_last_workspace() {
+            if let Some(ix) = self
+                .workspaces
+                .iter()
+                .position(|(n, p)| *n == name && *p == path)
+            {
+                self.switch_workspace_to(ix, window, cx);
+                self.workspace_palette.update(cx, |state, cx| {
+                    state.set_selected_index(Some(IndexPath::new(ix)), window, cx);
                 });
-            })
-            .detach();
-        } else {
-            let tab_manager = self.tab_manager.clone();
-            let welcome = self.welcome.clone();
-            tab_manager.update(cx, |tm, cx| {
-                tm.open_welcome_tab(window, cx, welcome);
-            });
+                return;
+            }
         }
+
+        let tab_manager = self.tab_manager.clone();
+        let welcome = self.welcome.clone();
+        tab_manager.update(cx, |tm, cx| {
+            tm.open_welcome_tab(window, cx, welcome);
+        });
     }
 
     fn footer_event_handler(&mut self, window: &mut Window, cx: &mut Context<Self>) {
@@ -337,6 +330,17 @@ impl ApiClient {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
+        if let Some((sw, aw)) = self.settings_window.clone() {
+            if sw.upgrade().is_some()
+                && cx
+                    .update_window(aw, |_, window, _cx| {
+                        window.activate_window();
+                    })
+                    .is_ok()
+            {
+                return;
+            }
+        }
         open_settings_window(cx.entity(), cx);
     }
 
@@ -379,6 +383,7 @@ impl ApiClient {
 
         TitleBar::new()
             .h(px(32.))
+            .bg(cx.theme().title_bar)
             .on_close_window(move |_, _, cx| {
                 if let Some((_, settings_handle)) = settings_window.clone() {
                     cx.update_window(settings_handle, |_root, window, _cx| {
@@ -629,6 +634,21 @@ fn main() {
     app.run(move |cx| {
         gpui_component::init(cx);
         let _ = fs::ensure_config_dir();
+
+        for font_file in [
+            "fonts/lilex/Lilex-Regular.ttf",
+            "fonts/lilex/Lilex-Bold.ttf",
+            "fonts/lilex/Lilex-Italic.ttf",
+            "fonts/lilex/Lilex-BoldItalic.ttf",
+            "fonts/ibm-plex-sans/IBMPlexSans-Regular.ttf",
+            "fonts/ibm-plex-sans/IBMPlexSans-SemiBold.ttf",
+            "fonts/ibm-plex-sans/IBMPlexSans-Italic.ttf",
+            "fonts/ibm-plex-sans/IBMPlexSans-SemiBoldItalic.ttf",
+        ] {
+            if let Some(file) = Assets::get(font_file) {
+                let _ = cx.text_system().add_fonts(vec![file.data]);
+            }
+        }
         cx.set_global::<AppSettings>(AppSettings::get());
         AppSettings::global(cx).save();
 
@@ -653,6 +673,7 @@ fn main() {
         let settings = AppSettings::global(cx).clone();
         let theme = Theme::global_mut(cx);
         theme.font_family = settings.font.family.into();
+        theme.mono_font_family = ".ZedMono".into();
         theme.font_size = px(settings.font.size);
         cx.spawn(async move |cx| {
             cx.open_window(

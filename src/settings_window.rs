@@ -23,7 +23,11 @@ impl Render for SettingsWindow {
             .size_full()
             .bg(theme.background)
             .v_flex()
-            .child(TitleBar::new().child(div().px_2().child("Settings")))
+            .child(
+                TitleBar::new()
+                    .bg(cx.theme().title_bar)
+                    .child(div().px_2().child("Settings")),
+            )
             .child(div().flex_1().child(self.settings_panel.clone()))
     }
 }

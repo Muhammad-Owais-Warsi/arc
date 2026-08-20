@@ -18,3 +18,4 @@ rust-embed = "8.11"
 strum = { version = "0.26", features = ["derive"] }
 trash = "5.2.6"
 walkdir = "2"
+indexmap = "2"

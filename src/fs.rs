@@ -153,6 +153,10 @@ pub fn environments_path() -> PathBuf {
     config_dir().join("environments.json")
 }
 
+pub fn workspace_path() -> PathBuf {
+    config_dir().join("workspace.json")
+}
+
 /// Create the app config directory (`%APPDATA%\.arc`) and seed it with default
 /// `settings.json` and `environments.json` files when they don't exist yet.
 /// This is called once on startup so a fresh install always has both files.
@@ -191,7 +195,56 @@ pub fn ensure_config_dir() -> io::Result<()> {
             .as_str(),
     )?;
 
+    let default_workspace = serde_json::json!([
+        {
+            "active_workspace": {
+                "name": "",
+                "path": ""
+            }
+        }
+    ]);
+    write_if_missing(
+        &dir.join("workspace.json"),
+        serde_json::to_string_pretty(&default_workspace)
+            .unwrap_or_else(|_| "[]".to_string())
+            .as_str(),
+    )?;
+
     Ok(())
+}
+
+pub fn get_workspace_config() -> String {
+    std::fs::read_to_string(workspace_path()).unwrap_or_default()
+}
+
+pub fn save_workspace_config(content: &str) -> io::Result<()> {
+    std::fs::write(workspace_path(), content)
+}
+
+pub fn save_last_workspace(name: &str, path: &str) {
+    let content = serde_json::json!([
+        {
+            "active_workspace": {
+                "name": name,
+                "path": path
+            }
+        }
+    ]);
+    if let Ok(json) = serde_json::to_string_pretty(&content) {
+        let _ = save_workspace_config(&json);
+    }
+}
+
+pub fn load_last_workspace() -> Option<(String, String)> {
+    let value: serde_json::Value = serde_json::from_str(&get_workspace_config()).ok()?;
+    let active = value.as_array()?.first()?.get("active_workspace")?;
+    let name = active.get("name")?.as_str().unwrap_or("").to_string();
+    let path = active.get("path")?.as_str().unwrap_or("").to_string();
+    if name.is_empty() || path.is_empty() {
+        None
+    } else {
+        Some((name, path))
+    }
 }
 
 pub fn get_settings() -> String {

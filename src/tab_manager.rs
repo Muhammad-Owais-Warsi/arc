@@ -1,14 +1,14 @@
 use crate::actions::{DockSidebarLeft, DockSidebarRight};
 use crate::env::EnvironmentStore;
-use crate::fs::{self, read_request_file, write_request_file};
+use crate::fs::{read_request_file, write_request_file};
 use crate::helpers::next_id;
 use crate::playground::PlaygroundHandle;
 use crate::project_panel::ProjectPanel;
 use crate::request_playground::{RequestPlayground, RequestPlaygroundEvent};
-use crate::welcome::WelcomeScreen;
 use crate::settings_panel::{AppSettings, SidebarDock};
 use crate::stress_testing::StressTesting;
 use crate::tab::{TabEvent, Tabs};
+use crate::welcome::WelcomeScreen;
 use gpui::prelude::FluentBuilder;
 use gpui::*;
 use gpui_component::menu::ContextMenuExt;
@@ -17,7 +17,7 @@ use gpui_component::tab::{Tab, TabBar};
 use gpui_component::{ActiveTheme as _, button::*, *};
 
 use crate::icons::IconName;
-use std::collections::HashMap;
+use indexmap::IndexMap;
 use std::path::Path;
 
 const ENV_NODE_ID: usize = usize::MAX - 1;
@@ -26,7 +26,7 @@ const WELCOME_NODE_ID: usize = usize::MAX - 2;
 pub struct TabManager {
     project_panel: Entity<ProjectPanel>,
     env_store: Entity<EnvironmentStore>,
-    tabs: HashMap<usize, Entity<Tabs>>,
+    tabs: IndexMap<usize, Entity<Tabs>>,
     active_tab_id: Option<usize>,
     scroll_handle: ScrollHandle,
     sidebar_collapsed: bool,
@@ -42,10 +42,10 @@ impl TabManager {
         Self {
             project_panel,
             env_store,
-            tabs: HashMap::new(),
+            tabs: IndexMap::new(),
             active_tab_id: None,
             scroll_handle: ScrollHandle::new(),
-            sidebar_collapsed: false,
+            sidebar_collapsed: true,
         }
     }
 
@@ -53,7 +53,7 @@ impl TabManager {
         self.tabs.clear();
         self.active_tab_id = None;
         self.scroll_handle = ScrollHandle::new();
-        self.sidebar_collapsed = false;
+        self.sidebar_collapsed = true;
 
         cx.notify();
     }
@@ -98,14 +98,31 @@ impl TabManager {
         project_panel: &Entity<ProjectPanel>,
         cx: &mut Context<Self>,
     ) {
-        self.tabs.remove(&node_id);
-        self.active_tab_id = self.tabs.keys().copied().max();
+        self.tabs.shift_remove(&node_id);
+        self.activate_neighbor(node_id, project_panel, cx);
+        cx.notify();
+    }
+
+    fn neighbor_of(&self, closed_id: usize) -> Option<usize> {
+        match self.tabs.get_index_of(&closed_id) {
+            Some(ix) if ix > 0 => self.tabs.get_index(ix - 1).map(|(id, _)| *id),
+            Some(_) => self.tabs.get_index(0).map(|(id, _)| *id),
+            None => self.tabs.last().map(|(id, _)| *id),
+        }
+    }
+
+    fn activate_neighbor(
+        &mut self,
+        closed_id: usize,
+        project_panel: &Entity<ProjectPanel>,
+        cx: &mut Context<Self>,
+    ) {
+        self.active_tab_id = self.neighbor_of(closed_id);
         let active = self.active_tab_id;
         project_panel.update(cx, |pp, cx| {
             pp.set_active_node(active);
             cx.notify();
         });
-        cx.notify();
     }
 
     pub fn has_tabs(&self) -> bool {
@@ -150,18 +167,9 @@ impl TabManager {
             window,
             |this: &mut Self, _, event, _window, cx| {
                 if let TabEvent::Close(node_id) = event {
-                    this.tabs.remove(&node_id);
-                    this.active_tab_id = this
-                        .tabs
-                        .keys()
-                        .copied()
-                        .filter(|id| *id != *node_id) // safe even though it's already removed; harmless no-op
-                        .max();
-                    let active = this.active_tab_id;
-                    this.project_panel.update(cx, |pp, cx| {
-                        pp.set_active_node(active);
-                        cx.notify();
-                    });
+                    this.tabs.shift_remove(node_id);
+                    let pp = this.project_panel.clone();
+                    this.activate_neighbor(*node_id, &pp, cx);
                     cx.notify();
                 }
             },
@@ -187,21 +195,17 @@ impl TabManager {
         }
 
         let content: Box<dyn PlaygroundHandle> = welcome.clone_box();
-        let tab_entity = cx.new(|cx| Tabs::new(WELCOME_NODE_ID, WELCOME_NODE_ID, "Welcome".into(), content));
+        let tab_entity =
+            cx.new(|cx| Tabs::new(WELCOME_NODE_ID, WELCOME_NODE_ID, "Welcome".into(), content));
 
         cx.subscribe_in(
             &tab_entity,
             window,
-            |this: &mut Self, _, event, _window, cx| {
+            move |this: &mut Self, _, event, _window, cx| {
                 if let TabEvent::Close(node_id) = event {
-                    this.tabs.remove(&node_id);
-                    this.active_tab_id =
-                        this.tabs.keys().copied().filter(|id| *id != *node_id).max();
-                    let active = this.active_tab_id;
-                    this.project_panel.update(cx, |pp, cx| {
-                        pp.set_active_node(active);
-                        cx.notify();
-                    });
+                    this.tabs.shift_remove(node_id);
+                    let pp = this.project_panel.clone();
+                    this.activate_neighbor(*node_id, &pp, cx);
                     cx.notify();
                 }
             },
@@ -236,14 +240,9 @@ impl TabManager {
             window,
             |this: &mut Self, _, event, _window, cx| {
                 if let TabEvent::Close(node_id) = event {
-                    this.tabs.remove(&node_id);
-                    this.active_tab_id =
-                        this.tabs.keys().copied().filter(|id| *id != *node_id).max();
-                    let active = this.active_tab_id;
-                    this.project_panel.update(cx, |pp, cx| {
-                        pp.set_active_node(active);
-                        cx.notify();
-                    });
+                    this.tabs.shift_remove(node_id);
+                    let pp = this.project_panel.clone();
+                    this.activate_neighbor(*node_id, &pp, cx);
                     cx.notify();
                 }
             },
@@ -312,18 +311,14 @@ impl TabManager {
                         }
                     }
 
-                    this.tabs.remove(&node_id);
-                    this.active_tab_id = this
-                        .tabs
-                        .keys()
-                        .copied()
-                        .filter(|id| *id != *node_id) // safe even though it's already removed; harmless no-op
-                        .max();
-                    let active = this.active_tab_id;
-                    this.project_panel.update(cx, |pp, cx| {
-                        pp.set_active_node(active);
-                        cx.notify();
+                    let method = playground.read(cx).stored_method(cx);
+                    this.project_panel.update(cx, |pp, _| {
+                        pp.set_node_method(*node_id, &method);
                     });
+
+                    this.tabs.shift_remove(node_id);
+                    let pp = this.project_panel.clone();
+                    this.activate_neighbor(*node_id, &pp, cx);
                     cx.notify();
                 }
             },

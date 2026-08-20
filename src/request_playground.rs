@@ -17,6 +17,7 @@ use crate::fs;
 use crate::http_client::HttpClient;
 use crate::http_response::{AuthPayload, RequestStats, Response, ResponseBody, ResponseHeaders};
 use crate::playground::Playground;
+use crate::settings_panel::AppSettings;
 use crate::{
     auth::{Auth, AuthEvent, AuthType},
     body::{Body, BodyEvent},
@@ -241,6 +242,18 @@ impl RequestPlayground {
 
     pub fn set_path(&mut self, path: String) {
         self.path = Some(path);
+    }
+
+    pub fn stored_method(&self, cx: &App) -> String {
+        if AppSettings::global(cx)
+            .playground
+            .request_playground
+            .save_on_close
+        {
+            self.method(cx)
+        } else {
+            self.snapshot.method.clone()
+        }
     }
 
     pub fn save(&mut self, cx: &mut Context<Self>) {

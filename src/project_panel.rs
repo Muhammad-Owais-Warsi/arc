@@ -109,7 +109,7 @@ impl ProjectPanel {
             path: String::new(),
             nodes: HashMap::new(),
             root_id: Vec::new(),
-            sidebar_collapsed: false,
+            sidebar_collapsed: true,
             active_node_id: None,
             pending_action: None,
         }
@@ -186,11 +186,12 @@ impl ProjectPanel {
 
             let id = next_id();
             let name = entry.file_name().to_string_lossy().to_string();
+            let clean_name = name.strip_suffix(".json").unwrap_or(&name);
 
             let node = Node {
                 id,
                 path: path.to_string_lossy().to_string(),
-                name,
+                name: clean_name.to_string(),
                 method: if entry.file_type().is_file() {
                     read_request_method(path)
                 } else {
