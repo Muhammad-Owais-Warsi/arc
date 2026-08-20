@@ -254,3 +254,7 @@ pub fn get_settings() -> String {
 pub fn save_settings(content: &str) -> io::Result<()> {
     std::fs::write(settings_file_path(), content)
 }
+
+pub fn get_environment_variables() -> String {
+    std::fs::read_to_string(environments_path()).unwrap_or_default()
+}

@@ -74,3 +74,9 @@ pub struct CopySettings;
 
 #[derive(Clone, PartialEq, Action)]
 pub struct OpenEnvironmentVariables;
+
+#[derive(Clone, PartialEq, Action)]
+pub struct CopyEnvironmentVariables;
+
+#[derive(Clone, PartialEq, Action)]
+pub struct ThemeChange;

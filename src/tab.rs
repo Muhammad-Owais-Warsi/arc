@@ -1,5 +1,4 @@
 use crate::helpers::render_method_tag;
-use crate::playground::Playground;
 use crate::playground::PlaygroundHandle;
 use gpui::*;
 use gpui_component::Sizable;
@@ -58,6 +57,7 @@ impl Tabs {
                 Button::new(("close-tab", self.id))
                     .ghost()
                     .xsmall()
+                    .tooltip("Close Tab")
                     .icon(IconName::Close)
                     .on_click(cx.listener(move |_, _, _window, cx| {
                         cx.emit(TabEvent::Close(node_id));

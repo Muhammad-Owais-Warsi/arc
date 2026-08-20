@@ -26,7 +26,7 @@ impl ResponsePanel {
     pub fn new(window: &mut Window, cx: &mut Context<Self>) -> Self {
         let body = cx.new(|cx| {
             EditorState::new(window, cx)
-                .language("html")
+                .language("json")
                 .folding(true)
                 .line_number(true)
                 .tab_size(TabSize {

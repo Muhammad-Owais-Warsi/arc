@@ -8,7 +8,7 @@ use gpui::{
     SharedString, Styled, Window, px,
 };
 use gpui_component::{
-    Icon, IndexPath, Side, Sizable, Size, Theme,
+    Icon, IndexPath, Side, Sizable, Size, Theme, ThemeMode, ThemeRegistry,
     combobox::{Combobox, ComboboxEvent, ComboboxState},
     group_box::GroupBoxVariant,
     searchable_list::{SearchableListItem, SearchableVec},

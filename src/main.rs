@@ -24,14 +24,17 @@ mod tab;
 mod tab_manager;
 mod welcome;
 
+use std::rc::Rc;
+
 use crate::actions::{
-    CopyPath, CopyRelativePath, CopySettings, CreateFile, CreateFolder, DeleteItem,
-    DockSidebarLeft, DockSidebarRight, OpenEnvironmentVariables, OpenSettings, QuitArc, RenameItem,
-    StressTestPlayground, TrashItem,
+    CopyEnvironmentVariables, CopyPath, CopyRelativePath, CopySettings, CreateFile, CreateFolder,
+    DeleteItem, DockSidebarLeft, DockSidebarRight, OpenEnvironmentVariables, OpenSettings, QuitArc,
+    RenameItem, StressTestPlayground, ThemeChange, TrashItem,
 };
 use crate::assets::Assets;
 use crate::env::EnvironmentStore;
 use crate::footer::{Footer, FooterEvent};
+use crate::helpers::{get_active_theme, get_theme_config, get_themes};
 use crate::icons::IconName;
 use crate::project_panel::{DirTree, ProjectPanel, ProjectPanelEvent};
 use crate::settings_panel::{AppSettings, SidebarDock};
@@ -56,6 +59,7 @@ pub struct ApiClient {
     selected_workspace: Option<usize>,
     settings_window: Option<(WeakEntity<SettingsWindow>, AnyWindowHandle)>,
     welcome: Entity<WelcomeScreen>,
+    theme: Entity<CommandState>,
 }
 
 impl ApiClient {
@@ -71,6 +75,8 @@ impl ApiClient {
         let footer = cx.new(|cx| Footer::new(window, cx));
         let welcome = cx.new(|cx| WelcomeScreen::new(window, cx));
 
+        let theme_switcher = cx.new(|cx| CommandState::new(window, cx));
+
         Self {
             project_panel,
             tab_manager,
@@ -82,6 +88,7 @@ impl ApiClient {
             selected_workspace: None,
             settings_window: None,
             welcome,
+            theme: theme_switcher,
         }
     }
 
@@ -371,6 +378,105 @@ impl ApiClient {
         });
     }
 
+    fn handle_copy_environment_variables(
+        &mut self,
+        _: &CopyEnvironmentVariables,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let content = fs::get_environment_variables();
+        cx.write_to_clipboard(ClipboardItem::new_string(content.trim().to_string()));
+    }
+
+    fn handle_theme_change(
+        &mut self,
+        _: &ThemeChange,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let state = self.theme.clone();
+        let committed_theme = get_active_theme(cx).to_string();
+        let themes = Rc::new(
+            get_themes(cx)
+                .into_iter()
+                .map(|(name, _)| name)
+                .collect::<Vec<_>>(),
+        );
+        let items: Vec<CommandItem> = themes
+            .iter()
+            .map(|name| {
+                CommandItem::new()
+                    .label(name.as_ref())
+                    .checked(name.as_ref() == committed_theme)
+            })
+            .collect();
+        window.open_dialog(cx, move |dialog, _, _cx| {
+            let state = state.clone();
+            let items = items.clone();
+            let themes = themes.clone();
+            let cancel_committed = committed_theme.clone();
+            let preview = |name: &str, window: &mut Window, cx: &mut App| {
+                let name = SharedString::from(name);
+                if let Some(theme_config) = get_theme_config(cx, &name) {
+                    let mode = theme_config.mode;
+                    let t = Theme::global_mut(cx);
+                    if mode.is_dark() {
+                        t.dark_theme = theme_config.clone();
+                    } else {
+                        t.light_theme = theme_config.clone();
+                    }
+                    Theme::change(mode, Some(window), cx);
+                    let app_settings = AppSettings::global(cx).clone();
+                    let t = Theme::global_mut(cx);
+                    t.font_family = app_settings.font.family.clone().into();
+                    t.font_size = px(app_settings.font.size);
+                    window.refresh();
+                }
+            };
+            let cancel_restore = cancel_committed.clone();
+            dialog
+                .close_button(false)
+                .overlay_closable(true)
+                .overlay(true)
+                .p_0()
+                .on_cancel(move |_, window, cx| {
+                    let restore = cancel_restore.clone();
+                    window.defer(cx, move |window, cx| {
+                        preview(&restore, window, cx);
+                    });
+                    true
+                })
+                .content(move |content, _, _| {
+                    let select_themes = themes.clone();
+                    let confirm_themes = themes.clone();
+                    let preview = preview;
+                    content.child(
+                        Command::new(&state)
+                            .bordered(false)
+                            .placeholder("Select Theme...")
+                            .items(items.clone())
+                            .on_select(move |index, window, cx| {
+                                if let Some(name) = select_themes.get(index.row) {
+                                    preview(name.as_ref(), window, cx);
+                                }
+                            })
+                            .on_confirm(move |index, window, cx| {
+                                if let Some(name) = confirm_themes.get(index.row) {
+                                    preview(name.as_ref(), window, cx);
+                                    AppSettings::global_mut(cx).theme.name = name.to_string();
+                                    if let Some(theme_config) = get_theme_config(cx, name) {
+                                        AppSettings::global_mut(cx).theme.mode =
+                                            theme_config.mode.name().to_string();
+                                    }
+                                    AppSettings::global_mut(cx).save();
+                                }
+                                window.close_dialog(cx);
+                            }),
+                    )
+                })
+        });
+    }
+
     fn render_titlebar(&mut self, cx: &mut Context<Self>) -> impl IntoElement {
         let settings_window = self.settings_window.clone();
         let this = cx.entity();
@@ -417,6 +523,9 @@ impl ApiClient {
                                         "Open Environment Variables",
                                         Box::new(actions::OpenEnvironmentVariables),
                                     )
+                                    .menu("Copy Environment Variables", Box::new(actions::CopyEnvironmentVariables))
+                                    .separator()
+                                    .menu("Select Theme...", Box::new(actions::ThemeChange))
                                     .separator()
                                     .menu("Quit Arc", Box::new(actions::QuitArc))
                             }),
@@ -559,7 +668,8 @@ impl ApiClient {
 }
 
 impl Render for ApiClient {
-    fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+    fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        let dialog_layer = Root::render_dialog_layer(window, cx);
         div()
             .size_full()
             .flex()
@@ -578,6 +688,8 @@ impl Render for ApiClient {
             .on_action(cx.listener(Self::handle_dock_sidebar_right))
             .on_action(cx.listener(Self::handle_trash_item))
             .on_action(cx.listener(Self::handle_open_environment_variables))
+            .on_action(cx.listener(Self::handle_copy_environment_variables))
+            .on_action(cx.listener(Self::handle_theme_change))
             .child(self.render_titlebar(cx))
             .child(
                 div()
@@ -601,6 +713,7 @@ impl Render for ApiClient {
                     ),
             )
             .child(self.render_footer(cx))
+            .children(dialog_layer)
     }
 }
 
