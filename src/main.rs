@@ -694,6 +694,7 @@ impl Render for ApiClient {
             .child(
                 div()
                     .flex_1()
+                    .min_h(px(0.))
                     .flex()
                     .when(
                         AppSettings::global(cx).panel.project_panel.sidebar_dock

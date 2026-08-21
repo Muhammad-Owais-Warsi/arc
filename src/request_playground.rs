@@ -519,18 +519,25 @@ impl Render for RequestPlayground {
             );
 
         if show_response {
-            v_resizable("editor-response-split")
+            div()
+                .flex_1()
+                .min_h(px(0.))
+                .w_full()
+                .overflow_hidden()
                 .child(
-                    resizable_panel()
-                        .size(px(500.))
-                        .size_range(px(200.)..px(4000.))
-                        .child(editor_content),
-                )
-                .child(
-                    resizable_panel()
-                        .size(px(280.))
-                        .size_range(px(100.)..px(600.))
-                        .child(self.response_panel.clone()),
+                    v_resizable("editor-response-split")
+                        .child(
+                            resizable_panel()
+                                .size(px(500.))
+                                .size_range(px(200.)..px(1200.))
+                                .child(editor_content),
+                        )
+                        .child(
+                            resizable_panel()
+                                .size(px(280.))
+                                .size_range(px(100.)..px(600.))
+                                .child(self.response_panel.clone()),
+                        ),
                 )
                 .into_any_element()
         } else {
