@@ -3,7 +3,7 @@ use crate::env::EnvironmentStore;
 use crate::fs::{read_request_file, write_request_file};
 use crate::helpers::next_id;
 use crate::playground::PlaygroundHandle;
-use crate::project_panel::ProjectPanel;
+use crate::project_panel::{ProjectPanel, ProjectPanelEvent};
 use crate::request_playground::{RequestPlayground, RequestPlaygroundEvent};
 use crate::settings_panel::{AppSettings, SidebarDock};
 use crate::stress_testing::StressTesting;
@@ -39,6 +39,40 @@ impl TabManager {
         project_panel: Entity<ProjectPanel>,
         env_store: Entity<EnvironmentStore>,
     ) -> Self {
+        cx.subscribe_in(
+            &project_panel,
+            window,
+            |this: &mut Self, _, event, window, cx| match event {
+                ProjectPanelEvent::FileActivated {
+                    node_id,
+                    name,
+                    path,
+                    method,
+                } => {
+                    this.activate_request_tab(
+                        *node_id,
+                        name.clone(),
+                        path.clone(),
+                        method.clone(),
+                        window,
+                        cx,
+                    );
+                }
+                ProjectPanelEvent::FileRenamed { node_id, new_name } => {
+                    this.rename_tab(*node_id, new_name.clone(), cx);
+                }
+                ProjectPanelEvent::FileDeleted { node_id, .. }
+                | ProjectPanelEvent::FileTrashed { node_id, .. } => {
+                    let pp = this.project_panel.clone();
+                    this.close_tab(*node_id, &pp, cx);
+                }
+                ProjectPanelEvent::StressTestPlayground { path, node_name } => {
+                    this.add_stress_test_tab(window, cx, path.clone(), node_name.clone());
+                }
+            },
+        )
+        .detach();
+
         Self {
             project_panel,
             env_store,

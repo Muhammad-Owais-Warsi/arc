@@ -1,59 +1,28 @@
 use gpui::Action;
 
 #[derive(Clone, PartialEq, Action)]
-#[action(namespace = fs, no_json)]
-pub struct CreateFile {
-    pub parent_id: usize,
-}
+pub struct CreateFile;
 
 #[derive(Clone, PartialEq, Action)]
-#[action(namespace = fs, no_json)]
-pub struct CreateFolder {
-    pub parent_id: usize,
-}
+pub struct CreateFolder;
 
 #[derive(Clone, PartialEq, Action)]
-#[action(namespace = fs, no_json)]
-pub struct DeleteItem {
-    pub node_id: usize,
-    pub path: String,
-    pub is_file: bool,
-}
+pub struct DeleteItem;
 
 #[derive(Clone, PartialEq, Action)]
-#[action(namespace = fs, no_json)]
-pub struct TrashItem {
-    pub node_id: usize,
-    pub path: String,
-}
+pub struct TrashItem;
 
 #[derive(Clone, PartialEq, Action)]
-#[action(namespace = fs, no_json)]
-pub struct StressTestPlayground {
-    pub path: String,
-    pub node_id: usize,
-    pub node_name: String,
-}
+pub struct StressTestPlayground;
 
 #[derive(Clone, PartialEq, Action)]
-#[action(namespace = fs, no_json)]
-pub struct RenameItem {
-    pub node_id: usize,
-    pub node_name: String,
-    pub new_name: String,
-}
+pub struct RenameItem;
 
 #[derive(Clone, PartialEq, Action)]
-#[action(namespace = fs, no_json)]
-pub struct CopyPath {
-    pub path: String,
-}
+pub struct CopyPath;
 
 #[derive(Clone, PartialEq, Action)]
-#[action(namespace = fs, no_json)]
-pub struct CopyRelativePath {
-    pub path: String,
-}
+pub struct CopyRelativePath;
 
 #[derive(Clone, PartialEq, Action)]
 #[action(namespace = fs, no_json)]

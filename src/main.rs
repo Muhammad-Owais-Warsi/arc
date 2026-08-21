@@ -27,16 +27,15 @@ mod welcome;
 use std::rc::Rc;
 
 use crate::actions::{
-    CopyEnvironmentVariables, CopyPath, CopyRelativePath, CopySettings, CreateFile, CreateFolder,
-    DeleteItem, DockSidebarLeft, DockSidebarRight, OpenEnvironmentVariables, OpenSettings, QuitArc,
-    RenameItem, StressTestPlayground, ThemeChange, TrashItem,
+    CopyEnvironmentVariables, CopySettings, DockSidebarLeft, DockSidebarRight,
+    OpenEnvironmentVariables, OpenSettings, QuitArc, ThemeChange,
 };
 use crate::assets::Assets;
 use crate::env::EnvironmentStore;
 use crate::footer::{Footer, FooterEvent};
 use crate::helpers::{get_active_theme, get_theme_config, get_themes};
 use crate::icons::IconName;
-use crate::project_panel::{DirTree, ProjectPanel, ProjectPanelEvent};
+use crate::project_panel::{DirTree, ProjectPanel};
 use crate::settings_panel::{AppSettings, SidebarDock};
 use crate::settings_window::SettingsWindow;
 use crate::welcome::WelcomeScreen;
@@ -95,7 +94,6 @@ impl ApiClient {
     fn init(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         self.start_walkdir(window, cx);
         self.footer_event_handler(window, cx);
-        self.project_panel_event_handler(window, cx);
     }
 
     fn switch_workspace_to(&mut self, ix: usize, window: &mut Window, cx: &mut Context<Self>) {
@@ -164,119 +162,18 @@ impl ApiClient {
             }
         })
         .detach();
-    }
 
-    fn project_panel_event_handler(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        cx.subscribe_in(&self.project_panel, window, {
-            let tab_manager = self.tab_manager.clone();
-            let project_panel = self.project_panel.clone();
-            move |_, _, event, window, cx| match event {
-                ProjectPanelEvent::FileActivated {
-                    node_id,
-                    name,
-                    path,
-                    method,
-                } => {
-                    tab_manager.update(cx, |tm, cx| {
-                        tm.activate_request_tab(
-                            *node_id,
-                            name.clone(),
-                            path.clone(),
-                            method.clone(),
-                            window,
-                            cx,
-                        );
-                    });
-                }
-                ProjectPanelEvent::FileRenamed { node_id, new_name } => {
-                    tab_manager.update(cx, |tm, cx| {
-                        tm.rename_tab(*node_id, new_name.clone(), cx);
-                    });
-                }
-                ProjectPanelEvent::FileDeleted {
-                    node_id,
-                    path: _,
-                    is_file: _,
-                } => {
-                    tab_manager.update(cx, |tm, cx| {
-                        tm.close_tab(*node_id, &project_panel, cx);
-                    });
-                }
-                ProjectPanelEvent::FileTrashed { node_id, path: _ } => {
-                    tab_manager.update(cx, |tm, cx| {
-                        tm.close_tab(*node_id, &project_panel, cx);
-                    });
-                }
-                ProjectPanelEvent::StressTestPlayground { path, node_name } => {
-                    tab_manager.update(cx, |tm, cx| {
-                        tm.add_stress_test_tab(window, cx, path.clone(), node_name.clone());
-                    });
-                }
-                ProjectPanelEvent::CopyPath { path } => {
-                    cx.write_to_clipboard(ClipboardItem::new_string(path.clone()));
-                }
-                ProjectPanelEvent::CopyRelativePath { path } => {
-                    cx.write_to_clipboard(ClipboardItem::new_string(path.clone()));
-                }
-            }
+        cx.observe(&self.tab_manager, |this, _, cx| {
+            let show_toggle = this
+                .tab_manager
+                .read(cx)
+                .active_playground(cx)
+                .and_then(|p| p.response_panel(cx))
+                .is_some();
+            this.footer
+                .update(cx, |f, cx| f.set_show_toggle(show_toggle, cx));
         })
         .detach();
-    }
-
-    fn handle_create_file(
-        &mut self,
-        action: &CreateFile,
-        window: &mut Window,
-        cx: &mut Context<Self>,
-    ) {
-        self.project_panel
-            .update(cx, |s, cx| s.handle_create_file(action, window, cx));
-    }
-
-    fn handle_create_folder(
-        &mut self,
-        action: &CreateFolder,
-        window: &mut Window,
-        cx: &mut Context<Self>,
-    ) {
-        self.project_panel
-            .update(cx, |s, cx| s.handle_create_folder(action, window, cx));
-    }
-
-    fn handle_rename(&mut self, action: &RenameItem, window: &mut Window, cx: &mut Context<Self>) {
-        self.project_panel
-            .update(cx, |s, cx| s.handle_rename_item(action, window, cx));
-    }
-
-    fn handle_delete_item(
-        &mut self,
-        action: &DeleteItem,
-        _window: &mut Window,
-        cx: &mut Context<Self>,
-    ) {
-        self.project_panel
-            .update(cx, |s, cx| s.handle_delete_item(action, cx));
-    }
-
-    fn handle_trash_item(
-        &mut self,
-        action: &TrashItem,
-        _window: &mut Window,
-        cx: &mut Context<Self>,
-    ) {
-        self.project_panel
-            .update(cx, |s, cx| s.handle_trash_item(action, cx));
-    }
-
-    fn handle_stress_test_playground(
-        &mut self,
-        action: &StressTestPlayground,
-        window: &mut Window,
-        cx: &mut Context<Self>,
-    ) {
-        self.project_panel.update(cx, |s, cx| {
-            s.activate_stress_test_playground(action, window, cx)
-        });
     }
 
     fn handle_dock_sidebar_left(
@@ -301,33 +198,7 @@ impl ApiClient {
         cx.refresh_windows();
     }
 
-    fn handle_copy_path(
-        &mut self,
-        action: &CopyPath,
-        _window: &mut Window,
-        cx: &mut Context<Self>,
-    ) {
-        cx.write_to_clipboard(ClipboardItem::new_string(action.path.clone()));
-    }
-
-    fn handle_copy_relative_path(
-        &mut self,
-        action: &CopyRelativePath,
-        _window: &mut Window,
-        cx: &mut Context<Self>,
-    ) {
-        cx.write_to_clipboard(ClipboardItem::new_string(action.path.clone()));
-    }
-
-    fn render_footer(&mut self, cx: &mut Context<Self>) -> impl IntoElement {
-        let show_toggle = self
-            .tab_manager
-            .read(cx)
-            .active_playground(cx)
-            .and_then(|p| p.response_panel(cx))
-            .is_some();
-        self.footer
-            .update(cx, |f, cx| f.set_show_toggle(show_toggle, cx));
+    fn render_footer(&mut self, _cx: &mut Context<Self>) -> impl IntoElement {
         self.footer.clone()
     }
 
@@ -677,16 +548,8 @@ impl Render for ApiClient {
             .on_action(cx.listener(Self::handle_copy_settings))
             .on_action(cx.listener(Self::handle_quit_arc))
             .on_action(cx.listener(Self::handle_open_settings))
-            .on_action(cx.listener(Self::handle_create_file))
-            .on_action(cx.listener(Self::handle_create_folder))
-            .on_action(cx.listener(Self::handle_rename))
-            .on_action(cx.listener(Self::handle_delete_item))
-            .on_action(cx.listener(Self::handle_stress_test_playground))
-            .on_action(cx.listener(Self::handle_copy_path))
-            .on_action(cx.listener(Self::handle_copy_relative_path))
             .on_action(cx.listener(Self::handle_dock_sidebar_left))
             .on_action(cx.listener(Self::handle_dock_sidebar_right))
-            .on_action(cx.listener(Self::handle_trash_item))
             .on_action(cx.listener(Self::handle_open_environment_variables))
             .on_action(cx.listener(Self::handle_copy_environment_variables))
             .on_action(cx.listener(Self::handle_theme_change))
