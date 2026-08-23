@@ -3,7 +3,8 @@ use crate::actions::{
     CopyPath, CopyRelativePath, CreateFile, CreateFolder, DeleteItem, RenameItem,
     StressTestPlayground, TrashItem,
 };
-use crate::fs::{self, read_request_method};
+use crate::config_fs::ConfigFileSystem;
+use crate::request_fs::RequestFileSystem;
 use crate::helpers::{next_id, render_method_tag};
 use crate::settings_panel::AppSettings;
 use gpui::*;
@@ -139,7 +140,7 @@ impl ProjectPanel {
     }
 
     pub fn list_workspace_dirs() -> Vec<(String, PathBuf)> {
-        let projects_dir = fs::config_dir();
+        let projects_dir = ConfigFileSystem::config_dir();
 
         let mut dirs: Vec<(String, PathBuf)> = WalkDir::new(&projects_dir)
             .max_depth(1)
@@ -192,7 +193,7 @@ impl ProjectPanel {
                 path: path.to_string_lossy().to_string(),
                 name: clean_name.to_string(),
                 method: if entry.file_type().is_file() {
-                    read_request_method(path)
+                    RequestFileSystem::read_request_method(path)
                 } else {
                     String::new()
                 },
@@ -509,7 +510,7 @@ impl ProjectPanel {
             return;
         };
         let is_file = self.nodes.get(&node_id).map(|n| n.is_file).unwrap_or(false);
-        if fs::delete_file_or_folder(Path::new(&path)).is_err() {
+        if RequestFileSystem::delete(Path::new(&path)).is_err() {
             return;
         }
         self.remove_node_from_tree(node_id);
@@ -533,7 +534,7 @@ impl ProjectPanel {
         let Some(path) = self.nodes.get(&node_id).map(|n| n.path.clone()) else {
             return;
         };
-        if fs::trash_file_or_folder(Path::new(&path)).is_err() {
+        if RequestFileSystem::trash(Path::new(&path)).is_err() {
             return;
         }
 
@@ -599,7 +600,7 @@ impl ProjectPanel {
                     return cx.notify();
                 }
 
-                match fs::create_file(&name, &parent_path) {
+                match RequestFileSystem::file(&name, &parent_path) {
                     Ok(path) => {
                         let id = next_id();
                         let new_name = format!("{name}.json");
@@ -639,7 +640,7 @@ impl ProjectPanel {
                     return cx.notify();
                 }
 
-                match fs::create_folder(&name, &parent_path) {
+                match RequestFileSystem::folder(&name, &parent_path) {
                     Ok(path) => {
                         let id = next_id();
 
@@ -686,7 +687,7 @@ impl ProjectPanel {
                     new_name
                 );
 
-                if fs::rename_item(&old_path, &new_path).is_ok() {
+                if RequestFileSystem::rename(&old_path, &new_path).is_ok() {
                     if let Some(node) = ws.nodes.get_mut(&node_id) {
                         let old_name = node.name.clone();
                         let clean_name = old_name.strip_suffix(".json").unwrap_or(&old_name);

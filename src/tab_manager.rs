@@ -1,6 +1,6 @@
 use crate::actions::{DockSidebarLeft, DockSidebarRight};
 use crate::env::EnvironmentStore;
-use crate::fs::{read_request_file, write_request_file};
+use crate::request_fs::RequestFileSystem;
 use crate::helpers::next_id;
 use crate::playground::PlaygroundHandle;
 use crate::project_panel::{ProjectPanel, ProjectPanelEvent};
@@ -108,7 +108,7 @@ impl TabManager {
         }
 
         let (playground, tab) = self.add_request_tab(window, cx, node_id, name.clone(), method);
-        let request = read_request_file(Path::new(&path));
+        let request = RequestFileSystem::read_request(Path::new(&path));
         playground.update(cx, |pg, cx| pg.load(window, cx, &request));
         playground.update(cx, |pg, cx| pg.set_path(path.clone()));
 
@@ -341,7 +341,7 @@ impl TabManager {
                     if save_on_close {
                         let content = playground.read(cx).current_content(cx);
                         if let Some(path) = playground.read(cx).path() {
-                            write_request_file(Path::new(&path), &content).ok();
+                            RequestFileSystem::write(Path::new(&path), &content).ok();
                         }
                     }
 

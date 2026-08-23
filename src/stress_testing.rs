@@ -1,4 +1,4 @@
-use crate::fs::{FileContent, read_request_file};
+use crate::request_fs::{RequestFileContent, RequestFileSystem};
 use crate::helpers::render_method_tag;
 use crate::http_request::HttpRequest;
 use crate::icons::IconName;
@@ -93,11 +93,12 @@ impl StressTesting {
         }
     }
 
-    fn config(&self, cx: &mut Context<Self>) -> FileContent {
+    fn config(&self, cx: &mut Context<Self>) -> RequestFileContent {
         if let Some(src) = self.request_playground.as_ref().and_then(|w| w.upgrade()) {
             src.read(cx).current_content(cx)
         } else {
-            serde_json::from_value(read_request_file(Path::new(&self.path))).unwrap_or_default()
+            serde_json::from_value(RequestFileSystem::read_request(Path::new(&self.path)))
+                .unwrap_or_default()
         }
     }
 

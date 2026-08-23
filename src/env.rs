@@ -7,9 +7,10 @@ use gpui_component::searchable_list::SearchableVec;
 use gpui_component::table::{Table, TableBody, TableCell, TableHead, TableHeader, TableRow};
 use gpui_component::{ActiveTheme, Disableable, Icon, IndexPath, Sizable, h_flex, v_flex};
 
-use crate::fs;
+use crate::config_fs::ConfigFileSystem;
 use crate::icons::IconName;
 use crate::playground::Playground;
+use crate::request_fs::KeyValue;
 use crate::response_panel::ResponsePanel;
 
 pub enum EnvStoreEvent {
@@ -30,7 +31,7 @@ pub struct EnvRow {
 pub struct Environment {
     pub name: String,
     #[serde(default)]
-    pub variables: Vec<fs::KeyValue>,
+    pub variables: Vec<KeyValue>,
 }
 
 pub struct EnvironmentStore {
@@ -58,12 +59,12 @@ impl EnvironmentStore {
             Environment {
                 name: "Local".into(),
                 variables: vec![
-                    fs::KeyValue {
+                    KeyValue {
                         key: "base_url".into(),
                         value: "http://localhost:3000".into(),
                         active: true,
                     },
-                    fs::KeyValue {
+                    KeyValue {
                         key: "api_key".into(),
                         value: "dev-key-123".into(),
                         active: true,
@@ -73,12 +74,12 @@ impl EnvironmentStore {
             Environment {
                 name: "Production".into(),
                 variables: vec![
-                    fs::KeyValue {
+                    KeyValue {
                         key: "base_url".into(),
                         value: "https://api.example.com".into(),
                         active: true,
                     },
-                    fs::KeyValue {
+                    KeyValue {
                         key: "api_key".into(),
                         value: "prod-key-789".into(),
                         active: true,
@@ -196,7 +197,7 @@ impl EnvironmentStore {
                 variables: e
                     .variables
                     .iter()
-                    .map(|kv| fs::KeyValue {
+                    .map(|kv| KeyValue {
                         key: kv.key.clone(),
                         value: kv.value.clone(),
                         active: kv.active,
@@ -206,12 +207,12 @@ impl EnvironmentStore {
             .collect();
 
         if let Ok(json) = serde_json::to_string_pretty(&data) {
-            let _ = std::fs::write(fs::environments_path(), json);
+            let _ = std::fs::write(ConfigFileSystem::environments_path(), json);
         }
     }
 
     fn load(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        let path = fs::environments_path();
+        let path = ConfigFileSystem::environments_path();
         if !std::path::Path::new(&path).exists() {
             return;
         }
@@ -333,26 +334,6 @@ impl Render for EnvironmentStore {
                     .child(
                         div().w(px(180.)).child(self.render_environment_select(window, cx)),
                     )
-                    // .child(
-                    //     Button::new("delete-env")
-                    //         .label("Delete Env")
-                    //         .icon(IconName::Trash)
-                    //         .ghost()
-                    //         .disabled(self.environments.len() <= 1)
-                    //         .on_click(cx.listener(|this, _, window, cx| {
-                    //             if this.environments.len() <= 1 {
-                    //                 return;
-                    //             }
-                    //             if let Some(name) = this.active_name.clone() {
-                    //                 this.environments.retain(|e| e.name != name);
-                    //                 this.active_name = this.environments.first().map(|e| e.name.clone());
-                    //                 this.update_select(window, cx);
-                    //                 this.load_rows_from_active(window, cx);
-                    //                 this.save();
-                    //                 cx.notify();
-                    //             }
-                    //         })),
-                    // )
                     .child(div().flex_1())
                     .child(
                         Button::new("add-var")

@@ -1,6 +1,6 @@
 use crate::auth::AuthType;
-use crate::fs::FileContent;
 use crate::http_response::AuthPayload;
+use crate::request_fs::RequestFileContent;
 
 #[derive(Clone)]
 pub struct HttpRequest {
@@ -23,7 +23,7 @@ impl HttpRequest {
         }
     }
 
-    pub fn from_file_content(content: &FileContent) -> Self {
+    pub fn from_file_content(content: &RequestFileContent) -> Self {
         let auth = match &content.auth.auth_type {
             AuthType::Basic => {
                 if !content.auth.username.is_empty() && !content.auth.password.is_empty() {

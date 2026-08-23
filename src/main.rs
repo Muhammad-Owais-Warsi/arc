@@ -2,9 +2,10 @@ mod actions;
 pub mod assets;
 mod auth;
 mod body;
+mod config_fs;
 mod env;
 mod footer;
-mod fs;
+
 mod headers;
 mod helpers;
 mod http_client;
@@ -14,6 +15,7 @@ mod icons;
 mod playground;
 mod project_panel;
 mod query_params;
+mod request_fs;
 mod request_playground;
 mod response_panel;
 mod settings_panel;
@@ -23,7 +25,6 @@ mod stress_testing;
 mod tab;
 mod tab_manager;
 mod welcome;
-
 use std::rc::Rc;
 
 use crate::actions::{
@@ -31,6 +32,7 @@ use crate::actions::{
     OpenEnvironmentVariables, OpenSettings, QuitArc, ThemeChange,
 };
 use crate::assets::Assets;
+use crate::config_fs::ConfigFileSystem;
 use crate::env::EnvironmentStore;
 use crate::footer::{Footer, FooterEvent};
 use crate::helpers::{get_active_theme, get_theme_config, get_themes};
@@ -101,7 +103,7 @@ impl ApiClient {
             return;
         };
         self.selected_workspace = Some(ix);
-        fs::save_last_workspace(&name, &path);
+        ConfigFileSystem::save_last_workspace(&name, &path);
         self.workspace_palette.update(cx, |state, cx| {
             state.set_selected_index(Some(IndexPath::new(ix)), window, cx);
         });
@@ -131,7 +133,7 @@ impl ApiClient {
             .collect();
         self.selected_workspace = None;
 
-        if let Some((name, path)) = fs::load_last_workspace() {
+        if let Some((name, path)) = ConfigFileSystem::read_last_workspace() {
             if let Some(ix) = self
                 .workspaces
                 .iter()
@@ -255,7 +257,7 @@ impl ApiClient {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        let content = fs::get_environment_variables();
+        let content = ConfigFileSystem::read_environment_variables();
         cx.write_to_clipboard(ClipboardItem::new_string(content.trim().to_string()));
     }
 
@@ -470,7 +472,7 @@ impl ApiClient {
                                                             if name.is_empty() {
                                                                 return;
                                                             }
-                                                            let path = match fs::create_workspace(
+                                                            let path = match ConfigFileSystem::create_workspace(
                                                                 &name,
                                                             ) {
                                                                 Ok(path) => path,
@@ -610,7 +612,7 @@ fn main() {
     let app = gpui_platform::application().with_assets(Assets);
     app.run(move |cx| {
         gpui_component::init(cx);
-        let _ = fs::ensure_config_dir();
+        let _ = ConfigFileSystem::init_setup();
 
         for font_file in [
             "fonts/lilex/Lilex-Regular.ttf",

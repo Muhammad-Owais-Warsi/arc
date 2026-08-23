@@ -1,5 +1,5 @@
 use crate::{
-    fs,
+    config_fs::ConfigFileSystem,
     helpers::{get_active_theme, get_theme_config, get_themes},
     icons::IconName,
 };
@@ -182,13 +182,13 @@ impl AppSettings {
     }
 
     pub fn get() -> Self {
-        let content = fs::get_settings();
+        let content = ConfigFileSystem::read_settings();
         serde_json::from_str(content.as_str()).unwrap_or_default()
     }
 
     pub fn save(&self) {
         if let Ok(content) = serde_json::to_string_pretty(self) {
-            let _ = fs::save_settings(&content);
+            let _ = ConfigFileSystem::save_settings(&content);
         }
     }
 }

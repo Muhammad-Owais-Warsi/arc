@@ -13,15 +13,16 @@ use gpui_component::{
     tab::{self, Tab, TabBar},
 };
 
-use crate::fs;
 use crate::http_client::HttpClient;
 use crate::http_response::{AuthPayload, RequestStats, Response, ResponseBody, ResponseHeaders};
 use crate::playground::Playground;
+use crate::request_fs::{
+    Auth as AuthContent, Body as BodyContent, KeyValue, RequestFileContent, RequestFileSystem,
+};
 use crate::settings_panel::AppSettings;
 use crate::{
     auth::{Auth, AuthEvent, AuthType},
     body::{Body, BodyEvent},
-    fs::{FileContent, KeyValue},
     headers::{Headers, HeadersEvent},
     icons::IconName,
     query_params::{QueryParams, QueryParamsEvent},
@@ -40,7 +41,7 @@ pub struct RequestPlayground {
     pending: Option<tokio::task::AbortHandle>,
     dirty: bool,
     response_panel: Entity<ResponsePanel>,
-    snapshot: FileContent,
+    snapshot: RequestFileContent,
 }
 
 pub enum RequestPlaygroundEvent {
@@ -102,7 +103,7 @@ impl RequestPlayground {
             pending: None,
             dirty: false,
             response_panel,
-            snapshot: FileContent::default(),
+            snapshot: RequestFileContent::default(),
             path: None,
         };
         this.snapshot = this.current_content(cx);
@@ -204,8 +205,8 @@ impl RequestPlayground {
         cx.notify();
     }
 
-    pub fn current_content(&self, cx: &App) -> FileContent {
-        FileContent {
+    pub fn current_content(&self, cx: &App) -> RequestFileContent {
+        RequestFileContent {
             name: self.snapshot.name.clone(),
             url: self.url.read(cx).value().to_string(),
             method: self.method(cx),
@@ -223,13 +224,13 @@ impl RequestPlayground {
                 .into_iter()
                 .map(|(key, value, active)| KeyValue { key, value, active })
                 .collect(),
-            auth: fs::Auth {
+            auth: AuthContent {
                 auth_type: self.auth.read(cx).auth_type(),
                 username: self.auth.read(cx).basic_auth_values(cx).0,
                 password: self.auth.read(cx).basic_auth_values(cx).1,
                 token: self.auth.read(cx).bearer_auth_value(cx),
             },
-            body: fs::Body {
+            body: BodyContent {
                 body_type: self.body.read(cx).body_type(cx),
                 body: self.body.read(cx).value(cx),
             },
@@ -263,7 +264,7 @@ impl RequestPlayground {
         };
 
         let current = self.current_content(cx);
-        match fs::write_request_file(std::path::Path::new(&path), &current) {
+        match RequestFileSystem::write(std::path::Path::new(&path), &current) {
             Ok(()) => {
                 self.snapshot = current;
                 self.dirty = false;
