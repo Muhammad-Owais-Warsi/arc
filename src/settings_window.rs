@@ -1,7 +1,6 @@
 use gpui::*;
 use gpui_component::{ActiveTheme as _, StyledExt as _, TitleBar};
 
-use crate::env::EnvironmentStore;
 use crate::settings_panel::SettingsPanel;
 
 pub struct SettingsWindow {

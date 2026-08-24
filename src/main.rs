@@ -4,6 +4,8 @@ mod auth;
 mod body;
 mod config_fs;
 mod env;
+mod env_panel;
+mod env_playground;
 mod footer;
 
 mod headers;
@@ -28,12 +30,12 @@ mod welcome;
 use std::rc::Rc;
 
 use crate::actions::{
-    CopyEnvironmentVariables, CopySettings, DockSidebarLeft, DockSidebarRight,
-    OpenEnvironmentVariables, OpenSettings, QuitArc, ThemeChange,
+    CopyEnvironmentVariables, CopySettings, DockEnvPanelLeft, DockEnvPanelRight,
+    DockSidebarLeft, DockSidebarRight, OpenEnvironmentVariables, OpenSettings, QuitArc,
+    ThemeChange,
 };
 use crate::assets::Assets;
 use crate::config_fs::ConfigFileSystem;
-use crate::env::EnvironmentStore;
 use crate::footer::{Footer, FooterEvent};
 use crate::helpers::{get_active_theme, get_theme_config, get_themes};
 use crate::icons::IconName;
@@ -53,7 +55,7 @@ pub struct ApiClient {
     project_panel: Entity<project_panel::ProjectPanel>,
     tab_manager: Entity<tab_manager::TabManager>,
     footer: Entity<Footer>,
-    env_store: Entity<EnvironmentStore>,
+    env_panel: Entity<env_panel::EnvPanel>,
     workspace_palette: Entity<CommandState>,
     workspace_palette_open: bool,
     workspaces: Vec<(String, String)>,
@@ -66,12 +68,17 @@ pub struct ApiClient {
 impl ApiClient {
     fn new(window: &mut Window, cx: &mut Context<Self>) -> Self {
         let project_panel = cx.new(|cx| ProjectPanel::new(window, cx));
-        let env_store = cx.new(|cx| EnvironmentStore::new(window, cx));
+        let env_panel = cx.new(|cx| env_panel::EnvPanel::new(window, cx));
 
         let workspace_palette = cx.new(|cx| CommandState::new(window, cx));
 
         let tab_manager = cx.new(|cx| {
-            tab_manager::TabManager::new(window, cx, project_panel.clone(), env_store.clone())
+            tab_manager::TabManager::new(
+                window,
+                cx,
+                project_panel.clone(),
+                env_panel.clone(),
+            )
         });
         let footer = cx.new(|cx| Footer::new(window, cx));
         let welcome = cx.new(|cx| WelcomeScreen::new(window, cx));
@@ -82,7 +89,7 @@ impl ApiClient {
             project_panel,
             tab_manager,
             footer,
-            env_store,
+            env_panel,
             workspace_palette,
             workspace_palette_open: false,
             workspaces: Vec::new(),
@@ -96,6 +103,16 @@ impl ApiClient {
     fn init(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         self.start_walkdir(window, cx);
         self.footer_event_handler(window, cx);
+        self.init_footer_state(cx);
+    }
+
+    fn init_footer_state(&mut self, cx: &mut Context<Self>) {
+        let pp_dock = AppSettings::global(cx).panel.project_panel.sidebar_dock;
+        let ep_dock = AppSettings::global(cx).panel.env_panel.sidebar_dock;
+        self.footer
+            .update(cx, |f, cx| f.set_project_panel_dock(pp_dock, cx));
+        self.footer
+            .update(cx, |f, cx| f.set_env_panel_dock(ep_dock, cx));
     }
 
     fn switch_workspace_to(&mut self, ix: usize, window: &mut Window, cx: &mut Context<Self>) {
@@ -159,7 +176,35 @@ impl ApiClient {
             let tab_manager = self.tab_manager.clone();
             move |this: &mut Self, _, event, _window, cx| match event {
                 FooterEvent::ToggleResponse => {
-                    tab_manager.update(cx, |tm, cx| tm.toggle_active_response(cx));
+                    tab_manager.update(cx, |tm, cx| {
+                        tm.toggle_active_response(cx);
+                        if let Some(content) = tm.active_playground(cx) {
+                            if let Some(panel) = content.response_panel(cx) {
+                                let collapsed = !panel.read(cx).is_shown();
+                                this.footer.update(cx, |f, cx| {
+                                    f.set_response_collapsed(collapsed, cx);
+                                });
+                            }
+                        }
+                    });
+                }
+                FooterEvent::ToggleProjectPanel => {
+                    this.project_panel.update(cx, |pp, cx| {
+                        let collapsed = !pp.is_collapsed();
+                        pp.set_collapsed(collapsed, cx);
+                    });
+                    let collapsed = this.project_panel.read(cx).is_collapsed();
+                    this.footer
+                        .update(cx, |f, cx| f.set_project_panel_collapsed(collapsed, cx));
+                }
+                FooterEvent::ToggleEnvPanel => {
+                    this.env_panel.update(cx, |ep, cx| {
+                        let collapsed = !ep.is_collapsed();
+                        ep.set_collapsed(collapsed, cx);
+                    });
+                    let collapsed = this.env_panel.read(cx).is_collapsed();
+                    this.footer
+                        .update(cx, |f, cx| f.set_env_panel_collapsed(collapsed, cx));
                 }
             }
         })
@@ -170,10 +215,22 @@ impl ApiClient {
                 .tab_manager
                 .read(cx)
                 .active_playground(cx)
+                .as_ref()
                 .and_then(|p| p.response_panel(cx))
                 .is_some();
             this.footer
                 .update(cx, |f, cx| f.set_show_toggle(show_toggle, cx));
+
+            let response_collapsed = this
+                .tab_manager
+                .read(cx)
+                .active_playground(cx)
+                .as_ref()
+                .and_then(|p| p.response_panel(cx))
+                .map(|panel| !panel.read(cx).is_shown())
+                .unwrap_or(true);
+            this.footer
+                .update(cx, |f, cx| f.set_response_collapsed(response_collapsed, cx));
         })
         .detach();
     }
@@ -186,6 +243,8 @@ impl ApiClient {
     ) {
         AppSettings::global_mut(cx).panel.project_panel.sidebar_dock = SidebarDock::Left;
         AppSettings::global_mut(cx).save();
+        self.footer
+            .update(cx, |f, cx| f.set_project_panel_dock(SidebarDock::Left, cx));
         cx.refresh_windows();
     }
 
@@ -197,6 +256,34 @@ impl ApiClient {
     ) {
         AppSettings::global_mut(cx).panel.project_panel.sidebar_dock = SidebarDock::Right;
         AppSettings::global_mut(cx).save();
+        self.footer
+            .update(cx, |f, cx| f.set_project_panel_dock(SidebarDock::Right, cx));
+        cx.refresh_windows();
+    }
+
+    fn handle_dock_env_panel_left(
+        &mut self,
+        _: &DockEnvPanelLeft,
+        _window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        AppSettings::global_mut(cx).panel.env_panel.sidebar_dock = SidebarDock::Left;
+        AppSettings::global_mut(cx).save();
+        self.footer
+            .update(cx, |f, cx| f.set_env_panel_dock(SidebarDock::Left, cx));
+        cx.refresh_windows();
+    }
+
+    fn handle_dock_env_panel_right(
+        &mut self,
+        _: &DockEnvPanelRight,
+        _window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        AppSettings::global_mut(cx).panel.env_panel.sidebar_dock = SidebarDock::Right;
+        AppSettings::global_mut(cx).save();
+        self.footer
+            .update(cx, |f, cx| f.set_env_panel_dock(SidebarDock::Right, cx));
         cx.refresh_windows();
     }
 
@@ -247,7 +334,10 @@ impl ApiClient {
         cx: &mut Context<Self>,
     ) {
         self.tab_manager.update(cx, |tm, cx| {
-            tm.add_env_tab(window, cx);
+            let first_env = tm.env_names(cx).first().cloned();
+            if let Some(name) = first_env {
+                tm.open_env_tab(name, window, cx);
+            }
         });
     }
 
@@ -552,32 +642,32 @@ impl Render for ApiClient {
             .on_action(cx.listener(Self::handle_open_settings))
             .on_action(cx.listener(Self::handle_dock_sidebar_left))
             .on_action(cx.listener(Self::handle_dock_sidebar_right))
+            .on_action(cx.listener(Self::handle_dock_env_panel_left))
+            .on_action(cx.listener(Self::handle_dock_env_panel_right))
             .on_action(cx.listener(Self::handle_open_environment_variables))
             .on_action(cx.listener(Self::handle_copy_environment_variables))
             .on_action(cx.listener(Self::handle_theme_change))
             .child(self.render_titlebar(cx))
-            .child(
+            .child({
+                let pp = self.project_panel.clone();
+                let tm = self.tab_manager.clone();
+                let ep = self.env_panel.clone();
+
+                let pp_left = AppSettings::global(cx).panel.project_panel.sidebar_dock
+                    == SidebarDock::Left;
+                let ep_left = AppSettings::global(cx).panel.env_panel.sidebar_dock
+                    == SidebarDock::Left;
+
                 div()
                     .flex_1()
                     .min_h(px(0.))
                     .flex()
-                    .when(
-                        AppSettings::global(cx).panel.project_panel.sidebar_dock
-                            == SidebarDock::Right,
-                        |this| {
-                            this.child(self.tab_manager.clone())
-                                .child(self.project_panel.clone())
-                        },
-                    )
-                    .when(
-                        AppSettings::global(cx).panel.project_panel.sidebar_dock
-                            == SidebarDock::Left,
-                        |this| {
-                            this.child(self.project_panel.clone())
-                                .child(self.tab_manager.clone())
-                        },
-                    ),
-            )
+                    .when(pp_left, |this| this.child(pp.clone()))
+                    .when(ep_left, |this| this.child(ep.clone()))
+                    .child(tm)
+                    .when(!ep_left, |this| this.child(ep.clone()))
+                    .when(!pp_left, |this| this.child(pp.clone()))
+            })
             .child(self.render_footer(cx))
             .children(dialog_layer)
     }

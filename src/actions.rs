@@ -33,6 +33,14 @@ pub struct DockSidebarLeft;
 pub struct DockSidebarRight;
 
 #[derive(Clone, PartialEq, Action)]
+#[action(namespace = fs, no_json)]
+pub struct DockEnvPanelLeft;
+
+#[derive(Clone, PartialEq, Action)]
+#[action(namespace = fs, no_json)]
+pub struct DockEnvPanelRight;
+
+#[derive(Clone, PartialEq, Action)]
 pub struct OpenSettings;
 
 #[derive(Clone, PartialEq, Action)]

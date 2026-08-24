@@ -1,35 +1,32 @@
-use crate::actions::{DockSidebarLeft, DockSidebarRight};
-use crate::env::EnvironmentStore;
-use crate::request_fs::RequestFileSystem;
+use crate::env_panel::{EnvPanel, EnvPanelEvent};
+use crate::env_playground::{EnvPlayground, EnvPlaygroundEvent};
 use crate::helpers::next_id;
 use crate::playground::PlaygroundHandle;
 use crate::project_panel::{ProjectPanel, ProjectPanelEvent};
+use crate::request_fs::RequestFileSystem;
 use crate::request_playground::{RequestPlayground, RequestPlaygroundEvent};
-use crate::settings_panel::{AppSettings, SidebarDock};
+use crate::settings_panel::AppSettings;
 use crate::stress_testing::StressTesting;
 use crate::tab::{TabEvent, Tabs};
 use crate::welcome::WelcomeScreen;
-use gpui::prelude::FluentBuilder;
 use gpui::*;
-use gpui_component::menu::ContextMenuExt;
-use gpui_component::sidebar::SidebarToggleButton;
 use gpui_component::tab::{Tab, TabBar};
 use gpui_component::{ActiveTheme as _, button::*, *};
 
 use crate::icons::IconName;
 use indexmap::IndexMap;
+use std::collections::hash_map::DefaultHasher;
+use std::hash::{Hash, Hasher};
 use std::path::Path;
 
-const ENV_NODE_ID: usize = usize::MAX - 1;
 const WELCOME_NODE_ID: usize = usize::MAX - 2;
 
 pub struct TabManager {
     project_panel: Entity<ProjectPanel>,
-    env_store: Entity<EnvironmentStore>,
+    env_panel: Entity<EnvPanel>,
     tabs: IndexMap<usize, Entity<Tabs>>,
     active_tab_id: Option<usize>,
     scroll_handle: ScrollHandle,
-    sidebar_collapsed: bool,
 }
 
 impl TabManager {
@@ -37,7 +34,7 @@ impl TabManager {
         window: &mut Window,
         cx: &mut Context<Self>,
         project_panel: Entity<ProjectPanel>,
-        env_store: Entity<EnvironmentStore>,
+        env_panel: Entity<EnvPanel>,
     ) -> Self {
         cx.subscribe_in(
             &project_panel,
@@ -73,13 +70,23 @@ impl TabManager {
         )
         .detach();
 
+        cx.subscribe_in(
+            &env_panel,
+            window,
+            |this: &mut Self, _, event, window, cx| match event {
+                EnvPanelEvent::EnvActivated { name } => {
+                    this.open_env_tab(name.clone(), window, cx);
+                }
+            },
+        )
+        .detach();
+
         Self {
             project_panel,
-            env_store,
+            env_panel,
             tabs: IndexMap::new(),
             active_tab_id: None,
             scroll_handle: ScrollHandle::new(),
-            sidebar_collapsed: true,
         }
     }
 
@@ -87,7 +94,6 @@ impl TabManager {
         self.tabs.clear();
         self.active_tab_id = None;
         self.scroll_handle = ScrollHandle::new();
-        self.sidebar_collapsed = true;
 
         cx.notify();
     }
@@ -161,6 +167,10 @@ impl TabManager {
 
     pub fn has_tabs(&self) -> bool {
         self.active_tab_id.is_some()
+    }
+
+    pub fn env_names(&self, cx: &App) -> Vec<String> {
+        self.env_panel.read(cx).envs.clone()
     }
 
     pub fn active_playground(&self, cx: &App) -> Option<Box<dyn PlaygroundHandle>> {
@@ -251,23 +261,41 @@ impl TabManager {
         cx.notify();
     }
 
-    pub fn add_env_tab(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        let node_id = ENV_NODE_ID;
+    fn env_name_to_id(name: &str) -> usize {
+        let mut hasher = DefaultHasher::new();
+        name.hash(&mut hasher);
+        hasher.finish() as usize
+    }
+
+    pub fn open_env_tab(&mut self, name: String, window: &mut Window, cx: &mut Context<Self>) {
+        let node_id = Self::env_name_to_id(&name);
+
         if self.tabs.contains_key(&node_id) {
             self.active_tab_id = Some(node_id);
             cx.notify();
             return;
         }
 
-        let env_store = self.env_store.clone();
-        let tab_entity = cx.new(|cx| {
-            Tabs::new(
-                node_id,
-                node_id,
-                "Environment Variables".to_string(),
-                env_store.clone_box(),
-            )
-        });
+        let playground = cx.new(|cx| EnvPlayground::new(name.clone(), window, cx));
+        let content: Box<dyn PlaygroundHandle> = playground.clone_box();
+        let tab_entity = cx.new(|cx| Tabs::new(node_id, node_id, name.clone(), content));
+
+        cx.subscribe_in(
+            &playground,
+            window,
+            |this: &mut Self, _, event, _window, cx| {
+                if let EnvPlaygroundEvent::Deleted { name } = event {
+                    let node_id = Self::env_name_to_id(name);
+                    this.tabs.shift_remove(&node_id);
+                    if this.active_tab_id == Some(node_id) {
+                        this.active_tab_id = this.tabs.keys().next().copied();
+                    }
+                    this.env_panel.update(cx, |panel, cx| panel.refresh(cx));
+                    cx.notify();
+                }
+            },
+        )
+        .detach();
 
         cx.subscribe_in(
             &tab_entity,
@@ -362,45 +390,6 @@ impl TabManager {
         (pg, tab_entity)
     }
 
-    fn render_sidebar_toggle(&mut self, cx: &mut Context<Self>) -> impl IntoElement {
-        let sidebar_collapsed = self.sidebar_collapsed;
-        let dock_position = AppSettings::global(cx)
-            .panel
-            .project_panel
-            .sidebar_dock
-            .to_side();
-
-        div()
-            .child(
-                SidebarToggleButton::new()
-                    .collapsed(sidebar_collapsed)
-                    .on_click(cx.listener(|this: &mut Self, _, _window, cx| {
-                        this.sidebar_collapsed = !this.sidebar_collapsed;
-
-                        let collapsed = this.sidebar_collapsed;
-
-                        this.project_panel.update(cx, |pp, cx| {
-                            pp.set_collapsed(collapsed, cx);
-                        });
-
-                        cx.notify();
-                    })),
-            )
-            .context_menu(move |menu, _window, _cx| {
-                menu.min_w(px(150.))
-                    .menu_with_check(
-                        "Dock Left",
-                        dock_position == Side::Left,
-                        Box::new(DockSidebarLeft),
-                    )
-                    .menu_with_check(
-                        "Dock Right",
-                        dock_position == Side::Right,
-                        Box::new(DockSidebarRight),
-                    )
-            })
-    }
-
     fn render_tab_bar(&mut self, cx: &mut Context<Self>) -> AnyElement {
         let tab_ids: Vec<usize> = self.tabs.keys().copied().collect();
         let selected = self
@@ -414,22 +403,10 @@ impl TabManager {
             .map(|(_, tab)| tab.update(cx, |this, cx| this.to_tab_element(cx)))
             .collect();
 
-        let sidebar_dock = AppSettings::global(cx).panel.project_panel.sidebar_dock;
-
         TabBar::new("tabs")
             .h(px(32.))
             .with_size(gpui_component::Size::Large)
-            .prefix(
-                h_flex()
-                    .px(px(8.))
-                    .items_center()
-                    .when(sidebar_dock == SidebarDock::Left, |tb| {
-                        tb.child(self.render_sidebar_toggle(cx))
-                    })
-                    .when(sidebar_dock == SidebarDock::Right, |tb| {
-                        tb.child(self.render_new_tab_button(cx))
-                    }),
-            )
+            .prefix(h_flex().px(px(8.)).items_center())
             .selected_index(selected)
             .on_click(
                 cx.listener(move |this: &mut Self, idx: &usize, _window, cx| {
@@ -446,12 +423,7 @@ impl TabManager {
                 }),
             )
             .track_scroll(&self.scroll_handle)
-            .when(sidebar_dock == SidebarDock::Left, |tb| {
-                tb.suffix(self.render_new_tab_button(cx))
-            })
-            .when(sidebar_dock == SidebarDock::Right, |tb| {
-                tb.suffix(self.render_sidebar_toggle(cx))
-            })
+            .suffix(self.render_new_tab_button(cx))
             .children(tabs)
             .into_any_element()
     }

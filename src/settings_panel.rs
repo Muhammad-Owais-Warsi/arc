@@ -110,6 +110,20 @@ impl Default for ProjectPanelSettings {
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(default)]
+pub struct EnvPanelSettings {
+    pub sidebar_dock: SidebarDock,
+}
+
+impl Default for EnvPanelSettings {
+    fn default() -> Self {
+        Self {
+            sidebar_dock: SidebarDock::Right,
+        }
+    }
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(default)]
 pub struct RequestPlaygroundSettings {
     pub save_on_close: bool,
 }
@@ -126,12 +140,14 @@ impl Default for RequestPlaygroundSettings {
 #[serde(default)]
 pub struct PanelSettings {
     pub project_panel: ProjectPanelSettings,
+    pub env_panel: EnvPanelSettings,
 }
 
 impl Default for PanelSettings {
     fn default() -> Self {
         Self {
             project_panel: ProjectPanelSettings::default(),
+            env_panel: EnvPanelSettings::default(),
         }
     }
 }
@@ -318,43 +334,80 @@ impl SettingsPanel {
         ]
     }
 
-    fn project_panel_settings() -> SettingPage {
-        SettingPage::new("Project Panel")
+    fn panels_settings() -> SettingPage {
+        SettingPage::new("Panels")
             .resettable(true)
             .icon(Icon::new(IconName::PanelLeftOpen))
-            .group(
-                SettingGroup::new().item(
-                    SettingItem::new(
-                        "Dock Position",
-                        SettingField::<SharedString>::dropdown(
-                            vec![
-                                ("left".into(), "Dock Left".into()),
-                                ("right".into(), "Dock Right".into()),
-                            ],
-                            |cx: &App| {
-                                let dock = AppSettings::global(cx).panel.project_panel.sidebar_dock;
-                                SharedString::from(if dock == SidebarDock::Right {
-                                    "right"
-                                } else {
-                                    "left"
-                                })
-                            },
-                            |val: SharedString, cx: &mut App| {
-                                AppSettings::global_mut(cx).panel.project_panel.sidebar_dock =
-                                    if val == "right" {
-                                        SidebarDock::Right
+            .groups(vec![
+                SettingGroup::new()
+                    .title("Project Panel")
+                    .item(
+                        SettingItem::new(
+                            "Dock Position",
+                            SettingField::<SharedString>::dropdown(
+                                vec![
+                                    ("left".into(), "Dock Left".into()),
+                                    ("right".into(), "Dock Right".into()),
+                                ],
+                                |cx: &App| {
+                                    let dock =
+                                        AppSettings::global(cx).panel.project_panel.sidebar_dock;
+                                    SharedString::from(if dock == SidebarDock::Right {
+                                        "right"
                                     } else {
-                                        SidebarDock::Left
-                                    };
-                                AppSettings::global_mut(cx).save();
-                                cx.refresh_windows();
-                            },
+                                        "left"
+                                    })
+                                },
+                                |val: SharedString, cx: &mut App| {
+                                    AppSettings::global_mut(cx).panel.project_panel.sidebar_dock =
+                                        if val == "right" {
+                                            SidebarDock::Right
+                                        } else {
+                                            SidebarDock::Left
+                                        };
+                                    AppSettings::global_mut(cx).save();
+                                    cx.refresh_windows();
+                                },
+                            )
+                            .default_value("left"),
                         )
-                        .default_value("left"),
-                    )
-                    .description("Dock the file sidebar on the left or right."),
-                ),
-            )
+                        .description("Dock the file sidebar on the left or right."),
+                    ),
+                SettingGroup::new()
+                    .title("Environment Panel")
+                    .item(
+                        SettingItem::new(
+                            "Dock Position",
+                            SettingField::<SharedString>::dropdown(
+                                vec![
+                                    ("left".into(), "Dock Left".into()),
+                                    ("right".into(), "Dock Right".into()),
+                                ],
+                                |cx: &App| {
+                                    let dock =
+                                        AppSettings::global(cx).panel.env_panel.sidebar_dock;
+                                    SharedString::from(if dock == SidebarDock::Right {
+                                        "right"
+                                    } else {
+                                        "left"
+                                    })
+                                },
+                                |val: SharedString, cx: &mut App| {
+                                    AppSettings::global_mut(cx).panel.env_panel.sidebar_dock =
+                                        if val == "right" {
+                                            SidebarDock::Right
+                                        } else {
+                                            SidebarDock::Left
+                                        };
+                                    AppSettings::global_mut(cx).save();
+                                    cx.refresh_windows();
+                                },
+                            )
+                            .default_value("right"),
+                        )
+                        .description("Dock the environment sidebar on the left or right."),
+                    ),
+            ])
     }
 
     fn request_playground_settings() -> SettingPage {
@@ -401,7 +454,7 @@ impl SettingsPanel {
                 .default_open(true)
                 .icon(Icon::new(IconName::SlidersHorizontal))
                 .groups(Self::appearance_settings(font_state.clone(), cx)),
-            Self::project_panel_settings(),
+            Self::panels_settings(),
             Self::request_playground_settings(),
             SettingPage::new("About")
                 .icon(Icon::new(IconName::Info))

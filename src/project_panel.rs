@@ -4,12 +4,13 @@ use crate::actions::{
     StressTestPlayground, TrashItem,
 };
 use crate::config_fs::ConfigFileSystem;
-use crate::request_fs::RequestFileSystem;
 use crate::helpers::{next_id, render_method_tag};
+use crate::request_fs::RequestFileSystem;
 use crate::settings_panel::AppSettings;
 use gpui::*;
 // use gpui_component::Icon;
 use gpui_component::input::{Input, InputEvent, InputState};
+use gpui_component::menu::ContextMenuExt;
 
 use crate::icons::IconName;
 use std::path::{Path, PathBuf};
@@ -735,6 +736,10 @@ impl ProjectPanel {
     pub fn set_collapsed(&mut self, collapsed: bool, cx: &mut Context<Self>) {
         self.sidebar_collapsed = collapsed;
         cx.notify();
+    }
+
+    pub fn is_collapsed(&self) -> bool {
+        self.sidebar_collapsed
     }
 
     pub fn set_active_node(&mut self, node_id: Option<usize>) {
