@@ -75,7 +75,7 @@ impl Footer {
         let dock = self.project_panel_dock;
         Button::new("toggle-project-panel")
             .ghost()
-            .xsmall()
+            .small()
             .toggled(is_open)
             .icon(
                 Icon::new(IconName::FolderTree)
@@ -104,7 +104,7 @@ impl Footer {
         let dock = self.env_panel_dock;
         Button::new("toggle-env-panel")
             .ghost()
-            .xsmall()
+            .small()
             .toggled(is_open)
             .icon(
                 Icon::new(IconName::SquareMenu)
@@ -132,7 +132,7 @@ impl Footer {
         let is_open = !self.response_collapsed;
         Button::new("toggle-response")
             .ghost()
-            .xsmall()
+            .small()
             .toggled(is_open)
             .icon(
                 Icon::new(IconName::PanelBottom)
