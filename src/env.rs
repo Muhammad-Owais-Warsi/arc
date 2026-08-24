@@ -1,5 +1,7 @@
+use gpui::prelude::FluentBuilder;
 use gpui::*;
 use gpui_component::button::{Button, ButtonVariants};
+use gpui_component::checkbox::Checkbox;
 use gpui_component::combobox::{Combobox, ComboboxEvent, ComboboxState};
 use gpui_component::input::{Input, InputEvent, InputState};
 use gpui_component::scroll::ScrollableElement;
@@ -14,7 +16,7 @@ use crate::request_fs::KeyValue;
 use crate::response_panel::ResponsePanel;
 
 pub enum EnvStoreEvent {
-    Changed,
+    ToggleActive,
     EnvironmentSwitched,
 }
 
@@ -39,11 +41,26 @@ pub struct EnvironmentStore {
     active_name: Option<String>,
     rows: Vec<EnvRow>,
     select: Entity<ComboboxState<SearchableVec<String>>>,
+    dirty: bool,
+    // focus: FocusHandle,
+}
+
+impl Default for Environment {
+    fn default() -> Self {
+        Self {
+            name: "".to_string(),
+            variables: Vec::new(),
+        }
+    }
 }
 
 impl EnvironmentStore {
     pub fn new(window: &mut Window, cx: &mut Context<Self>) -> Self {
-        let names: Vec<String> = vec!["Local".into(), "Production".into()];
+        let environments: Vec<Environment> =
+            serde_json::from_str(ConfigFileSystem::read_environment_variables().as_str())
+                .unwrap_or_default();
+
+        let names: Vec<String> = environments.iter().map(|env| env.name.clone()).collect();
 
         let select_state = cx.new(|cx| {
             ComboboxState::new(
@@ -55,44 +72,13 @@ impl EnvironmentStore {
             .searchable(true)
         });
 
-        let environments = vec![
-            Environment {
-                name: "Local".into(),
-                variables: vec![
-                    KeyValue {
-                        key: "base_url".into(),
-                        value: "http://localhost:3000".into(),
-                        active: true,
-                    },
-                    KeyValue {
-                        key: "api_key".into(),
-                        value: "dev-key-123".into(),
-                        active: true,
-                    },
-                ],
-            },
-            Environment {
-                name: "Production".into(),
-                variables: vec![
-                    KeyValue {
-                        key: "base_url".into(),
-                        value: "https://api.example.com".into(),
-                        active: true,
-                    },
-                    KeyValue {
-                        key: "api_key".into(),
-                        value: "prod-key-789".into(),
-                        active: true,
-                    },
-                ],
-            },
-        ];
-
         let mut this = Self {
             active_name: Some("Local".into()),
             rows: vec![],
             select: select_state,
             environments,
+            dirty: false,
+            // focus: cx.focus_handle(),
         };
 
         this.load_rows_from_active(window, cx);
@@ -106,7 +92,7 @@ impl EnvironmentStore {
                         if this.environments.iter().any(|e| &e.name == name) {
                             this.active_name = Some(name.clone());
                             this.load_rows_from_active(window, cx);
-                            cx.emit(EnvStoreEvent::EnvironmentSwitched);
+                            // cx.emit(EnvStoreEvent::EnvironmentSwitched);
                             cx.notify();
                         }
                     }
@@ -139,6 +125,43 @@ impl EnvironmentStore {
             .collect();
     }
 
+    fn evaluate_dirty(&mut self, cx: &mut Context<Self>) {
+        let active_name = match self.active_name.as_ref() {
+            Some(name) => name.clone(),
+            None => {
+                self.dirty = false;
+                cx.notify();
+                return;
+            }
+        };
+
+        let saved = match self.environments.iter().find(|e| e.name == active_name) {
+            Some(env) => &env.variables,
+            None => {
+                self.dirty = false;
+                cx.notify();
+                return;
+            }
+        };
+
+        let current_content = self.current_content(cx);
+        self.dirty = current_content != *saved;
+        cx.notify();
+    }
+
+    fn current_content(&self, cx: &mut Context<Self>) -> Vec<KeyValue> {
+        let current: Vec<KeyValue> = self
+            .rows
+            .iter()
+            .map(|row| KeyValue {
+                key: row.key.read(cx).value().to_string(),
+                value: row.value.read(cx).value().to_string(),
+                active: row.active,
+            })
+            .collect();
+        current
+    }
+
     fn watch(
         &mut self,
         key: Entity<InputState>,
@@ -146,15 +169,17 @@ impl EnvironmentStore {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        cx.subscribe_in(&key, window, |_, _, event, _window, cx| {
+        cx.subscribe_in(&key, window, |this, _, event, _window, cx| {
             if matches!(event, InputEvent::Change) {
-                cx.emit(EnvStoreEvent::Changed);
+                this.evaluate_dirty(cx);
+                // cx.emit(EnvStoreEvent::Changed);
             }
         })
         .detach();
-        cx.subscribe_in(&value, window, |_, _, event, _window, cx| {
+        cx.subscribe_in(&value, window, |this, _, event, _window, cx| {
             if matches!(event, InputEvent::Change) {
-                cx.emit(EnvStoreEvent::Changed);
+                this.evaluate_dirty(cx);
+                // cx.emit(EnvStoreEvent::Changed);
             }
         })
         .detach();
@@ -188,27 +213,21 @@ impl EnvironmentStore {
             .and_then(|name| self.environments.iter().find(|e| &e.name == name))
     }
 
-    fn save(&self) {
-        let data: Vec<Environment> = self
-            .environments
-            .iter()
-            .map(|e| Environment {
-                name: e.name.clone(),
-                variables: e
-                    .variables
-                    .iter()
-                    .map(|kv| KeyValue {
-                        key: kv.key.clone(),
-                        value: kv.value.clone(),
-                        active: kv.active,
-                    })
-                    .collect(),
-            })
-            .collect();
+    fn save(&mut self, cx: &mut Context<Self>) {
+        let variables = self.current_content(cx);
 
-        if let Ok(json) = serde_json::to_string_pretty(&data) {
-            let _ = std::fs::write(ConfigFileSystem::environments_path(), json);
+        if let Some(active) = self.active_name.clone() {
+            if let Some(env) = self.environments.iter_mut().find(|e| e.name == active) {
+                env.variables = variables;
+            }
         }
+
+        if let Ok(json) = serde_json::to_string_pretty(&self.environments) {
+            ConfigFileSystem::save_environment_variables(&json).ok();
+        }
+
+        self.dirty = false;
+        cx.notify();
     }
 
     fn load(&mut self, window: &mut Window, cx: &mut Context<Self>) {
@@ -293,13 +312,14 @@ impl EnvironmentStore {
                                     .collect::<Vec<_>>(),
                             );
 
+                            this.active_name = Some(name.clone());
                             this.update_select(items, window, cx);
 
                             this.select.update(cx, |state, cx| {
                                 state.set_query("", window, cx);
                             });
 
-                            this.save();
+                            this.save(cx);
 
                             cx.notify();
                         });
@@ -336,8 +356,21 @@ impl Render for EnvironmentStore {
                     )
                     .child(div().flex_1())
                     .child(
+                        Button::new("save-var")
+                            .label("Save Changes")
+                            .tooltip("Save")
+                            .when(self.dirty, |this| {
+                                this.child(div().size_2().rounded_full().bg(cx.theme().primary))
+                            })
+                            .on_click(cx.listener(|this, _, window, cx| {
+                                this.save(cx);
+                                cx.notify();
+                            })),
+                    )
+                    .child(
                         Button::new("add-var")
                             .label("Add Variable")
+                            .tooltip("Add new variable")
                             .icon(IconName::Plus)
                             .ghost()
                             .on_click(cx.listener(|this, _, window, cx| {
@@ -349,10 +382,12 @@ impl Render for EnvironmentStore {
                                     value,
                                     active: true,
                                 });
-                                cx.emit(EnvStoreEvent::Changed);
+                                this.evaluate_dirty(cx);
                                 cx.notify();
                             })),
-                    ),
+                    )
+
+                ,
             )
             .child(
                 div()
@@ -390,7 +425,7 @@ impl Render for EnvironmentStore {
                                                                 value: value.clone(),
                                                                 active: *checked,
                                                             };
-                                                            cx.emit(EnvStoreEvent::Changed);
+                                                            this.evaluate_dirty(cx);
                                                             cx.notify();
                                                         },
                                                     )
@@ -420,7 +455,7 @@ impl Render for EnvironmentStore {
                                                         .on_click(cx.listener(
                                                             move |this, _, _window, cx| {
                                                                 this.rows.remove(i);
-                                                                cx.emit(EnvStoreEvent::Changed);
+                                                                this.evaluate_dirty(cx);
                                                                 cx.notify();
                                                             },
                                                         )),

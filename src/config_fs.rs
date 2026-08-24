@@ -94,7 +94,7 @@ impl ConfigFileSystem {
     }
 
     pub fn read_last_workspace() -> Option<(String, String)> {
-        let value: serde_json::Value =         serde_json::from_str(&Self::read_workspace_config()).ok()?;
+        let value: serde_json::Value = serde_json::from_str(&Self::read_workspace_config()).ok()?;
         let active = value.as_array()?.first()?.get("active_workspace")?;
         let name = active.get("name")?.as_str().unwrap_or("").to_string();
         let path = active.get("path")?.as_str().unwrap_or("").to_string();
@@ -130,4 +130,10 @@ impl ConfigFileSystem {
     pub fn read_environment_variables() -> String {
         std::fs::read_to_string(Self::environments_path()).unwrap_or_default()
     }
+
+    pub fn save_environment_variables(content: &str) -> io::Result<()> {
+        std::fs::write(Self::environments_path(), content)
+    }
+
+    // pub fn save_environment_variables() -> io::Result<()> {}
 }
