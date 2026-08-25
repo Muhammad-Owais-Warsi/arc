@@ -10,7 +10,6 @@ use crate::settings_panel::AppSettings;
 use gpui::*;
 // use gpui_component::Icon;
 use gpui_component::input::{Input, InputEvent, InputState};
-use gpui_component::menu::ContextMenuExt;
 
 use crate::icons::IconName;
 use std::path::{Path, PathBuf};
@@ -171,19 +170,17 @@ impl ProjectPanel {
         for entry in WalkDir::new(active_dir_path)
             .max_depth(8)
             .into_iter()
+            .filter_entry(|e| {
+                !(e.file_type().is_dir()
+                    && matches!(
+                        e.file_name().to_str(),
+                        Some("target" | "node_modules" | ".git" | "dist" | ".arc")
+                    ))
+            })
             .filter_map(Result::ok)
             .filter(|entry| entry.path() != active_dir_path)
         {
             let path = entry.path();
-
-            if entry.file_type().is_dir()
-                && matches!(
-                    entry.file_name().to_str(),
-                    Some("target" | "node_modules" | ".git" | "dist")
-                )
-            {
-                continue;
-            }
 
             let id = next_id();
             let name = entry.file_name().to_string_lossy().to_string();
@@ -237,7 +234,7 @@ impl ProjectPanel {
         let is_workspace_root = self.is_workspace_root(node_id);
 
         item.context_menu(move |menu, _, cx| {
-            this.update(cx, move |p, cx| {
+            this.update(cx, move |p, _cx| {
                 p.context_target = Some(node_id);
             })
             .ok();
@@ -308,7 +305,7 @@ impl ProjectPanel {
     ) -> SidebarMenuItem {
         let mut children = Vec::new();
 
-        if let Some(parent_id) = pending_parent_id {
+        if let Some(_parent_id) = pending_parent_id {
             if let Some(ref pending) = self.pending_action {
                 let input = match pending {
                     PendingAction::CreateFile { input, .. }
@@ -501,7 +498,7 @@ impl ProjectPanel {
     pub fn handle_delete_item(
         &mut self,
         _: &DeleteItem,
-        window: &mut Window,
+        _window: &mut Window,
         cx: &mut Context<Self>,
     ) {
         let Some(node_id) = self.target_id() else {
@@ -526,7 +523,7 @@ impl ProjectPanel {
     pub fn handle_trash_item(
         &mut self,
         _: &TrashItem,
-        window: &mut Window,
+        _window: &mut Window,
         cx: &mut Context<Self>,
     ) {
         let Some(node_id) = self.target_id() else {
@@ -575,7 +572,7 @@ impl ProjectPanel {
         }
     }
 
-    fn confirm_action(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+    fn confirm_action(&mut self, _window: &mut Window, cx: &mut Context<Self>) {
         let pending = match self.pending_action.take() {
             Some(pending) => pending,
             None => return,
@@ -793,7 +790,7 @@ impl ProjectPanel {
 }
 
 impl Render for ProjectPanel {
-    fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+    fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let ws_name = self.name.clone();
         let root_ids: Vec<usize> = self.root_id.clone();
 

@@ -1,7 +1,7 @@
 use gpui::*;
 use gpui_component::{
     ActiveTheme, IndexPath, StyledExt,
-    input::{Editor, EditorState, Input, InputEvent, InputState, TabSize},
+    input::{Editor, EditorState, InputEvent, TabSize},
     select::{Select, SelectEvent, SelectState},
 };
 
@@ -144,7 +144,7 @@ impl Body {
 }
 
 impl Render for Body {
-    fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+    fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         div()
             .size_full()
             .v_flex()

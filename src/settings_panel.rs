@@ -8,7 +8,7 @@ use gpui::{
     SharedString, Styled, Window, px,
 };
 use gpui_component::{
-    Icon, IndexPath, Side, Sizable, Size, Theme, ThemeMode, ThemeRegistry,
+    Icon, IndexPath, Side, Sizable, Size, Theme,
     combobox::{Combobox, ComboboxEvent, ComboboxState},
     group_box::GroupBoxVariant,
     searchable_list::{SearchableListItem, SearchableVec},
@@ -214,7 +214,7 @@ pub struct SettingsPanel {
 }
 
 impl SettingsPanel {
-    pub fn new(cx: &mut Context<Self>) -> Self {
+    pub fn new(_cx: &mut Context<Self>) -> Self {
         Self { font_state: None }
     }
 
@@ -242,7 +242,7 @@ impl SettingsPanel {
         cx.subscribe_in(
             &entity,
             window,
-            |this: &mut SettingsPanel, _, event: &ComboboxEvent<SearchableVec<FontItem>>, _, cx| {
+            |_this: &mut SettingsPanel, _, event: &ComboboxEvent<SearchableVec<FontItem>>, _, cx| {
                 if let ComboboxEvent::Confirm(selected) = event {
                     if let Some(val) = selected.first() {
                         let val = val.clone();
@@ -459,7 +459,7 @@ impl SettingsPanel {
             SettingPage::new("About")
                 .icon(Icon::new(IconName::Info))
                 .group(
-                    SettingGroup::new().item(SettingItem::render(|_options, _, cx| {
+                    SettingGroup::new().item(SettingItem::render(|_options, _, _cx| {
                         v_flex()
                             .gap_3()
                             .w_full()

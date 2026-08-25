@@ -1,4 +1,4 @@
-use crate::config_fs::ConfigFileSystem;
+use crate::env_fs::EnvFileSystem;
 use crate::env_panel::{EnvPanel, EnvPanelEvent};
 use crate::env_playground::{EnvPlayground, EnvPlaygroundEvent};
 use crate::helpers::next_id;
@@ -88,7 +88,7 @@ impl TabManager {
                         let pp = this.project_panel.clone();
                         this.close_tab(node_id, &pp, cx);
                     }
-                    ConfigFileSystem::delete_environment(name);
+                    EnvFileSystem::delete_environment(name);
                     this.env_panel.update(cx, |panel, cx| panel.refresh(cx));
                 }
             },
@@ -135,7 +135,7 @@ impl TabManager {
         let (playground, tab) = self.add_request_tab(window, cx, node_id, name.clone(), method);
         let request = RequestFileSystem::read_request(Path::new(&path));
         playground.update(cx, |pg, cx| pg.load(window, cx, &request));
-        playground.update(cx, |pg, cx| pg.set_path(path.clone()));
+        playground.update(cx, |pg, _cx| pg.set_path(path.clone()));
 
         // let tab = self.add_tab(window, cx, node_id, name.clone(), Box::new(playground));
 
@@ -226,7 +226,7 @@ impl TabManager {
         let stress_test_playground = cx.new(|cx| StressTesting::new(source, path, window, cx));
 
         let content: Box<dyn PlaygroundHandle> = stress_test_playground.clone_box();
-        let tab_entity = cx.new(|cx| Tabs::new(tab_key, tab_key, node_name, content));
+        let tab_entity = cx.new(|_cx| Tabs::new(tab_key, tab_key, node_name, content));
 
         cx.subscribe_in(
             &tab_entity,
@@ -265,7 +265,7 @@ impl TabManager {
 
         let content: Box<dyn PlaygroundHandle> = welcome.clone_box();
         let tab_entity =
-            cx.new(|cx| Tabs::new(WELCOME_NODE_ID, WELCOME_NODE_ID, "Welcome".into(), content));
+            cx.new(|_cx| Tabs::new(WELCOME_NODE_ID, WELCOME_NODE_ID, "Welcome".into(), content));
 
         cx.subscribe_in(
             &tab_entity,
@@ -306,7 +306,7 @@ impl TabManager {
 
         let playground = cx.new(|cx| EnvPlayground::new(name.clone(), window, cx));
         let content: Box<dyn PlaygroundHandle> = playground.clone_box();
-        let tab_entity = cx.new(|cx| Tabs::new(node_id, node_id, name.clone(), content));
+        let tab_entity = cx.new(|_cx| Tabs::new(node_id, node_id, name.clone(), content));
 
         cx.subscribe_in(
             &playground,
@@ -372,7 +372,7 @@ impl TabManager {
             });
         }
 
-        let tab_entity = cx.new(|cx| Tabs::new(id, node_id, name, playground.clone_box()));
+        let tab_entity = cx.new(|_cx| Tabs::new(id, node_id, name, playground.clone_box()));
 
         let pg = playground.clone();
         cx.subscribe_in(
@@ -547,7 +547,7 @@ impl TabManager {
                     .tooltip("Add Tab")
                     .on_click(cx.listener(|this: &mut Self, _event, window, cx| {
                         let tab_key = next_id();
-                        let (playground, tab) = this.add_request_tab(
+                        let (_playground, tab) = this.add_request_tab(
                             window,
                             cx,
                             tab_key,

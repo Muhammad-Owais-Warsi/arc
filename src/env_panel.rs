@@ -1,5 +1,4 @@
 use gpui::*;
-use gpui_component::ActiveTheme;
 use gpui_component::Sizable;
 use gpui_component::button::Button;
 use gpui_component::button::ButtonVariants;
@@ -10,8 +9,8 @@ use gpui_component::sidebar::{
 use std::cell::RefCell;
 use std::rc::Rc;
 
-use crate::config_fs::ConfigFileSystem;
-use crate::env::Environment;
+use crate::env_fs::EnvFileSystem;
+use crate::env_playground::Environment;
 use crate::icons::IconName;
 use crate::settings_panel::AppSettings;
 
@@ -39,8 +38,8 @@ impl EnvPanel {
         }
     }
 
-    fn read_env_names() -> Vec<String> {
-        let content = ConfigFileSystem::read_environment_variables();
+    pub fn read_env_names() -> Vec<String> {
+        let content = EnvFileSystem::read_environment_variables();
         let envs: Vec<Environment> = serde_json::from_str(&content).unwrap_or_default();
         envs.into_iter().map(|e| e.name).collect()
     }
@@ -77,7 +76,7 @@ impl EnvPanel {
 
                 let del_name = name.clone();
                 let pending = self.pending_delete.clone();
-                let item = item.suffix(move |_, cx| {
+                let item = item.suffix(move |_, _cx| {
                     let name = del_name.clone();
                     let pending = pending.clone();
                     Button::new(format!("del-env-{name}"))
@@ -108,7 +107,7 @@ impl Render for EnvPanel {
             .env_panel
             .sidebar_dock
             .to_side();
-        let dock_left = side == gpui_component::Side::Left;
+        let _dock_left = side == gpui_component::Side::Left;
 
         let sidebar = Sidebar::new("env-sidebar")
             .collapsible(SidebarCollapsible::Offcanvas)

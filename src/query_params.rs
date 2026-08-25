@@ -4,7 +4,7 @@ use gpui_component::button::{Button, ButtonVariants};
 use gpui_component::checkbox::Checkbox;
 use gpui_component::input::{Input, InputEvent, InputState};
 use gpui_component::table::{Table, TableBody, TableCell, TableHead, TableHeader, TableRow};
-use gpui_component::{ActiveTheme, Icon, h_flex, v_flex};
+use gpui_component::{h_flex, v_flex};
 
 use crate::icons::IconName;
 

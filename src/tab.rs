@@ -1,7 +1,6 @@
 use crate::helpers::render_method_tag;
 use crate::playground::PlaygroundHandle;
 use gpui::*;
-use gpui_component::ActiveTheme;
 use gpui_component::Sizable;
 use gpui_component::button::Button;
 use gpui_component::button::ButtonVariants;

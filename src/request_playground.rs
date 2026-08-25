@@ -470,7 +470,7 @@ impl RequestPlayground {
             .into_any_element()
     }
 
-    fn render_config_content(&self, cx: &mut Context<Self>) -> AnyElement {
+    fn render_config_content(&self, _cx: &mut Context<Self>) -> AnyElement {
         match self.selected_config {
             0 => div()
                 .size_full()

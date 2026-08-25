@@ -1,12 +1,11 @@
 use gpui::*;
 use gpui_component::button::{Button, ButtonVariants};
-use gpui_component::input::{Editor, EditorState, Input, InputState, TabSize};
+use gpui_component::input::{Editor, EditorState, TabSize};
 use gpui_component::popover::Popover;
 use gpui_component::scroll::ScrollableElement;
 use gpui_component::tab::{self, Tab, TabBar};
 use gpui_component::tag::Tag;
 // use gpui_component::input::{}
-use gpui_component::text::TextView;
 use gpui_component::{ActiveTheme, ColorName, Icon, Sizable, StyledExt, h_flex, v_flex};
 
 use crate::helpers::format_size;
