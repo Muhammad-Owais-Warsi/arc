@@ -1,10 +1,10 @@
 use gpui::*;
+use gpui_component::Sizable;
 use gpui_component::button::{Button, ButtonVariants};
 use gpui_component::checkbox::Checkbox;
 use gpui_component::input::{Input, InputEvent, InputState};
 use gpui_component::table::{Table, TableBody, TableCell, TableHead, TableHeader, TableRow};
 use gpui_component::{ActiveTheme, h_flex, v_flex};
-use gpui_component::Sizable;
 
 use crate::icons::IconName;
 
@@ -56,7 +56,13 @@ impl Headers {
             .collect()
     }
 
-    fn watch(&mut self, key: Entity<InputState>, value: Entity<InputState>, window: &mut Window, cx: &mut Context<Self>) {
+    fn watch(
+        &mut self,
+        key: Entity<InputState>,
+        value: Entity<InputState>,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
         cx.subscribe_in(&key, window, |_, _, event, _window, cx| {
             if matches!(event, InputEvent::Change) {
                 cx.emit(HeadersEvent::Changed);
@@ -182,6 +188,7 @@ impl Render for Headers {
                                             Button::new(format!("del-head-{i}"))
                                                 .ghost()
                                                 .small()
+                                                .tooltip("Delete")
                                                 .icon(IconName::Trash)
                                                 .on_click(cx.listener(
                                                     move |this: &mut Self, _, _window, cx| {

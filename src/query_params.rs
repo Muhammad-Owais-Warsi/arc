@@ -56,7 +56,13 @@ impl QueryParams {
             .collect()
     }
 
-    fn watch(&mut self, key: Entity<InputState>, value: Entity<InputState>, window: &mut Window, cx: &mut Context<Self>) {
+    fn watch(
+        &mut self,
+        key: Entity<InputState>,
+        value: Entity<InputState>,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
         cx.subscribe_in(&key, window, |_, _, event, _window, cx| {
             if matches!(event, InputEvent::Change) {
                 cx.emit(QueryParamsEvent::Changed);
@@ -182,6 +188,7 @@ impl Render for QueryParams {
                                             Button::new(format!("del-qp-{i}"))
                                                 .ghost()
                                                 .small()
+                                                .tooltip("Delete")
                                                 .icon(IconName::Trash)
                                                 .on_click(cx.listener(
                                                     move |this: &mut Self, _, _window, cx| {

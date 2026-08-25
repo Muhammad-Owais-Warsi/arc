@@ -63,8 +63,7 @@ impl EnvPlayground {
 
     fn read_env_from_disk(name: &str) -> Vec<KeyValue> {
         let content = ConfigFileSystem::read_environment_variables();
-        let envs: Vec<Environment> =
-            serde_json::from_str(&content).unwrap_or_default();
+        let envs: Vec<Environment> = serde_json::from_str(&content).unwrap_or_default();
         envs.into_iter()
             .find(|e| e.name == name)
             .map(|e| e.variables)
@@ -148,7 +147,8 @@ impl EnvPlayground {
 
         Self::write_all_envs_to_disk(&envs);
 
-        self.initial = self.rows
+        self.initial = self
+            .rows
             .iter()
             .map(|row| KeyValue {
                 key: row.key.read(cx).value().to_string(),
@@ -218,15 +218,6 @@ impl Render for EnvPlayground {
                             })
                             .on_click(cx.listener(|this, _, _window, cx| {
                                 this.save(cx);
-                            })),
-                    )
-                    .child(
-                        Button::new("delete-env")
-                            .ghost()
-                            .icon(IconName::Trash)
-                            .tooltip("Delete environment")
-                            .on_click(cx.listener(|this, _, _window, cx| {
-                                this.delete_env(cx);
                             })),
                     )
                     .child(

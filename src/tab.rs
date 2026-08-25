@@ -1,6 +1,7 @@
 use crate::helpers::render_method_tag;
 use crate::playground::PlaygroundHandle;
 use gpui::*;
+use gpui_component::ActiveTheme;
 use gpui_component::Sizable;
 use gpui_component::button::Button;
 use gpui_component::button::ButtonVariants;
@@ -48,7 +49,8 @@ impl Tabs {
         let method = self.playground.method(cx);
         let node_id = self.node_id;
 
-        Tab::default()
+        Tab::new()
+            .outline()
             .min_h(px(32.))
             .px_1()
             .prefix(div().mr_1().child(render_method_tag(&method)))

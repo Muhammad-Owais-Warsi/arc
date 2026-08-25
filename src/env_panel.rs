@@ -1,14 +1,23 @@
 use gpui::*;
+use gpui_component::ActiveTheme;
+use gpui_component::Sizable;
+use gpui_component::button::Button;
+use gpui_component::button::ButtonVariants;
 use gpui_component::sidebar::{
     Sidebar, SidebarCollapsible, SidebarGroup, SidebarMenu, SidebarMenuItem,
 };
 
+use std::cell::RefCell;
+use std::rc::Rc;
+
 use crate::config_fs::ConfigFileSystem;
 use crate::env::Environment;
 use crate::icons::IconName;
+use crate::settings_panel::AppSettings;
 
 pub enum EnvPanelEvent {
     EnvActivated { name: String },
+    EnvDeleted { name: String },
 }
 
 impl EventEmitter<EnvPanelEvent> for EnvPanel {}
@@ -16,6 +25,7 @@ impl EventEmitter<EnvPanelEvent> for EnvPanel {}
 pub struct EnvPanel {
     pub envs: Vec<String>,
     collapsed: bool,
+    pending_delete: Rc<RefCell<Option<String>>>,
 }
 
 impl EnvPanel {
@@ -25,6 +35,7 @@ impl EnvPanel {
         Self {
             envs,
             collapsed: true,
+            pending_delete: Rc::new(RefCell::new(None)),
         }
     }
 
@@ -53,11 +64,32 @@ impl EnvPanel {
             .iter()
             .map(|name| {
                 let name = name.clone();
+
                 let item = SidebarMenuItem::new(name.clone()).icon(IconName::Variable);
 
+                let activate_name = name.clone();
+
                 let item = item.on_click(cx.listener(move |_, _, _window, cx| {
-                    cx.emit(EnvPanelEvent::EnvActivated { name: name.clone() });
+                    cx.emit(EnvPanelEvent::EnvActivated {
+                        name: activate_name.clone(),
+                    });
                 }));
+
+                let del_name = name.clone();
+                let pending = self.pending_delete.clone();
+                let item = item.suffix(move |_, cx| {
+                    let name = del_name.clone();
+                    let pending = pending.clone();
+                    Button::new(format!("del-env-{name}"))
+                        .ghost()
+                        .small()
+                        .icon(IconName::Trash)
+                        .on_click(move |_, _, cx| {
+                            cx.stop_propagation();
+                            *pending.borrow_mut() = Some(name.clone());
+                        })
+                        .into_any_element()
+                });
 
                 item
             })
@@ -67,10 +99,21 @@ impl EnvPanel {
 
 impl Render for EnvPanel {
     fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        if let Some(name) = self.pending_delete.borrow_mut().take() {
+            cx.emit(EnvPanelEvent::EnvDeleted { name });
+        }
+
+        let side = AppSettings::global(cx)
+            .panel
+            .env_panel
+            .sidebar_dock
+            .to_side();
+        let dock_left = side == gpui_component::Side::Left;
+
         let sidebar = Sidebar::new("env-sidebar")
             .collapsible(SidebarCollapsible::Offcanvas)
             .collapsed(self.collapsed)
-            .side(gpui_component::Side::Right)
+            .side(side)
             .child(
                 SidebarGroup::new("Environments")
                     .child(SidebarMenu::new().children(self.render_items(cx))),

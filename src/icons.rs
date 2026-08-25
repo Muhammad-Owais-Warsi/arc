@@ -7,6 +7,8 @@ use strum::AsRefStr;
 pub enum IconName {
     ArrowDown,
     ArrowUp,
+    ArrowLeft,
+    ArrowRight,
     Check,
     ChevronDown,
     ChevronRight,

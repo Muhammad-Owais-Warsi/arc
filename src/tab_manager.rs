@@ -1,3 +1,4 @@
+use crate::config_fs::ConfigFileSystem;
 use crate::env_panel::{EnvPanel, EnvPanelEvent};
 use crate::env_playground::{EnvPlayground, EnvPlaygroundEvent};
 use crate::helpers::next_id;
@@ -9,6 +10,7 @@ use crate::settings_panel::AppSettings;
 use crate::stress_testing::StressTesting;
 use crate::tab::{TabEvent, Tabs};
 use crate::welcome::WelcomeScreen;
+use gpui::prelude::FluentBuilder;
 use gpui::*;
 use gpui_component::tab::{Tab, TabBar};
 use gpui_component::{ActiveTheme as _, button::*, *};
@@ -18,6 +20,7 @@ use indexmap::IndexMap;
 use std::collections::hash_map::DefaultHasher;
 use std::hash::{Hash, Hasher};
 use std::path::Path;
+use std::vec;
 
 const WELCOME_NODE_ID: usize = usize::MAX - 2;
 
@@ -27,6 +30,8 @@ pub struct TabManager {
     tabs: IndexMap<usize, Entity<Tabs>>,
     active_tab_id: Option<usize>,
     scroll_handle: ScrollHandle,
+    history: Vec<usize>,
+    history_index: usize,
 }
 
 impl TabManager {
@@ -77,6 +82,15 @@ impl TabManager {
                 EnvPanelEvent::EnvActivated { name } => {
                     this.open_env_tab(name.clone(), window, cx);
                 }
+                EnvPanelEvent::EnvDeleted { name } => {
+                    let node_id = Self::env_name_to_id(name);
+                    if this.tabs.contains_key(&node_id) {
+                        let pp = this.project_panel.clone();
+                        this.close_tab(node_id, &pp, cx);
+                    }
+                    ConfigFileSystem::delete_environment(name);
+                    this.env_panel.update(cx, |panel, cx| panel.refresh(cx));
+                }
             },
         )
         .detach();
@@ -87,6 +101,8 @@ impl TabManager {
             tabs: IndexMap::new(),
             active_tab_id: None,
             scroll_handle: ScrollHandle::new(),
+            history: Vec::new(),
+            history_index: 0,
         }
     }
 
@@ -94,6 +110,8 @@ impl TabManager {
         self.tabs.clear();
         self.active_tab_id = None;
         self.scroll_handle = ScrollHandle::new();
+        self.history.clear();
+        self.history_index = 0;
 
         cx.notify();
     }
@@ -109,6 +127,7 @@ impl TabManager {
     ) {
         if self.tabs.contains_key(&node_id) {
             self.active_tab_id = Some(node_id);
+            self.push_history(node_id);
             cx.notify();
             return;
         }
@@ -121,6 +140,7 @@ impl TabManager {
         // let tab = self.add_tab(window, cx, node_id, name.clone(), Box::new(playground));
 
         self.tabs.insert(node_id, tab);
+        self.push_history(node_id);
         self.active_tab_id = Some(node_id);
         cx.notify();
     }
@@ -139,6 +159,8 @@ impl TabManager {
         cx: &mut Context<Self>,
     ) {
         self.tabs.shift_remove(&node_id);
+        self.history.retain(|&id| id != node_id);
+        self.history_index = self.history_index.min(self.history.len().saturating_sub(1));
         self.activate_neighbor(node_id, project_panel, cx);
         cx.notify();
     }
@@ -212,6 +234,7 @@ impl TabManager {
             |this: &mut Self, _, event, _window, cx| {
                 if let TabEvent::Close(node_id) = event {
                     this.tabs.shift_remove(node_id);
+                    this.remove_from_history(*node_id);
                     let pp = this.project_panel.clone();
                     this.activate_neighbor(*node_id, &pp, cx);
                     cx.notify();
@@ -221,6 +244,7 @@ impl TabManager {
         .detach();
 
         self.tabs.insert(tab_key, tab_entity);
+        self.push_history(tab_key);
         self.active_tab_id = Some(tab_key);
         cx.notify();
     }
@@ -234,6 +258,7 @@ impl TabManager {
         let node_id = WELCOME_NODE_ID;
         if self.tabs.contains_key(&node_id) {
             self.active_tab_id = Some(node_id);
+            self.push_history(node_id);
             cx.notify();
             return;
         }
@@ -248,6 +273,7 @@ impl TabManager {
             move |this: &mut Self, _, event, _window, cx| {
                 if let TabEvent::Close(node_id) = event {
                     this.tabs.shift_remove(node_id);
+                    this.remove_from_history(*node_id);
                     let pp = this.project_panel.clone();
                     this.activate_neighbor(*node_id, &pp, cx);
                     cx.notify();
@@ -257,6 +283,7 @@ impl TabManager {
         .detach();
 
         self.tabs.insert(node_id, tab_entity);
+        self.push_history(node_id);
         self.active_tab_id = Some(node_id);
         cx.notify();
     }
@@ -272,6 +299,7 @@ impl TabManager {
 
         if self.tabs.contains_key(&node_id) {
             self.active_tab_id = Some(node_id);
+            self.push_history(node_id);
             cx.notify();
             return;
         }
@@ -287,6 +315,7 @@ impl TabManager {
                 if let EnvPlaygroundEvent::Deleted { name } = event {
                     let node_id = Self::env_name_to_id(name);
                     this.tabs.shift_remove(&node_id);
+                    this.remove_from_history(node_id);
                     if this.active_tab_id == Some(node_id) {
                         this.active_tab_id = this.tabs.keys().next().copied();
                     }
@@ -303,6 +332,7 @@ impl TabManager {
             |this: &mut Self, _, event, _window, cx| {
                 if let TabEvent::Close(node_id) = event {
                     this.tabs.shift_remove(node_id);
+                    this.remove_from_history(*node_id);
                     let pp = this.project_panel.clone();
                     this.activate_neighbor(*node_id, &pp, cx);
                     cx.notify();
@@ -312,6 +342,7 @@ impl TabManager {
         .detach();
 
         self.tabs.insert(node_id, tab_entity);
+        self.push_history(node_id);
         self.active_tab_id = Some(node_id);
         cx.notify();
     }
@@ -379,6 +410,7 @@ impl TabManager {
                     });
 
                     this.tabs.shift_remove(node_id);
+                    this.remove_from_history(*node_id);
                     let pp = this.project_panel.clone();
                     this.activate_neighbor(*node_id, &pp, cx);
                     cx.notify();
@@ -404,15 +436,49 @@ impl TabManager {
             .collect();
 
         TabBar::new("tabs")
+            .w_full()
             .h(px(32.))
             .with_size(gpui_component::Size::Large)
-            .prefix(h_flex().px(px(8.)).items_center())
+            .when(self.has_tabs(), |this| {
+                this.prefix(
+                    h_flex()
+                        .h_full()
+                        .gap_1()
+                        .items_center()
+                        .px_2()
+                        .border_r_1()
+                        .border_color(cx.theme().border)
+                        .child({
+                            let mut btn = Button::new("back")
+                                .tooltip("Go Back")
+                                .ghost()
+                                .small()
+                                .icon(IconName::ArrowLeft);
+                            if !self.can_back() {
+                                btn = btn.disabled(true);
+                            }
+                            btn.on_click(cx.listener(|this, _, _, cx| this.back(cx)))
+                        })
+                        .child({
+                            let mut btn = Button::new("forward")
+                                .tooltip("Go Forward")
+                                .ghost()
+                                .small()
+                                .icon(IconName::ArrowRight);
+                            if !self.can_forward() {
+                                btn = btn.disabled(true);
+                            }
+                            btn.on_click(cx.listener(|this, _, _, cx| this.forward(cx)))
+                        }),
+                )
+            })
             .selected_index(selected)
             .on_click(
                 cx.listener(move |this: &mut Self, idx: &usize, _window, cx| {
                     let tab_ids: Vec<usize> = this.tabs.keys().copied().collect();
                     if let Some(&id) = tab_ids.get(*idx) {
                         this.active_tab_id = Some(id);
+                        this.push_history(id);
                         let active = this.active_tab_id;
                         this.project_panel.update(cx, |pp, cx| {
                             pp.set_active_node(active);
@@ -428,16 +494,55 @@ impl TabManager {
             .into_any_element()
     }
 
+    fn push_history(&mut self, id: usize) {
+        self.history.truncate(self.history_index + 1);
+        self.history.push(id);
+        self.history_index = self.history.len() - 1;
+    }
+
+    fn remove_from_history(&mut self, id: usize) {
+        self.history.retain(|&hid| hid != id);
+        self.history_index = self.history_index.min(self.history.len().saturating_sub(1));
+    }
+
+    fn can_back(&self) -> bool {
+        self.history_index > 0
+    }
+
+    fn can_forward(&self) -> bool {
+        self.history_index + 1 < self.history.len()
+    }
+
+    fn back(&mut self, cx: &mut Context<Self>) {
+        if !self.can_back() {
+            return;
+        }
+        self.history_index -= 1;
+        self.active_tab_id = Some(self.history[self.history_index]);
+        cx.notify();
+    }
+
+    fn forward(&mut self, cx: &mut Context<Self>) {
+        if !self.can_forward() {
+            return;
+        }
+        self.history_index += 1;
+        self.active_tab_id = Some(self.history[self.history_index]);
+        cx.notify();
+    }
+
     fn render_new_tab_button(&self, cx: &mut Context<Self>) -> impl IntoElement {
         h_flex()
             .h_full()
             .items_center()
             .justify_center()
             .px_2()
+            .border_l_1()
+            .border_color(cx.theme().border)
             .child(
                 Button::new("add-tab")
                     .ghost()
-                    .xsmall()
+                    .small()
                     .icon(IconName::Plus)
                     .tooltip("Add Tab")
                     .on_click(cx.listener(|this: &mut Self, _event, window, cx| {
@@ -481,13 +586,22 @@ impl Render for TabManager {
             .flex_1()
             .h_full()
             .min_h(px(0.))
+            .overflow_hidden()
             .v_flex()
             .child(
                 div()
+                    .w_full()
                     .flex_none()
                     .overflow_x_hidden()
                     .child(self.render_tab_bar(cx)),
             )
-            .child(div().flex_1().v_flex().min_h(px(0.)).child(main_content))
+            .child(
+                div()
+                    .flex_1()
+                    .v_flex()
+                    .min_h(px(0.))
+                    .overflow_hidden()
+                    .child(main_content),
+            )
     }
 }

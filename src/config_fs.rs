@@ -135,5 +135,11 @@ impl ConfigFileSystem {
         std::fs::write(Self::environments_path(), content)
     }
 
-    // pub fn save_environment_variables() -> io::Result<()> {}
+    pub fn delete_environment(name: &str) {
+        let mut envs: Vec<crate::env::Environment> =
+            serde_json::from_str(&Self::read_environment_variables()).unwrap_or_default();
+        envs.retain(|e| e.name != name);
+        let content = serde_json::to_string_pretty(&envs).unwrap_or_default();
+        let _ = Self::save_environment_variables(&content);
+    }
 }
