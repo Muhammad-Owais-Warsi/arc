@@ -46,6 +46,7 @@ pub struct RequestPlayground {
 
 pub enum RequestPlaygroundEvent {
     MethodChanged(String),
+    ResponsePanelOpened,
 }
 
 impl EventEmitter<RequestPlaygroundEvent> for RequestPlayground {}
@@ -336,6 +337,7 @@ impl RequestPlayground {
         let response_panel = self.response_panel.clone();
 
         response_panel.update(cx, |panel, cx| panel.open(cx));
+        cx.emit(RequestPlaygroundEvent::ResponsePanelOpened);
 
         let request = HttpClient::global()
             .request(&method_str, &url_str)

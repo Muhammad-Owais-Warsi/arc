@@ -248,6 +248,13 @@ impl TabManager {
     }
 
     pub fn open_env_tab(&mut self, name: String, window: &mut Window, cx: &mut Context<Self>) {
+        if let Some((&tab_id, _)) = self.tabs.iter().find(|(_, tab)| tab.read(cx).name() == name) {
+            self.active_tab_id = Some(tab_id);
+            self.push_history(tab_id);
+            cx.notify();
+            return;
+        }
+
         let tab_key = next_id();
 
         let playground = cx.new(|cx| EnvPlayground::new(name.clone(), window, cx));
@@ -317,10 +324,13 @@ impl TabManager {
         cx.subscribe_in(
             &pg,
             window,
-            move |this: &mut Self, _, event, _window, cx| {
-                if let RequestPlaygroundEvent::MethodChanged(method) = event {
+            move |this: &mut Self, _, event, _window, cx| match event {
+                RequestPlaygroundEvent::MethodChanged(method) => {
                     this.project_panel
                         .update(cx, |pp, _| pp.set_node_method(node_id, method));
+                }
+                RequestPlaygroundEvent::ResponsePanelOpened => {
+                    cx.notify();
                 }
             },
         )

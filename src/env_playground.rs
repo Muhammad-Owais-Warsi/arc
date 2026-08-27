@@ -12,6 +12,7 @@ use crate::icons::IconName;
 use crate::playground::Playground;
 use crate::request_fs::KeyValue;
 use crate::response_panel::ResponsePanel;
+use gpui_component::clipboard::Clipboard;
 
 pub enum EnvPlaygroundEvent {
     Renamed { old_name: String, new_name: String },
@@ -158,6 +159,7 @@ impl EnvPlayground {
 
     fn enable_editing(&mut self, cx: &mut Context<Self>) {
         self.is_editing = true;
+        cx.notify();
     }
 
     fn disable_editing(&mut self, window: &mut Window, cx: &mut Context<Self>) {
@@ -242,6 +244,7 @@ impl Render for EnvPlayground {
                                             Button::new("cancel")
                                                 .icon(IconName::X)
                                                 .secondary()
+                                                .danger()
                                                 .small()
                                                 .tooltip("Cancel")
                                                 .on_click(cx.listener(|this, _, window, cx| {
@@ -253,6 +256,19 @@ impl Render for EnvPlayground {
                             ),
                     )
                     .child(div().flex_1())
+                    .child({
+                        let vars: Vec<serde_json::Value> = self.rows.iter().map(|row| {
+                            serde_json::json!({
+                                "key": row.key.read(cx).value().to_string(),
+                                "value": row.value.read(cx).value().to_string(),
+                                "active": row.active,
+                            })
+                        }).collect();
+                        let json = serde_json::to_string_pretty(&vars).unwrap_or_default();
+                        Clipboard::new("env-clip")
+                            .tooltip("Copy variables")
+                            .value(json)
+                    })
                     .child(
                         Button::new("save-env")
                             .label("Save")
@@ -263,7 +279,11 @@ impl Render for EnvPlayground {
                             .on_click(cx.listener(|this, _, _window, cx| {
                                 this.save(cx);
                             })),
-                    )
+                    ),
+            )
+            .child(
+                h_flex()
+                    .justify_end()
                     .child(
                         Button::new("add-var")
                             .label("Add Variable")
