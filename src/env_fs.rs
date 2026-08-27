@@ -56,10 +56,10 @@ impl EnvFileSystem {
 
     fn default_json() -> String {
         serde_json::to_string_pretty(&serde_json::json!({
-            "active_environment": "Local",
+            "active_environment": "local",
             "environments": [
-                {"name": "Local", "variables": []},
-                {"name": "Production", "variables": []}
+                {"name": "local", "variables": []},
+                {"name": "production", "variables": []}
             ]
         }))
         .unwrap_or_default()
@@ -82,6 +82,20 @@ impl EnvFileSystem {
         data.get("environments")
             .and_then(|e| serde_json::to_string_pretty(e).ok())
             .unwrap_or_else(|| "[]".into())
+    }
+
+    pub fn rename_environment(old_name: &str, new_name: &str) {
+        let mut envs: Vec<Environment> =
+            serde_json::from_str(&Self::read_environment_variables()).unwrap_or_default();
+        if let Some(env) = envs.iter_mut().find(|e| e.name == old_name) {
+            env.name = new_name.to_string();
+        }
+        let _ = Self::save_environment_variables(
+            &serde_json::to_string_pretty(&envs).unwrap_or_default(),
+        );
+        if Self::read_active_environment() == old_name {
+            Self::save_active_environment(new_name);
+        }
     }
 
     pub fn save_environment_variables(content: &str) -> io::Result<()> {

@@ -17,8 +17,6 @@ use gpui_component::{ActiveTheme as _, button::*, *};
 
 use crate::icons::IconName;
 use indexmap::IndexMap;
-use std::collections::hash_map::DefaultHasher;
-use std::hash::{Hash, Hasher};
 use std::path::Path;
 use std::vec;
 
@@ -65,8 +63,7 @@ impl TabManager {
                 }
                 ProjectPanelEvent::FileDeleted { node_id, .. }
                 | ProjectPanelEvent::FileTrashed { node_id, .. } => {
-                    let pp = this.project_panel.clone();
-                    this.close_tab(*node_id, &pp, cx);
+                    this.close_tab(*node_id, cx);
                 }
                 ProjectPanelEvent::StressTestPlayground { path, node_name } => {
                     this.add_stress_test_tab(window, cx, path.clone(), node_name.clone());
@@ -83,10 +80,8 @@ impl TabManager {
                     this.open_env_tab(name.clone(), window, cx);
                 }
                 EnvPanelEvent::EnvDeleted { name } => {
-                    let node_id = Self::env_name_to_id(name);
-                    if this.tabs.contains_key(&node_id) {
-                        let pp = this.project_panel.clone();
-                        this.close_tab(node_id, &pp, cx);
+                    if let Some((&tab_id, _)) = this.tabs.iter().find(|(_, tab)| tab.read(cx).name() == name) {
+                        this.close_tab(tab_id, cx);
                     }
                     EnvFileSystem::delete_environment(name);
                     this.env_panel.update(cx, |panel, cx| panel.refresh(cx));
@@ -152,39 +147,11 @@ impl TabManager {
         }
     }
 
-    pub fn close_tab(
-        &mut self,
-        node_id: usize,
-        project_panel: &Entity<ProjectPanel>,
-        cx: &mut Context<Self>,
-    ) {
+    pub fn close_tab(&mut self, node_id: usize, cx: &mut Context<Self>) {
         self.tabs.shift_remove(&node_id);
-        self.history.retain(|&id| id != node_id);
-        self.history_index = self.history_index.min(self.history.len().saturating_sub(1));
-        self.activate_neighbor(node_id, project_panel, cx);
+        self.remove_from_history(node_id);
+        self.active_tab_id = self.history.get(self.history_index).copied();
         cx.notify();
-    }
-
-    fn neighbor_of(&self, closed_id: usize) -> Option<usize> {
-        match self.tabs.get_index_of(&closed_id) {
-            Some(ix) if ix > 0 => self.tabs.get_index(ix - 1).map(|(id, _)| *id),
-            Some(_) => self.tabs.get_index(0).map(|(id, _)| *id),
-            None => self.tabs.last().map(|(id, _)| *id),
-        }
-    }
-
-    fn activate_neighbor(
-        &mut self,
-        closed_id: usize,
-        project_panel: &Entity<ProjectPanel>,
-        cx: &mut Context<Self>,
-    ) {
-        self.active_tab_id = self.neighbor_of(closed_id);
-        let active = self.active_tab_id;
-        project_panel.update(cx, |pp, cx| {
-            pp.set_active_node(active);
-            cx.notify();
-        });
     }
 
     pub fn has_tabs(&self) -> bool {
@@ -233,11 +200,7 @@ impl TabManager {
             window,
             |this: &mut Self, _, event, _window, cx| {
                 if let TabEvent::Close(node_id) = event {
-                    this.tabs.shift_remove(node_id);
-                    this.remove_from_history(*node_id);
-                    let pp = this.project_panel.clone();
-                    this.activate_neighbor(*node_id, &pp, cx);
-                    cx.notify();
+                    this.close_tab(*node_id, cx);
                 }
             },
         )
@@ -272,11 +235,7 @@ impl TabManager {
             window,
             move |this: &mut Self, _, event, _window, cx| {
                 if let TabEvent::Close(node_id) = event {
-                    this.tabs.shift_remove(node_id);
-                    this.remove_from_history(*node_id);
-                    let pp = this.project_panel.clone();
-                    this.activate_neighbor(*node_id, &pp, cx);
-                    cx.notify();
+                    this.close_tab(*node_id, cx);
                 }
             },
         )
@@ -288,36 +247,20 @@ impl TabManager {
         cx.notify();
     }
 
-    fn env_name_to_id(name: &str) -> usize {
-        let mut hasher = DefaultHasher::new();
-        name.hash(&mut hasher);
-        hasher.finish() as usize
-    }
-
     pub fn open_env_tab(&mut self, name: String, window: &mut Window, cx: &mut Context<Self>) {
-        let node_id = Self::env_name_to_id(&name);
-
-        if self.tabs.contains_key(&node_id) {
-            self.active_tab_id = Some(node_id);
-            self.push_history(node_id);
-            cx.notify();
-            return;
-        }
+        let tab_key = next_id();
 
         let playground = cx.new(|cx| EnvPlayground::new(name.clone(), window, cx));
         let content: Box<dyn PlaygroundHandle> = playground.clone_box();
-        let tab_entity = cx.new(|_cx| Tabs::new(node_id, node_id, name.clone(), content));
+        let tab_entity = cx.new(|_cx| Tabs::new(tab_key, tab_key, name.clone(), content));
 
         cx.subscribe_in(
             &playground,
             window,
-            |this: &mut Self, _, event, _window, cx| {
-                if let EnvPlaygroundEvent::Deleted { name } = event {
-                    let node_id = Self::env_name_to_id(name);
-                    this.tabs.shift_remove(&node_id);
-                    this.remove_from_history(node_id);
-                    if this.active_tab_id == Some(node_id) {
-                        this.active_tab_id = this.tabs.keys().next().copied();
+            |this: &mut Self, _, event, _window, cx| match event {
+                EnvPlaygroundEvent::Renamed { old_name, new_name } => {
+                    if let Some((&tab_id, _)) = this.tabs.iter().find(|(_, tab)| tab.read(cx).name() == old_name) {
+                        this.rename_tab(tab_id, new_name.clone(), cx);
                     }
                     this.env_panel.update(cx, |panel, cx| panel.refresh(cx));
                     cx.notify();
@@ -330,20 +273,16 @@ impl TabManager {
             &tab_entity,
             window,
             |this: &mut Self, _, event, _window, cx| {
-                if let TabEvent::Close(node_id) = event {
-                    this.tabs.shift_remove(node_id);
-                    this.remove_from_history(*node_id);
-                    let pp = this.project_panel.clone();
-                    this.activate_neighbor(*node_id, &pp, cx);
-                    cx.notify();
+                if let TabEvent::Close(tab_id) = event {
+                    this.close_tab(*tab_id, cx);
                 }
             },
         )
         .detach();
 
-        self.tabs.insert(node_id, tab_entity);
-        self.push_history(node_id);
-        self.active_tab_id = Some(node_id);
+        self.tabs.insert(tab_key, tab_entity);
+        self.push_history(tab_key);
+        self.active_tab_id = Some(tab_key);
         cx.notify();
     }
 
@@ -409,10 +348,7 @@ impl TabManager {
                         pp.set_node_method(*node_id, &method);
                     });
 
-                    this.tabs.shift_remove(node_id);
-                    this.remove_from_history(*node_id);
-                    let pp = this.project_panel.clone();
-                    this.activate_neighbor(*node_id, &pp, cx);
+                    this.close_tab(*node_id, cx);
                     cx.notify();
                 }
             },

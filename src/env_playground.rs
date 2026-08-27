@@ -1,10 +1,11 @@
 use gpui::prelude::FluentBuilder;
 use gpui::*;
-use gpui_component::button::{Button, ButtonVariants};
+use gpui_component::button::{Button, ButtonCustomVariant, ButtonVariants};
 use gpui_component::input::{Input, InputEvent, InputState};
 use gpui_component::scroll::ScrollableElement;
+use gpui_component::select::SelectItem;
 use gpui_component::table::{Table, TableBody, TableCell, TableHead, TableHeader, TableRow};
-use gpui_component::{ActiveTheme, Icon, h_flex, v_flex};
+use gpui_component::{ActiveTheme, Icon, Sizable, h_flex, v_flex};
 
 use crate::env_fs::EnvFileSystem;
 use crate::icons::IconName;
@@ -13,8 +14,7 @@ use crate::request_fs::KeyValue;
 use crate::response_panel::ResponsePanel;
 
 pub enum EnvPlaygroundEvent {
-    Saved { name: String },
-    Deleted { name: String },
+    Renamed { old_name: String, new_name: String },
 }
 
 impl EventEmitter<EnvPlaygroundEvent> for EnvPlayground {}
@@ -34,7 +34,9 @@ pub struct Environment {
 }
 
 pub struct EnvPlayground {
-    name: String,
+    name: Entity<InputState>,
+    initial_name: String,
+    is_editing: bool,
     rows: Vec<EnvRow>,
     dirty: bool,
     initial: Vec<KeyValue>,
@@ -44,6 +46,8 @@ impl EnvPlayground {
     pub fn new(name: String, window: &mut Window, cx: &mut Context<Self>) -> Self {
         let variables = Self::read_env_from_disk(&name);
 
+        let initial_name = name.clone();
+        let name = cx.new(|cx| InputState::new(window, cx).default_value(name));
         let rows = variables
             .iter()
             .map(|kv| {
@@ -61,8 +65,10 @@ impl EnvPlayground {
 
         let mut this = Self {
             name,
+            is_editing: false,
             rows,
             dirty: false,
+            initial_name,
             initial,
         };
 
@@ -70,8 +76,8 @@ impl EnvPlayground {
         this
     }
 
-    pub fn name(&self) -> &str {
-        &self.name
+    pub fn name(&self, cx: &mut Context<Self>) -> String {
+        self.name.read(cx).value().to_string().clone()
     }
 
     fn read_env_from_disk(name: &str) -> Vec<KeyValue> {
@@ -87,28 +93,6 @@ impl EnvPlayground {
         if let Ok(json) = serde_json::to_string_pretty(envs) {
             EnvFileSystem::save_environment_variables(&json).ok();
         }
-    }
-
-    fn load_rows(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        let variables = Self::read_env_from_disk(&self.name);
-
-        self.initial = variables.clone();
-        self.rows = variables
-            .into_iter()
-            .map(|kv| {
-                let key = cx.new(|cx| InputState::new(window, cx).default_value(&kv.key));
-                let value = cx.new(|cx| InputState::new(window, cx).default_value(&kv.value));
-                EnvRow {
-                    key,
-                    value,
-                    active: kv.active,
-                }
-            })
-            .collect();
-
-        self.watch_all_inputs(window, cx);
-        self.dirty = false;
-        cx.notify();
     }
 
     fn watch_all_inputs(&mut self, window: &mut Window, cx: &mut Context<Self>) {
@@ -153,7 +137,7 @@ impl EnvPlayground {
         let mut envs: Vec<Environment> =
             serde_json::from_str(&EnvFileSystem::read_environment_variables()).unwrap_or_default();
 
-        if let Some(env) = envs.iter_mut().find(|e| e.name == self.name) {
+        if let Some(env) = envs.iter_mut().find(|e| e.name == self.initial_name) {
             env.variables = variables;
         }
 
@@ -172,16 +156,15 @@ impl EnvPlayground {
         cx.notify();
     }
 
-    pub fn delete_env(&mut self, cx: &mut Context<Self>) {
-        let mut envs: Vec<Environment> =
-            serde_json::from_str(&EnvFileSystem::read_environment_variables()).unwrap_or_default();
+    fn enable_editing(&mut self, cx: &mut Context<Self>) {
+        self.is_editing = true;
+    }
 
-        envs.retain(|e| e.name != self.name);
-        Self::write_all_envs_to_disk(&envs);
-
-        cx.emit(EnvPlaygroundEvent::Deleted {
-            name: self.name.clone(),
+    fn disable_editing(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        self.name.update(cx, |input, cx| {
+            input.set_value(self.initial_name.clone(), window, cx);
         });
+        self.is_editing = false;
         cx.notify();
     }
 }
@@ -196,7 +179,7 @@ impl Playground for EnvPlayground {
 }
 
 impl Render for EnvPlayground {
-    fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+    fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         v_flex()
             .size_full()
             .min_h(px(0.))
@@ -212,11 +195,61 @@ impl Render for EnvPlayground {
                         h_flex()
                             .items_center()
                             .gap_2()
-                            .child(Icon::new(IconName::Variable).size(px(16.)))
                             .child(
-                                div()
-                                    .text_lg()
-                                    .child(self.name.clone()),
+                                h_flex()
+                                    .items_center()
+                                    .gap_2()
+                                    .child(
+                                        div()
+                                            .text_lg()
+                                            .w(rems(10.))
+                                            .child(Input::new(&self.name).w_full().readonly(!self.is_editing)),
+                                    )
+                                    .when(!self.is_editing, |this| {
+                                        this.child(
+                                            Button::new("edit")
+                                                .icon(IconName::SquarePen)
+                                                .ghost()
+                                                .small()
+                                                .tooltip("Edit")
+                                                .on_click(cx.listener(|this, _, _window, cx| {
+                                                    this.enable_editing(cx);
+                                                })),
+                                        )
+                                    })
+                                    .when(self.is_editing, |this| {
+                                        this.child(
+                                            Button::new("save-name")
+                                                .icon(IconName::Check)
+                                                .primary()
+                                                .small()
+                                                .tooltip("Save")
+                                                .on_click(cx.listener(|this, _, window, cx| {
+                                                    let new_name = this.name.read(cx).value().to_string();
+                                                    let old_name = this.initial_name.clone();
+                                                    if new_name != old_name {
+                                                        EnvFileSystem::rename_environment(&old_name, &new_name);
+                                                        this.initial_name = new_name.clone();
+                                                        cx.emit(EnvPlaygroundEvent::Renamed { old_name, new_name });
+                                                    }
+                                                    this.is_editing = false;
+                                                    cx.notify();
+                                                }))
+                                        )
+                                    })
+                                    .when(self.is_editing, |this| {
+                                        this.child(
+                                            Button::new("cancel")
+                                                .icon(IconName::X)
+                                                .secondary()
+                                                .small()
+                                                .tooltip("Cancel")
+                                                .on_click(cx.listener(|this, _, window, cx| {
+                                                    this.disable_editing(window,cx);
+                                                }))
+                                        )
+                                    })
+
                             ),
                     )
                     .child(div().flex_1())
@@ -310,12 +343,12 @@ impl Render for EnvPlayground {
                                         .child(
                                             TableCell::new()
                                                 .flex_1()
-                                                .child(Input::new(&row.key)),
+                                                .child(Input::new(&row.key).w_full()),
                                         )
                                         .child(
                                             TableCell::new()
                                                 .flex_1()
-                                                .child(Input::new(&row.value)),
+                                                .child(Input::new(&row.value).w_full()),
                                         )
                                         .child(
                                             TableCell::new()

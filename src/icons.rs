@@ -9,6 +9,8 @@ pub enum IconName {
     ArrowUp,
     ArrowLeft,
     ArrowRight,
+    SquarePen,
+    X,
     Check,
     ChevronDown,
     ChevronRight,

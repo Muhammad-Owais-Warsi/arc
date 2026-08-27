@@ -40,6 +40,10 @@ impl Tabs {
         self.playground.clone_box()
     }
 
+    pub fn name(&self) -> &str {
+        &self.name
+    }
+
     pub fn update_name(&mut self, new_name: String) {
         self.name = new_name
     }
