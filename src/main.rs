@@ -59,7 +59,7 @@ pub struct ApiClient {
     workspace_palette_open: bool,
     environment_pallete_open: bool,
     environment_pallete: Entity<CommandState>,
-    active_environment: String,
+    active_environment: Option<String>,
     workspaces: Vec<(String, String)>,
     selected_workspace: Option<usize>,
     settings_window: Option<(WeakEntity<SettingsWindow>, AnyWindowHandle)>,
@@ -92,7 +92,7 @@ impl ApiClient {
             workspace_palette_open: false,
             environment_pallete_open: false,
             environment_pallete,
-            active_environment: "Local".to_string(),
+            active_environment: None,
             workspaces: Vec::new(),
             selected_workspace: None,
             settings_window: None,
@@ -120,7 +120,7 @@ impl ApiClient {
         let Some((name, path)) = self.workspaces.get(ix).cloned() else {
             return;
         };
-        self.active_environment = EnvFileSystem::validate_active_environment();
+        self.active_environment = Some(EnvFileSystem::validate_active_environment());
         self.selected_workspace = Some(ix);
         ConfigFileSystem::save_workspace_config(&name, &path);
         self.workspace_palette.update(cx, |state, cx| {
@@ -454,7 +454,10 @@ impl ApiClient {
             .and_then(|ix| self.workspaces.get(ix))
             .map(|(name, _)| name.clone())
             .unwrap_or_else(|| "no workspace".to_string());
-        let active_env = self.active_environment.clone();
+        let active_env = self
+            .active_environment
+            .clone()
+            .unwrap_or_else(|| "No environment".to_string());
 
         TitleBar::new()
             .h(px(32.))
@@ -671,7 +674,7 @@ impl ApiClient {
                                         CommandItem::new()
                                             .label(name.clone())
                                             .icon(IconName::Variable)
-                                            .checked(*name == active)
+                                            .checked(Some(name.clone()) == active)
                                     })
                                     .collect();
                                 Command::new(&palette)
@@ -724,7 +727,7 @@ impl ApiClient {
                                                         let _ = EnvFileSystem::save_environment_variables(&content);
                                                         ep.update(cx, |panel, cx| panel.refresh(cx));
                                                         this.update(cx, |this, cx| {
-                                                            this.active_environment = name;
+                                                            this.active_environment = Some(name);
                                                             cx.notify();
                                                         });
                                                     }
@@ -742,7 +745,7 @@ impl ApiClient {
                                                 EnvFileSystem::save_active_environment(&name);
                                                 ep.update(cx, |panel, cx| panel.refresh(cx));
                                                 this.update(cx, |this, cx| {
-                                                    this.active_environment = name;
+                                                    this.active_environment = Some(name);
                                                     this.environment_pallete_open = false;
                                                     cx.notify();
                                                 });

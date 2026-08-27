@@ -48,15 +48,33 @@ impl RequestFileSystem {
 
         let file = OpenOptions::new()
             .write(true)
-            .create_new(true) // Fails if the file already exists
+            .create_new(true)
             .open(&path)?;
+
+        let default_headers = vec![
+            KeyValue {
+                key: "Content-Type".to_string(),
+                value: "application/json".to_string(),
+                active: false,
+            },
+            KeyValue {
+                key: "Content-Type".to_string(),
+                value: "text/html".to_string(),
+                active: false,
+            },
+            KeyValue {
+                key: "Content-Type".to_string(),
+                value: "text/plain".to_string(),
+                active: false,
+            },
+        ];
 
         let content = RequestFileContent {
             name: name.to_string(),
             url: String::new(),
             method: "GET".to_string(),
             params: vec![],
-            headers: vec![],
+            headers: default_headers,
             auth: Auth {
                 auth_type: AuthType::None,
                 username: String::new(),
