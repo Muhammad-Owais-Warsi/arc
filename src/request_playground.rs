@@ -13,6 +13,7 @@ use gpui_component::{
     tab::{self, Tab, TabBar},
 };
 
+use crate::env_fs::EnvFileSystem;
 use crate::http_client::HttpClient;
 use crate::http_response::{AuthPayload, RequestStats, Response, ResponseBody, ResponseHeaders};
 use crate::playground::Playground;
@@ -309,7 +310,7 @@ impl RequestPlayground {
     }
 
     pub fn send_request(&mut self, _window: &mut Window, cx: &mut Context<Self>) {
-        let url_str = self.url.read(cx).value().to_string();
+        let url_str = EnvFileSystem::interpolate_url(&self.url.read(cx).value());
         let method_str = self
             .method
             .read(cx)

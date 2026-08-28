@@ -1,4 +1,4 @@
-use std::{cell::RefCell, io, path::PathBuf};
+use std::{cell::RefCell, collections::HashMap, io, path::PathBuf};
 
 use crate::env_playground::Environment;
 
@@ -166,5 +166,54 @@ impl EnvFileSystem {
             }
             let _ = std::fs::write(env_path, Self::default_json());
         }
+    }
+
+    pub fn active_env_variables() -> HashMap<String, String> {
+        let active = Self::read_active_environment();
+        let content = Self::read_environment_variables();
+        let envs: Vec<Environment> = serde_json::from_str(&content).unwrap_or_default();
+        envs.into_iter()
+            .find(|e| e.name == active)
+            .map(|e| {
+                e.variables
+                    .iter()
+                    .filter(|v| v.active)
+                    .map(|v| (v.key.clone(), v.value.clone()))
+                    .collect()
+            })
+            .unwrap_or_default()
+    }
+
+    pub fn interpolate_url(url: &str) -> String {
+        let vars = Self::active_env_variables();
+        if vars.is_empty() {
+            return url.to_string();
+        }
+        let mut result = String::new();
+        let mut chars = url.chars().peekable();
+        while let Some(c) = chars.next() {
+            if c == '{' && chars.peek() == Some(&'{') {
+                chars.next();
+                let mut key = String::new();
+                while let Some(&ch) = chars.peek() {
+                    if ch == '}' && chars.peek() == Some(&'}') {
+                        chars.next();
+                        chars.next();
+                        break;
+                    } else {
+                        key.push(chars.next().unwrap());
+                    }
+                }
+                let trimmed = key.trim();
+                if let Some(val) = vars.get(trimmed) {
+                    result.push_str(val);
+                } else {
+                    result.push_str(&format!("{{{{{}}}}}", trimmed));
+                }
+            } else {
+                result.push(c);
+            }
+        }
+        result
     }
 }
