@@ -1,17 +1,14 @@
 use gpui::*;
-use gpui_component::Sizable;
-use gpui_component::button::Button;
-use gpui_component::button::ButtonVariants;
+
 use gpui_component::sidebar::{
     Sidebar, SidebarCollapsible, SidebarGroup, SidebarMenu, SidebarMenuItem,
 };
 
-use std::cell::RefCell;
-use std::rc::Rc;
-
+use crate::actions::{CopyEnv, DeleteEnv};
 use crate::env_fs::EnvFileSystem;
 use crate::env_playground::Environment;
 use crate::icons::IconName;
+use crate::request_fs::KeyValue;
 use crate::settings_panel::AppSettings;
 
 pub enum EnvPanelEvent {
@@ -24,17 +21,19 @@ impl EventEmitter<EnvPanelEvent> for EnvPanel {}
 pub struct EnvPanel {
     pub envs: Vec<String>,
     collapsed: bool,
-    pending_delete: Rc<RefCell<Option<String>>>,
+    context_target: Option<String>,
+    focus_handle: FocusHandle,
 }
 
 impl EnvPanel {
-    pub fn new(_window: &mut Window, _cx: &mut Context<Self>) -> Self {
+    pub fn new(_window: &mut Window, cx: &mut Context<Self>) -> Self {
         let envs = Self::read_env_names();
 
         Self {
             envs,
             collapsed: true,
-            pending_delete: Rc::new(RefCell::new(None)),
+            context_target: None,
+            focus_handle: cx.focus_handle(),
         }
     }
 
@@ -58,50 +57,76 @@ impl EnvPanel {
         self.collapsed
     }
 
+    fn build_item_context(
+        &self,
+        item: SidebarMenuItem,
+        name: String,
+        cx: &mut Context<Self>,
+    ) -> SidebarMenuItem {
+        let this = cx.weak_entity();
+
+        item.context_menu(move |menu, _, cx| {
+            this.update(cx, |p, _| {
+                p.context_target = Some(name.clone());
+            })
+            .ok();
+
+            menu.menu("Copy Variables", Box::new(CopyEnv))
+                .separator()
+                .menu("Delete", Box::new(DeleteEnv))
+        })
+    }
+
     fn render_items(&self, cx: &mut Context<Self>) -> Vec<SidebarMenuItem> {
         self.envs
             .iter()
             .map(|name| {
                 let name = name.clone();
 
-                let item = SidebarMenuItem::new(name.clone()).icon(IconName::Variable);
+                let mut item = SidebarMenuItem::new(name.clone()).icon(IconName::Variable);
 
                 let activate_name = name.clone();
 
-                let item = item.on_click(cx.listener(move |_, _, _window, cx| {
+                item = item.on_click(cx.listener(move |_, _, _window, cx| {
                     cx.emit(EnvPanelEvent::EnvActivated {
                         name: activate_name.clone(),
                     });
                 }));
 
-                let del_name = name.clone();
-                let pending = self.pending_delete.clone();
-                let item = item.suffix(move |_, _cx| {
-                    let name = del_name.clone();
-                    let pending = pending.clone();
-                    Button::new(format!("del-env-{name}"))
-                        .ghost()
-                        .small()
-                        .icon(IconName::Trash)
-                        .on_click(move |_, _, cx| {
-                            cx.stop_propagation();
-                            *pending.borrow_mut() = Some(name.clone());
-                        })
-                        .into_any_element()
-                });
-
+                item = self.build_item_context(item, name, cx);
                 item
             })
             .collect()
+    }
+
+    fn read_env_from_disk(&self, name: &str) -> Vec<KeyValue> {
+        let content = EnvFileSystem::read_environment_variables();
+        let envs: Vec<Environment> = serde_json::from_str(&content).unwrap_or_default();
+        envs.into_iter()
+            .find(|e| e.name == name)
+            .map(|e| e.variables)
+            .unwrap_or_default()
+    }
+
+    fn handle_copy_env(&mut self, _: &CopyEnv, _window: &mut Window, cx: &mut Context<Self>) {
+        if let Some(name) = self.context_target.take() {
+            let vars = self.read_env_from_disk(&name);
+            let json = serde_json::to_string_pretty(&vars).unwrap_or_default();
+            cx.write_to_clipboard(ClipboardItem::new_string(json));
+        }
+    }
+
+    fn handle_delete_env(&mut self, _: &DeleteEnv, _window: &mut Window, cx: &mut Context<Self>) {
+        if let Some(name) = self.context_target.take() {
+            EnvFileSystem::delete_environment(&name);
+            cx.emit(EnvPanelEvent::EnvDeleted { name: name.clone() });
+            self.refresh(cx);
+        }
     }
 }
 
 impl Render for EnvPanel {
     fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
-        if let Some(name) = self.pending_delete.borrow_mut().take() {
-            cx.emit(EnvPanelEvent::EnvDeleted { name });
-        }
-
         let side = AppSettings::global(cx)
             .panel
             .env_panel
@@ -118,6 +143,12 @@ impl Render for EnvPanel {
                     .child(SidebarMenu::new().children(self.render_items(cx))),
             );
 
-        div().id("env-panel").h_full().child(sidebar)
+        div()
+            .id("env-panel")
+            .track_focus(&self.focus_handle)
+            .h_full()
+            .on_action(cx.listener(Self::handle_copy_env))
+            .on_action(cx.listener(Self::handle_delete_env))
+            .child(sidebar)
     }
 }

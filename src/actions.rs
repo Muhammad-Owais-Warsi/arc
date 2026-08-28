@@ -51,3 +51,9 @@ pub struct CopySettings;
 
 #[derive(Clone, PartialEq, Action)]
 pub struct ThemeChange;
+
+#[derive(Clone, PartialEq, Action)]
+pub struct DeleteEnv;
+
+#[derive(Clone, PartialEq, Action)]
+pub struct CopyEnv;

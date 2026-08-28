@@ -182,7 +182,7 @@ impl Playground for EnvPlayground {
 
 impl Render for EnvPlayground {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
-        v_flex()
+        div()
             .size_full()
             .min_h(px(0.))
             .gap(rems(0.75))
@@ -256,21 +256,9 @@ impl Render for EnvPlayground {
                             ),
                     )
                     .child(div().flex_1())
-                    .child({
-                        let vars: Vec<serde_json::Value> = self.rows.iter().map(|row| {
-                            serde_json::json!({
-                                "key": row.key.read(cx).value().to_string(),
-                                "value": row.value.read(cx).value().to_string(),
-                                "active": row.active,
-                            })
-                        }).collect();
-                        let json = serde_json::to_string_pretty(&vars).unwrap_or_default();
-                        Clipboard::new("env-clip")
-                            .tooltip("Copy variables")
-                            .value(json)
-                    })
                     .child(
                         Button::new("save-env")
+                            .secondary()
                             .label("Save")
                             .tooltip("Save changes")
                             .when(self.dirty, |this| {
@@ -321,6 +309,7 @@ impl Render for EnvPlayground {
                 div()
                     .flex_1()
                     .min_h(px(0.))
+                    .mt_2()
                     .overflow_y_scrollbar()
                     .child(
                         Table::new()
