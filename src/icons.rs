@@ -12,6 +12,8 @@ pub enum IconName {
     SquarePen,
     X,
     Check,
+    Eye,
+    EyeOff,
     ChevronDown,
     ChevronRight,
     ChevronUp,

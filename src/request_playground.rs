@@ -475,22 +475,10 @@ impl RequestPlayground {
 
     fn render_config_content(&self, _cx: &mut Context<Self>) -> AnyElement {
         match self.selected_config {
-            0 => div()
-                .size_full()
-                .child(self.query_params.clone())
-                .into_any_element(),
-            1 => div()
-                .size_full()
-                .child(self.auth.clone())
-                .into_any_element(),
-            2 => div()
-                .size_full()
-                .child(self.headers.clone())
-                .into_any_element(),
-            3 => div()
-                .size_full()
-                .child(self.body.clone())
-                .into_any_element(),
+            0 => self.query_params.clone().into_any_element(),
+            1 => self.auth.clone().into_any_element(),
+            2 => self.headers.clone().into_any_element(),
+            3 => self.body.clone().into_any_element(),
             _ => div().into_any_element(),
         }
     }
