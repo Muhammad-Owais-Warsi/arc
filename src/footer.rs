@@ -163,17 +163,17 @@ impl Render for Footer {
             .when(pp_right, |this| {
                 this.right(self.render_project_panel_toggle_button(cx))
             })
-            .when(pp_right && ep_right, |this| {
-                this.right(Separator::vertical())
-            })
-            .when(ep_right, |this| {
-                this.right(self.render_env_panel_toggle_button(cx))
-            })
             .when(self.show_toggle, |this| {
                 this.right(Separator::vertical())
             })
             .when(self.show_toggle, |this| {
                 this.right(self.render_response_panel_toggle_button(cx))
+            })
+            .when(ep_right && self.show_toggle, |this| {
+                this.right(Separator::vertical())
+            })
+            .when(ep_right, |this| {
+                this.right(self.render_env_panel_toggle_button(cx))
             })
     }
 }
