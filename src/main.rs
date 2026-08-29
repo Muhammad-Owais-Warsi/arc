@@ -2,11 +2,10 @@ mod actions;
 pub mod assets;
 mod auth;
 mod body;
-mod config_fs;
-mod env_fs;
 mod env_panel;
 mod env_playground;
 mod footer;
+pub mod fs;
 mod headers;
 mod helpers;
 mod http_client;
@@ -16,7 +15,7 @@ mod icons;
 mod playground;
 mod project_panel;
 mod query_params;
-mod request_fs;
+
 mod request_playground;
 mod response_panel;
 mod settings_panel;
@@ -33,9 +32,11 @@ use crate::actions::{
     OpenSettings, QuitArc, ThemeChange,
 };
 use crate::assets::Assets;
-use crate::config_fs::ConfigFileSystem;
-use crate::env_fs::EnvFileSystem;
 use crate::footer::{Footer, FooterEvent};
+use crate::fs::env;
+use crate::fs::request;
+use crate::fs::settings;
+use crate::fs::workspace;
 use crate::helpers::{get_active_theme, get_theme_config, get_themes};
 use crate::icons::IconName;
 use crate::project_panel::{DirTree, ProjectPanel};
@@ -119,7 +120,7 @@ impl ApiClient {
             return;
         };
         self.selected_workspace = Some(ix);
-        ConfigFileSystem::save_workspace_config(&name, &path);
+        fs::workspace::save(&name, &path);
         self.workspace_palette.update(cx, |state, cx| {
             state.set_selected_index(Some(IndexPath::new(ix)), window, cx);
         });
@@ -150,7 +151,7 @@ impl ApiClient {
             .collect();
         self.selected_workspace = None;
 
-        if let Some((name, path)) = ConfigFileSystem::read_workspace_config() {
+        if let Some((name, path)) = fs::workspace::read() {
             if let Some(ix) = self
                 .workspaces
                 .iter()
@@ -427,7 +428,7 @@ impl ApiClient {
             .and_then(|ix| self.workspaces.get(ix))
             .map(|(name, _)| name.clone())
             .unwrap_or_else(|| "no workspace".to_string());
-        let active_env = EnvFileSystem::read_active_environment();
+        let active_env = fs::env::read_active();
 
         TitleBar::new()
             .h(px(32.))
@@ -535,7 +536,7 @@ impl ApiClient {
                                                             if name.is_empty() {
                                                                 return;
                                                             }
-                                                            let path = match ConfigFileSystem::create_workspace(
+                                                            let path = match fs::workspace::create(
                                                                 &name,
                                                             ) {
                                                                 Ok(path) => path,
@@ -674,7 +675,7 @@ impl ApiClient {
                                                             let mut envs: Vec<
                                                                 crate::env_playground::Environment,
                                                             > = serde_json::from_str(
-                                                                &EnvFileSystem::read_environment_variables(),
+                                                                &fs::env::read_environments(),
                                                             )
                                                             .unwrap_or_default();
                                                             if envs.iter().any(|e| e.name == name) {
@@ -688,7 +689,7 @@ impl ApiClient {
                                                                 &envs,
                                                             )
                                                             .unwrap_or_default();
-                                                            let _ = EnvFileSystem::save_environment_variables(&content);
+                                                            let _ = fs::env::write_environments(&content);
                                                             ep.update(cx, |panel, cx| panel.refresh(cx));
                                                              this.update(cx, |this, cx| {
                                                                  cx.notify();
@@ -705,7 +706,7 @@ impl ApiClient {
                                                 let envs = ep.read(cx).envs.clone();
                                                 if let Some(name) = envs.get(index.row) {
                                                     let name = name.clone();
-                                                    EnvFileSystem::save_active_environment(&name);
+                                                    fs::env::save_active(&name);
                                                     ep.update(cx, |panel, cx| panel.refresh(cx));
                                                      this.update(cx, |this, cx| {
                                                          this.environment_pallete_open = false;
@@ -792,7 +793,7 @@ fn main() {
     let app = gpui_platform::application().with_assets(Assets);
     app.run(move |cx| {
         gpui_component::init(cx);
-        let _ = ConfigFileSystem::init_setup();
+        let _ = fs::workspace::init();
 
         for font_file in [
             "fonts/lilex/Lilex-Regular.ttf",
@@ -809,7 +810,6 @@ fn main() {
             }
         }
         cx.set_global::<AppSettings>(AppSettings::get());
-        AppSettings::global(cx).save();
 
         let theme_name = SharedString::from(AppSettings::global(cx).theme.name.clone());
         for theme_file in ["themes/one.json", "themes/ayu.json"] {

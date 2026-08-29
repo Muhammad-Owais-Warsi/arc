@@ -13,13 +13,11 @@ use gpui_component::{
     tab::{self, Tab, TabBar},
 };
 
-use crate::env_fs::EnvFileSystem;
+use crate::fs;
+use crate::fs::request::{Auth as AuthContent, Body as BodyContent, KeyValue, RequestFileContent};
 use crate::http_client::HttpClient;
 use crate::http_response::{AuthPayload, RequestStats, Response, ResponseBody, ResponseHeaders};
 use crate::playground::Playground;
-use crate::request_fs::{
-    Auth as AuthContent, Body as BodyContent, KeyValue, RequestFileContent, RequestFileSystem,
-};
 use crate::settings_panel::AppSettings;
 use crate::{
     auth::{Auth, AuthEvent, AuthType},
@@ -266,7 +264,7 @@ impl RequestPlayground {
         };
 
         let current = self.current_content(cx);
-        match RequestFileSystem::write(std::path::Path::new(&path), &current) {
+        match fs::request::write(std::path::Path::new(&path), &current) {
             Ok(()) => {
                 self.snapshot = current;
                 self.dirty = false;
@@ -310,7 +308,7 @@ impl RequestPlayground {
     }
 
     pub fn send_request(&mut self, _window: &mut Window, cx: &mut Context<Self>) {
-        let url_str = EnvFileSystem::interpolate_url(&self.url.read(cx).value());
+        let url_str = fs::env::interpolate_url(&self.url.read(cx).value());
         let method_str = self
             .method
             .read(cx)

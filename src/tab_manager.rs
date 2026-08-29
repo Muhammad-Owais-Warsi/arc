@@ -1,10 +1,10 @@
-use crate::env_fs::EnvFileSystem;
 use crate::env_panel::{EnvPanel, EnvPanelEvent};
 use crate::env_playground::{EnvPlayground, EnvPlaygroundEvent};
+use crate::fs;
 use crate::helpers::next_id;
 use crate::playground::PlaygroundHandle;
 use crate::project_panel::{ProjectPanel, ProjectPanelEvent};
-use crate::request_fs::RequestFileSystem;
+
 use crate::request_playground::{RequestPlayground, RequestPlaygroundEvent};
 use crate::settings_panel::AppSettings;
 use crate::stress_testing::StressTesting;
@@ -80,10 +80,14 @@ impl TabManager {
                     this.open_env_tab(name.clone(), window, cx);
                 }
                 EnvPanelEvent::EnvDeleted { name } => {
-                    if let Some((&tab_id, _)) = this.tabs.iter().find(|(_, tab)| tab.read(cx).name() == name) {
+                    if let Some((&tab_id, _)) = this
+                        .tabs
+                        .iter()
+                        .find(|(_, tab)| tab.read(cx).name() == name)
+                    {
                         this.close_tab(tab_id, cx);
                     }
-                    EnvFileSystem::delete_environment(name);
+                    fs::env::delete(name);
                     this.env_panel.update(cx, |panel, cx| panel.refresh(cx));
                 }
             },
@@ -128,7 +132,7 @@ impl TabManager {
         }
 
         let (playground, tab) = self.add_request_tab(window, cx, node_id, name.clone(), method);
-        let request = RequestFileSystem::read_request(Path::new(&path));
+        let request = fs::request::read(Path::new(&path));
         playground.update(cx, |pg, cx| pg.load(window, cx, &request));
         playground.update(cx, |pg, _cx| pg.set_path(path.clone()));
 
@@ -248,7 +252,11 @@ impl TabManager {
     }
 
     pub fn open_env_tab(&mut self, name: String, window: &mut Window, cx: &mut Context<Self>) {
-        if let Some((&tab_id, _)) = self.tabs.iter().find(|(_, tab)| tab.read(cx).name() == name) {
+        if let Some((&tab_id, _)) = self
+            .tabs
+            .iter()
+            .find(|(_, tab)| tab.read(cx).name() == name)
+        {
             self.active_tab_id = Some(tab_id);
             self.push_history(tab_id);
             cx.notify();
@@ -266,7 +274,11 @@ impl TabManager {
             window,
             |this: &mut Self, _, event, _window, cx| match event {
                 EnvPlaygroundEvent::Renamed { old_name, new_name } => {
-                    if let Some((&tab_id, _)) = this.tabs.iter().find(|(_, tab)| tab.read(cx).name() == old_name) {
+                    if let Some((&tab_id, _)) = this
+                        .tabs
+                        .iter()
+                        .find(|(_, tab)| tab.read(cx).name() == old_name)
+                    {
                         this.rename_tab(tab_id, new_name.clone(), cx);
                     }
                     this.env_panel.update(cx, |panel, cx| panel.refresh(cx));
@@ -349,7 +361,7 @@ impl TabManager {
                     if save_on_close {
                         let content = playground.read(cx).current_content(cx);
                         if let Some(path) = playground.read(cx).path() {
-                            RequestFileSystem::write(Path::new(&path), &content).ok();
+                            fs::request::write(Path::new(&path), &content).ok();
                         }
                     }
 

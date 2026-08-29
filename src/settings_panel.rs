@@ -1,5 +1,5 @@
 use crate::{
-    config_fs::ConfigFileSystem,
+    fs,
     helpers::{get_active_theme, get_theme_config, get_themes},
     icons::IconName,
 };
@@ -198,13 +198,13 @@ impl AppSettings {
     }
 
     pub fn get() -> Self {
-        let content = ConfigFileSystem::read_settings();
+        let content = fs::settings::read();
         serde_json::from_str(content.as_str()).unwrap_or_default()
     }
 
     pub fn save(&self) {
         if let Ok(content) = serde_json::to_string_pretty(self) {
-            let _ = ConfigFileSystem::save_settings(&content);
+            let _ = fs::settings::write(&content);
         }
     }
 }
@@ -242,7 +242,11 @@ impl SettingsPanel {
         cx.subscribe_in(
             &entity,
             window,
-            |_this: &mut SettingsPanel, _, event: &ComboboxEvent<SearchableVec<FontItem>>, _, cx| {
+            |_this: &mut SettingsPanel,
+             _,
+             event: &ComboboxEvent<SearchableVec<FontItem>>,
+             _,
+             cx| {
                 if let ComboboxEvent::Confirm(selected) = event {
                     if let Some(val) = selected.first() {
                         let val = val.clone();
@@ -339,74 +343,68 @@ impl SettingsPanel {
             .resettable(true)
             .icon(Icon::new(IconName::PanelLeftOpen))
             .groups(vec![
-                SettingGroup::new()
-                    .title("Project Panel")
-                    .item(
-                        SettingItem::new(
-                            "Dock Position",
-                            SettingField::<SharedString>::dropdown(
-                                vec![
-                                    ("left".into(), "Dock Left".into()),
-                                    ("right".into(), "Dock Right".into()),
-                                ],
-                                |cx: &App| {
-                                    let dock =
-                                        AppSettings::global(cx).panel.project_panel.sidebar_dock;
-                                    SharedString::from(if dock == SidebarDock::Right {
-                                        "right"
+                SettingGroup::new().title("Project Panel").item(
+                    SettingItem::new(
+                        "Dock Position",
+                        SettingField::<SharedString>::dropdown(
+                            vec![
+                                ("left".into(), "Dock Left".into()),
+                                ("right".into(), "Dock Right".into()),
+                            ],
+                            |cx: &App| {
+                                let dock = AppSettings::global(cx).panel.project_panel.sidebar_dock;
+                                SharedString::from(if dock == SidebarDock::Right {
+                                    "right"
+                                } else {
+                                    "left"
+                                })
+                            },
+                            |val: SharedString, cx: &mut App| {
+                                AppSettings::global_mut(cx).panel.project_panel.sidebar_dock =
+                                    if val == "right" {
+                                        SidebarDock::Right
                                     } else {
-                                        "left"
-                                    })
-                                },
-                                |val: SharedString, cx: &mut App| {
-                                    AppSettings::global_mut(cx).panel.project_panel.sidebar_dock =
-                                        if val == "right" {
-                                            SidebarDock::Right
-                                        } else {
-                                            SidebarDock::Left
-                                        };
-                                    AppSettings::global_mut(cx).save();
-                                    cx.refresh_windows();
-                                },
-                            )
-                            .default_value("left"),
+                                        SidebarDock::Left
+                                    };
+                                AppSettings::global_mut(cx).save();
+                                cx.refresh_windows();
+                            },
                         )
-                        .description("Dock the file sidebar on the left or right."),
-                    ),
-                SettingGroup::new()
-                    .title("Environment Panel")
-                    .item(
-                        SettingItem::new(
-                            "Dock Position",
-                            SettingField::<SharedString>::dropdown(
-                                vec![
-                                    ("left".into(), "Dock Left".into()),
-                                    ("right".into(), "Dock Right".into()),
-                                ],
-                                |cx: &App| {
-                                    let dock =
-                                        AppSettings::global(cx).panel.env_panel.sidebar_dock;
-                                    SharedString::from(if dock == SidebarDock::Right {
-                                        "right"
+                        .default_value("left"),
+                    )
+                    .description("Dock the file sidebar on the left or right."),
+                ),
+                SettingGroup::new().title("Environment Panel").item(
+                    SettingItem::new(
+                        "Dock Position",
+                        SettingField::<SharedString>::dropdown(
+                            vec![
+                                ("left".into(), "Dock Left".into()),
+                                ("right".into(), "Dock Right".into()),
+                            ],
+                            |cx: &App| {
+                                let dock = AppSettings::global(cx).panel.env_panel.sidebar_dock;
+                                SharedString::from(if dock == SidebarDock::Right {
+                                    "right"
+                                } else {
+                                    "left"
+                                })
+                            },
+                            |val: SharedString, cx: &mut App| {
+                                AppSettings::global_mut(cx).panel.env_panel.sidebar_dock =
+                                    if val == "right" {
+                                        SidebarDock::Right
                                     } else {
-                                        "left"
-                                    })
-                                },
-                                |val: SharedString, cx: &mut App| {
-                                    AppSettings::global_mut(cx).panel.env_panel.sidebar_dock =
-                                        if val == "right" {
-                                            SidebarDock::Right
-                                        } else {
-                                            SidebarDock::Left
-                                        };
-                                    AppSettings::global_mut(cx).save();
-                                    cx.refresh_windows();
-                                },
-                            )
-                            .default_value("right"),
+                                        SidebarDock::Left
+                                    };
+                                AppSettings::global_mut(cx).save();
+                                cx.refresh_windows();
+                            },
                         )
-                        .description("Dock the environment sidebar on the left or right."),
-                    ),
+                        .default_value("right"),
+                    )
+                    .description("Dock the environment sidebar on the left or right."),
+                ),
             ])
     }
 

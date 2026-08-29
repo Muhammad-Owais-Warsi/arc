@@ -7,10 +7,10 @@ use gpui_component::select::SelectItem;
 use gpui_component::table::{Table, TableBody, TableCell, TableHead, TableHeader, TableRow};
 use gpui_component::{ActiveTheme, Icon, Sizable, h_flex, v_flex};
 
-use crate::env_fs::EnvFileSystem;
+use crate::fs;
+use crate::fs::request::KeyValue;
 use crate::icons::IconName;
 use crate::playground::Playground;
-use crate::request_fs::KeyValue;
 use crate::response_panel::ResponsePanel;
 use gpui_component::clipboard::Clipboard;
 
@@ -82,7 +82,7 @@ impl EnvPlayground {
     }
 
     fn read_env_from_disk(name: &str) -> Vec<KeyValue> {
-        let content = EnvFileSystem::read_environment_variables();
+        let content = fs::env::read_environments();
         let envs: Vec<Environment> = serde_json::from_str(&content).unwrap_or_default();
         envs.into_iter()
             .find(|e| e.name == name)
@@ -92,7 +92,7 @@ impl EnvPlayground {
 
     fn write_all_envs_to_disk(envs: &[Environment]) {
         if let Ok(json) = serde_json::to_string_pretty(envs) {
-            EnvFileSystem::save_environment_variables(&json).ok();
+            fs::env::write_environments(&json);
         }
     }
 
@@ -136,7 +136,7 @@ impl EnvPlayground {
         let variables = self.current_content(cx);
 
         let mut envs: Vec<Environment> =
-            serde_json::from_str(&EnvFileSystem::read_environment_variables()).unwrap_or_default();
+            serde_json::from_str(&fs::env::read_environments()).unwrap_or_default();
 
         if let Some(env) = envs.iter_mut().find(|e| e.name == self.initial_name) {
             env.variables = variables;
@@ -230,7 +230,7 @@ impl Render for EnvPlayground {
                                                     let new_name = this.name.read(cx).value().to_string();
                                                     let old_name = this.initial_name.clone();
                                                     if new_name != old_name {
-                                                        EnvFileSystem::rename_environment(&old_name, &new_name);
+                                                        fs::env::rename(&old_name, &new_name);
                                                         this.initial_name = new_name.clone();
                                                         cx.emit(EnvPlaygroundEvent::Renamed { old_name, new_name });
                                                     }

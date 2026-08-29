@@ -5,10 +5,11 @@ use gpui_component::sidebar::{
 };
 
 use crate::actions::{CopyEnv, DeleteEnv};
-use crate::env_fs::EnvFileSystem;
+
 use crate::env_playground::Environment;
+use crate::fs;
+use crate::fs::request::KeyValue;
 use crate::icons::IconName;
-use crate::request_fs::KeyValue;
 use crate::settings_panel::AppSettings;
 
 pub enum EnvPanelEvent {
@@ -38,7 +39,7 @@ impl EnvPanel {
     }
 
     pub fn read_env_names() -> Vec<String> {
-        let content = EnvFileSystem::read_environment_variables();
+        let content = fs::env::read_environments();
         let envs: Vec<Environment> = serde_json::from_str(&content).unwrap_or_default();
         envs.into_iter().map(|e| e.name).collect()
     }
@@ -100,7 +101,7 @@ impl EnvPanel {
     }
 
     fn read_env_from_disk(&self, name: &str) -> Vec<KeyValue> {
-        let content = EnvFileSystem::read_environment_variables();
+        let content = fs::env::read_environments();
         let envs: Vec<Environment> = serde_json::from_str(&content).unwrap_or_default();
         envs.into_iter()
             .find(|e| e.name == name)
@@ -118,7 +119,7 @@ impl EnvPanel {
 
     fn handle_delete_env(&mut self, _: &DeleteEnv, _window: &mut Window, cx: &mut Context<Self>) {
         if let Some(name) = self.context_target.take() {
-            EnvFileSystem::delete_environment(&name);
+            fs::env::delete(&name);
             cx.emit(EnvPanelEvent::EnvDeleted { name: name.clone() });
             self.refresh(cx);
         }
