@@ -341,9 +341,7 @@ impl TabManager {
                     this.project_panel
                         .update(cx, |pp, _| pp.set_node_method(node_id, method));
                 }
-                RequestPlaygroundEvent::ResponsePanelOpened => {
-                    cx.notify();
-                }
+                RequestPlaygroundEvent::ResponsePanelOpened => {}
             },
         )
         .detach();

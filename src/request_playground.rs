@@ -4,7 +4,7 @@ use gpui_component::button::{Button, ButtonVariants};
 use gpui_component::clipboard::Clipboard;
 use gpui_component::input::Input;
 use gpui_component::scroll::ScrollableElement;
-use gpui_component::{ActiveTheme, StyledExt, h_flex};
+use gpui_component::{ActiveTheme, StyledExt, h_flex, v_flex};
 use gpui_component::{
     IndexPath,
     input::{InputEvent, InputState},
