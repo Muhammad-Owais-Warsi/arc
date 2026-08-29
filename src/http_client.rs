@@ -3,6 +3,7 @@ use std::sync::OnceLock;
 use tokio::sync::oneshot;
 
 use crate::{
+    fs::env::interpolate,
     http_request::HttpRequest,
     http_response::{AuthPayload, RequestStats, Response, ResponseBody, ResponseHeaders},
 };
@@ -55,34 +56,36 @@ impl HttpClient {
 
     fn build_request(&self, request: &HttpRequest) -> anyhow::Result<reqwest::Request> {
         let http_method = reqwest::Method::from_bytes(request.method.as_bytes())?;
-        let mut req = self.client.request(http_method, &request.url);
+        let url = interpolate(&request.url);
+        let mut req = self.client.request(http_method, &url);
         match &request.auth {
             AuthPayload::None => {}
             AuthPayload::Basic { username, password } => {
-                req = req.basic_auth(username, Some(password));
+                req = req.basic_auth(interpolate(username), Some(interpolate(password)));
             }
-            AuthPayload::Bearer { token } => req = req.bearer_auth(token),
+            AuthPayload::Bearer { token } => req = req.bearer_auth(interpolate(token)),
         }
         if !request.body.is_empty() {
-            req = req.body(request.body.clone());
+            req = req.body(interpolate(&request.body.clone()));
         }
         let mut headers = HeaderMap::new();
         for (key, value) in &request.headers {
+            let interpolated = interpolate(value);
             if let (Ok(name), Ok(val)) = (
                 HeaderName::from_bytes(key.as_bytes()),
-                HeaderValue::from_str(value),
+                HeaderValue::from_str(&interpolated),
             ) {
                 headers.insert(name, val);
             }
         }
         req = req.headers(headers);
         if !request.query_params.is_empty() {
-            let query_pairs: Vec<(&str, &str)> = request
+            let params: Vec<(String, String)> = request
                 .query_params
                 .iter()
-                .map(|(k, v)| (k.as_str(), v.as_str()))
+                .map(|(k, v)| (k.clone(), interpolate(v)))
                 .collect();
-            req = req.query(&query_pairs);
+            req = req.query(&params);
         }
         Ok(req.build()?)
     }

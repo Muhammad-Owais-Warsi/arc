@@ -308,40 +308,28 @@ impl RequestPlayground {
     }
 
     pub fn send_request(&mut self, _window: &mut Window, cx: &mut Context<Self>) {
-        let url_str = fs::env::interpolate(&self.url.read(cx).value());
+        let url_str = self.url.read(cx).value().to_string();
         let method_str = self
             .method
             .read(cx)
             .selected_value()
             .cloned()
             .unwrap_or_else(|| "GET".to_string());
-        let query_params: Vec<_> = self
-            .query_params
-            .read(cx)
-            .active_params(cx)
-            .into_iter()
-            .map(|(k, v)| (k, fs::env::interpolate(&v)))
-            .collect();
-        let headers: Vec<_> = self
-            .headers
-            .read(cx)
-            .active_headers(cx)
-            .into_iter()
-            .map(|(k, v)| (k, fs::env::interpolate(&v)))
-            .collect();
-        let body = fs::env::interpolate(&self.body.read(cx).value(cx));
+        let query_params = self.query_params.read(cx).active_params(cx);
+        let headers = self.headers.read(cx).active_headers(cx);
+        let body = self.body.read(cx).value(cx);
 
         let auth = match self.auth.read(cx).auth_type() {
             AuthType::None => AuthPayload::None,
             AuthType::Basic => {
                 let (u, p) = self.auth.read(cx).basic_auth_values(cx);
                 AuthPayload::Basic {
-                    username: fs::env::interpolate(&u),
-                    password: fs::env::interpolate(&p),
+                    username: u,
+                    password: p,
                 }
             }
             AuthType::Bearer => AuthPayload::Bearer {
-                token: fs::env::interpolate(&self.auth.read(cx).bearer_auth_value(cx)),
+                token: self.auth.read(cx).bearer_auth_value(cx),
             },
         };
 
