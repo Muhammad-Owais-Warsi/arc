@@ -1,23 +1,27 @@
-use std::cell::RefCell;
 use std::collections::HashMap;
 use std::fs;
 use std::path::PathBuf;
 
 use crate::env_playground::Environment;
 
-thread_local! {
-    static CURRENT_WORKSPACE: RefCell<PathBuf> = RefCell::new(PathBuf::new());
-}
-
-pub fn set_current_workspace(path: &str) {
-    CURRENT_WORKSPACE.with(|c| *c.borrow_mut() = PathBuf::from(path));
+fn workspace_path() -> PathBuf {
+    dirs::config_dir()
+        .unwrap_or_else(|| PathBuf::from("."))
+        .join(".arc")
+        .join("workspace.json")
 }
 
 fn env_file_path() -> Option<PathBuf> {
-    CURRENT_WORKSPACE.with(|c| {
-        let ws = c.borrow();
-        (!ws.as_os_str().is_empty()).then(|| ws.join(".arc").join("environments.json"))
-    })
+    let data: serde_json::Value =
+        serde_json::from_str(&fs::read_to_string(workspace_path()).ok()?).ok()?;
+    let path = data
+        .get("active_workspace")?
+        .get("path")?
+        .as_str()?;
+    if path.is_empty() {
+        return None;
+    }
+    Some(PathBuf::from(path).join(".arc").join("environments.json"))
 }
 
 fn default_data() -> serde_json::Value {
@@ -114,29 +118,25 @@ pub fn init_workspace(path: &str) {
     if path.is_empty() {
         return;
     }
-    set_current_workspace(path);
-    let Some(env_path) = env_file_path() else {
-        return;
-    };
+    let env_path = PathBuf::from(path).join(".arc").join("environments.json");
     if !env_path.exists() {
         if let Some(parent) = env_path.parent() {
             let _ = fs::create_dir_all(parent);
         }
         let _ = fs::write(
-            env_path,
+            &env_path,
             serde_json::to_string_pretty(&default_data()).unwrap_or_default(),
         );
     }
 }
 
-fn active_env_variables() -> HashMap<String, String> {
+pub fn interpolate(input: &str) -> String {
     let data = read_data();
     let active = data
         .get("active_environment")
         .and_then(|v| v.as_str())
-        .unwrap_or("local")
-        .to_string();
-    environments_from(&data)
+        .unwrap_or("local");
+    let vars: HashMap<String, String> = environments_from(&data)
         .into_iter()
         .find(|e| e.name == active)
         .map(|e| {
@@ -146,17 +146,14 @@ fn active_env_variables() -> HashMap<String, String> {
                 .map(|v| (v.key.clone(), v.value.clone()))
                 .collect()
         })
-        .unwrap_or_default()
-}
+        .unwrap_or_default();
 
-pub fn interpolate_url(url: &str) -> String {
-    let vars = active_env_variables();
     if vars.is_empty() {
-        return url.to_string();
+        return input.to_string();
     }
 
     let mut result = String::new();
-    let mut chars = url.chars().peekable();
+    let mut chars = input.chars().peekable();
     while let Some(c) = chars.next() {
         if c == '{' && chars.peek() == Some(&'{') {
             chars.next();

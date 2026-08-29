@@ -61,7 +61,6 @@ pub fn save(name: &str, path: &str) {
     }))
     .unwrap_or_default();
     let _ = fs::write(workspace_path(), &json);
-    env::set_current_workspace(path);
 }
 
 pub fn create(name: &str) -> io::Result<String> {

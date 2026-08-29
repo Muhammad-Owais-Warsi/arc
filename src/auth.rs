@@ -53,16 +53,8 @@ impl Auth {
         });
 
         let username = cx.new(|cx| InputState::new(window, cx).placeholder("Username"));
-        let password = cx.new(|cx| {
-            InputState::new(window, cx)
-                .placeholder("Password")
-                .masked(true)
-        });
-        let token = cx.new(|cx| {
-            InputState::new(window, cx)
-                .placeholder("Token")
-                .masked(true)
-        });
+        let password = cx.new(|cx| InputState::new(window, cx).placeholder("Password"));
+        let token = cx.new(|cx| InputState::new(window, cx).placeholder("Token"));
 
         let auth_types_for_sub = auth_types.clone();
 
@@ -135,11 +127,7 @@ impl Auth {
                             .mb_1()
                             .child("Password"),
                     )
-                    .child(
-                        Input::new(&self.password)
-                            .content_type(InputContentType::Password)
-                            .mask_toggle(),
-                    ),
+                    .child(Input::new(&self.password)),
             )
             .into_any_element()
     }
@@ -156,11 +144,7 @@ impl Auth {
                             .mb_1()
                             .child("Token"),
                     )
-                    .child(
-                        Input::new(&self.token)
-                            .content_type(InputContentType::Password)
-                            .mask_toggle(),
-                    ),
+                    .child(Input::new(&self.token)),
             )
             .into_any_element()
     }

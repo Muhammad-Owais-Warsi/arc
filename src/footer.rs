@@ -169,7 +169,7 @@ impl Render for Footer {
             .when(ep_right, |this| {
                 this.right(self.render_env_panel_toggle_button(cx))
             })
-            .when(self.show_toggle && (pp_right || ep_right), |this| {
+            .when(self.show_toggle, |this| {
                 this.right(Separator::vertical())
             })
             .when(self.show_toggle, |this| {
