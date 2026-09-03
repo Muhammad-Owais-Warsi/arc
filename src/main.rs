@@ -427,7 +427,7 @@ impl ApiClient {
             .selected_workspace
             .and_then(|ix| self.workspaces.get(ix))
             .map(|(name, _)| name.clone())
-            .unwrap_or_else(|| "no workspace".to_string());
+            .unwrap_or_else(|| "open workspace".to_string());
         let active_env = fs::env::read_active();
 
         TitleBar::new()
