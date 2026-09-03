@@ -1,5 +1,5 @@
-use gpui::{App, IntoElement, RenderOnce, SharedString, Window};
-use gpui_component::{Icon, IconNamed};
+use gpui_kit::component::{Icon, IconNamed};
+use gpui_kit::{App, IntoElement, RenderOnce, SharedString, Window};
 use strum::AsRefStr;
 
 #[derive(AsRefStr, IntoElement)]

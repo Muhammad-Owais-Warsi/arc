@@ -1,10 +1,11 @@
 use crate::helpers::render_method_tag;
 use crate::playground::PlaygroundHandle;
-use gpui::*;
-use gpui_component::Sizable;
-use gpui_component::button::Button;
-use gpui_component::button::ButtonVariants;
-use gpui_component::tab::Tab;
+
+use gpui_kit::component::Sizable;
+use gpui_kit::component::button::Button;
+use gpui_kit::component::button::ButtonVariants;
+use gpui_kit::component::tab::Tab;
+use gpui_kit::*;
 
 use crate::icons::IconName;
 

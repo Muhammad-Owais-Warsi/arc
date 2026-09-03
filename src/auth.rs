@@ -1,12 +1,12 @@
-use gpui::*;
-use gpui_component::ActiveTheme;
-use gpui_component::input::InputContentType;
-use gpui_component::{
+use gpui_kit::component::ActiveTheme;
+use gpui_kit::component::input::InputContentType;
+use gpui_kit::component::{
     IndexPath,
     input::{Input, InputEvent, InputState},
     select::{Select, SelectEvent, SelectState},
     v_flex,
 };
+use gpui_kit::*;
 use serde::{Deserialize, Serialize};
 
 pub enum AuthEvent {

@@ -1,10 +1,8 @@
-use gpui::*;
-
-use gpui_component::sidebar::{
+use crate::actions::{CopyEnv, DeleteEnv};
+use gpui_kit::component::sidebar::{
     Sidebar, SidebarCollapsible, SidebarGroup, SidebarMenu, SidebarMenuItem,
 };
-
-use crate::actions::{CopyEnv, DeleteEnv};
+use gpui_kit::*;
 
 use crate::env_playground::Environment;
 use crate::fs;
@@ -133,7 +131,7 @@ impl Render for EnvPanel {
             .env_panel
             .sidebar_dock
             .to_side();
-        let _dock_left = side == gpui_component::Side::Left;
+        let _dock_left = side == gpui_kit::component::Side::Left;
 
         let sidebar = Sidebar::new("env-sidebar")
             .collapsible(SidebarCollapsible::Offcanvas)

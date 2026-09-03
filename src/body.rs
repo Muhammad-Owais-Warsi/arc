@@ -1,9 +1,9 @@
-use gpui::*;
-use gpui_component::{
+use gpui_kit::component::{
     ActiveTheme, IndexPath, StyledExt,
     input::{Editor, EditorState, InputEvent, TabSize},
     select::{Select, SelectEvent, SelectState},
 };
+use gpui_kit::*;
 
 pub enum BodyEvent {
     Changed,

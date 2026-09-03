@@ -1,12 +1,12 @@
-use gpui::*;
-use gpui_component::button::{Button, ButtonVariants};
-use gpui_component::input::{Editor, EditorState, TabSize};
-use gpui_component::popover::Popover;
-use gpui_component::scroll::ScrollableElement;
-use gpui_component::tab::{self, Tab, TabBar};
-use gpui_component::tag::Tag;
-// use gpui_component::input::{}
-use gpui_component::{ActiveTheme, ColorName, Icon, Sizable, StyledExt, h_flex, v_flex};
+use gpui_kit::component::button::{Button, ButtonVariants};
+use gpui_kit::component::input::{Editor, EditorState, TabSize};
+use gpui_kit::component::popover::Popover;
+use gpui_kit::component::scroll::ScrollableElement;
+use gpui_kit::component::tab::{self, Tab, TabBar};
+use gpui_kit::component::tag::Tag;
+use gpui_kit::*;
+// use gpui_kit::component::input::{}
+use gpui_kit::component::{ActiveTheme, ColorName, Icon, Sizable, StyledExt, h_flex, v_flex};
 
 use crate::helpers::format_size;
 use crate::icons::IconName;
@@ -188,8 +188,8 @@ impl ResponsePanel {
     }
 
     fn render_headers_table(headers: &[(String, String)], cx: &App) -> impl IntoElement {
-        use gpui_component::StyledExt;
-        use gpui_component::scroll::ScrollableElement;
+        use gpui_kit::component::StyledExt;
+        use gpui_kit::component::scroll::ScrollableElement;
 
         let theme = cx.theme();
 

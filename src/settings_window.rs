@@ -1,5 +1,5 @@
-use gpui::*;
-use gpui_component::{ActiveTheme as _, StyledExt as _, TitleBar};
+use gpui_kit::component::{ActiveTheme as _, StyledExt as _, TitleBar};
+use gpui_kit::*;
 
 use crate::settings_panel::SettingsPanel;
 

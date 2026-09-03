@@ -1,17 +1,17 @@
-use gpui::prelude::FluentBuilder;
-use gpui::*;
-use gpui_component::button::{Button, ButtonVariants};
-use gpui_component::clipboard::Clipboard;
-use gpui_component::input::Input;
-use gpui_component::scroll::ScrollableElement;
-use gpui_component::{ActiveTheme, StyledExt, h_flex, v_flex};
-use gpui_component::{
+use gpui_kit::component::button::{Button, ButtonVariants};
+use gpui_kit::component::clipboard::Clipboard;
+use gpui_kit::component::input::Input;
+use gpui_kit::component::scroll::ScrollableElement;
+use gpui_kit::component::{ActiveTheme, StyledExt, h_flex, v_flex};
+use gpui_kit::component::{
     IndexPath,
     input::{InputEvent, InputState},
     resizable::{resizable_panel, v_resizable},
     select::{Select, SelectEvent, SelectState},
     tab::{self, Tab, TabBar},
 };
+use gpui_kit::prelude::FluentBuilder;
+use gpui_kit::*;
 
 use crate::fs;
 use crate::fs::request::{Auth as AuthContent, Body as BodyContent, KeyValue, RequestFileContent};

@@ -1,10 +1,10 @@
-use gpui::prelude::FluentBuilder;
-use gpui::*;
-use gpui_component::button::{Button, ButtonVariants};
-use gpui_component::menu::ContextMenuExt;
-use gpui_component::separator::Separator;
-use gpui_component::status_bar::StatusBar;
-use gpui_component::{ActiveTheme, Icon, Sizable};
+use gpui_kit::component::button::{Button, ButtonVariants};
+use gpui_kit::component::menu::ContextMenuExt;
+use gpui_kit::component::separator::Separator;
+use gpui_kit::component::status_bar::StatusBar;
+use gpui_kit::component::{ActiveTheme, Icon, Sizable};
+use gpui_kit::prelude::FluentBuilder;
+use gpui_kit::*;
 
 use crate::actions::{DockEnvPanelLeft, DockEnvPanelRight, DockSidebarLeft, DockSidebarRight};
 use crate::icons::IconName;
@@ -163,9 +163,7 @@ impl Render for Footer {
             .when(pp_right, |this| {
                 this.right(self.render_project_panel_toggle_button(cx))
             })
-            .when(self.show_toggle, |this| {
-                this.right(Separator::vertical())
-            })
+            .when(self.show_toggle, |this| this.right(Separator::vertical()))
             .when(self.show_toggle, |this| {
                 this.right(self.render_response_panel_toggle_button(cx))
             })

@@ -1,18 +1,17 @@
-use gpui::prelude::FluentBuilder;
-use gpui::*;
-use gpui_component::button::{Button, ButtonCustomVariant, ButtonVariants};
-use gpui_component::input::{Input, InputEvent, InputState};
-use gpui_component::scroll::ScrollableElement;
-use gpui_component::select::SelectItem;
-use gpui_component::table::{Table, TableBody, TableCell, TableHead, TableHeader, TableRow};
-use gpui_component::{ActiveTheme, Icon, Sizable, h_flex, v_flex};
-
 use crate::fs;
 use crate::fs::request::KeyValue;
 use crate::icons::IconName;
 use crate::playground::Playground;
 use crate::response_panel::ResponsePanel;
-use gpui_component::clipboard::Clipboard;
+use gpui_kit::component::button::{Button, ButtonCustomVariant, ButtonVariants};
+use gpui_kit::component::clipboard::Clipboard;
+use gpui_kit::component::input::{Input, InputEvent, InputState};
+use gpui_kit::component::scroll::ScrollableElement;
+use gpui_kit::component::select::SelectItem;
+use gpui_kit::component::table::{Table, TableBody, TableCell, TableHead, TableHeader, TableRow};
+use gpui_kit::component::{ActiveTheme, Icon, Sizable, h_flex, v_flex};
+use gpui_kit::prelude::FluentBuilder;
+use gpui_kit::*;
 
 pub enum EnvPlaygroundEvent {
     Renamed { old_name: String, new_name: String },
@@ -328,7 +327,7 @@ impl Render for EnvPlayground {
                                     TableRow::new()
                                         .child(
                                             TableCell::new().w(rems(2.5)).child(
-                                                gpui_component::checkbox::Checkbox::new(
+                                                gpui_kit::component::checkbox::Checkbox::new(
                                                     format!("env-check-{i}"),
                                                 )
                                                 .checked(row.active)

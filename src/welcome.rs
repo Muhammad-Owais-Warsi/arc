@@ -1,7 +1,7 @@
 use crate::playground::Playground;
 use crate::response_panel::ResponsePanel;
-use gpui::*;
-use gpui_component::{ActiveTheme, StyledExt};
+use gpui_kit::component::{ActiveTheme, StyledExt};
+use gpui_kit::*;
 
 pub struct WelcomeScreen {}
 

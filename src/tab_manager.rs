@@ -10,12 +10,12 @@ use crate::settings_panel::AppSettings;
 use crate::stress_testing::StressTesting;
 use crate::tab::{TabEvent, Tabs};
 use crate::welcome::WelcomeScreen;
-use gpui::prelude::FluentBuilder;
-use gpui::*;
-use gpui_component::tab::{Tab, TabBar};
-use gpui_component::{ActiveTheme as _, button::*, *};
 
 use crate::icons::IconName;
+use gpui_kit::component::tab::{Tab, TabBar};
+use gpui_kit::component::{ActiveTheme as _, button::*, *};
+use gpui_kit::prelude::FluentBuilder;
+use gpui_kit::*;
 use indexmap::IndexMap;
 use std::path::Path;
 use std::vec;
@@ -87,7 +87,7 @@ impl TabManager {
                     {
                         this.close_tab(tab_id, cx);
                     }
-                    fs::env::delete(name);
+                    fs::env::delete(&name);
                     this.env_panel.update(cx, |panel, cx| panel.refresh(cx));
                 }
             },
@@ -394,7 +394,7 @@ impl TabManager {
         TabBar::new("tabs")
             .w_full()
             .h(px(32.))
-            .with_size(gpui_component::Size::Large)
+            .with_size(gpui_kit::component::Size::Large)
             .when(self.has_tabs(), |this| {
                 this.prefix(
                     h_flex()

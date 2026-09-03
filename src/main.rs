@@ -43,13 +43,14 @@ use crate::project_panel::{DirTree, ProjectPanel};
 use crate::settings_panel::{AppSettings, SidebarDock};
 use crate::settings_window::SettingsWindow;
 use crate::welcome::WelcomeScreen;
-use gpui::prelude::FluentBuilder;
-use gpui::*;
-use gpui_component::button::{Button, ButtonVariants};
-use gpui_component::command::{Command, CommandItem, CommandState};
-use gpui_component::menu::DropdownMenu;
-use gpui_component::popover::Popover;
-use gpui_component::{Theme, *};
+use gpui_kit::component::button::{Button, ButtonVariants};
+use gpui_kit::component::command::{Command, CommandItem, CommandState};
+use gpui_kit::component::menu::DropdownMenu;
+use gpui_kit::component::popover::Popover;
+use gpui_kit::component::*;
+use gpui_kit::component::{Theme, *};
+use gpui_kit::prelude::FluentBuilder;
+use gpui_kit::*;
 
 pub struct ApiClient {
     project_panel: Entity<project_panel::ProjectPanel>,
@@ -790,9 +791,9 @@ fn open_settings_window(api_client: Entity<ApiClient>, cx: &mut App) {
 }
 
 fn main() {
-    let app = gpui_platform::application().with_assets(Assets);
+    let app = gpui_kit::application().with_assets(Assets);
     app.run(move |cx| {
-        gpui_component::init(cx);
+        gpui_kit::init(cx);
         let _ = fs::workspace::init();
 
         for font_file in [

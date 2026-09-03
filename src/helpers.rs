@@ -1,8 +1,7 @@
-use gpui::*;
-use gpui::{App, SharedString};
-use gpui_component::tag::Tag;
-use gpui_component::{ColorName, Sizable};
-use gpui_component::{Theme, ThemeConfig, ThemeRegistry};
+use gpui_kit::component::tag::Tag;
+use gpui_kit::component::{ColorName, Sizable};
+use gpui_kit::component::{Theme, ThemeConfig, ThemeRegistry};
+use gpui_kit::*;
 use std::rc::Rc;
 use std::sync::atomic::{AtomicUsize, Ordering};
 

@@ -1,4 +1,4 @@
-use gpui::*;
+use gpui_kit::*;
 
 use crate::response_panel::ResponsePanel;
 

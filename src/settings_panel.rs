@@ -3,17 +3,18 @@ use crate::{
     helpers::{get_active_theme, get_theme_config, get_themes},
     icons::IconName,
 };
-use gpui::{
-    App, AppContext, Context, Entity, Global, IntoElement, ParentElement as _, Render,
-    SharedString, Styled, Window, px,
-};
-use gpui_component::{
+use gpui_kit::component::{
     Icon, IndexPath, Side, Sizable, Size, Theme,
     combobox::{Combobox, ComboboxEvent, ComboboxState},
     group_box::GroupBoxVariant,
     searchable_list::{SearchableListItem, SearchableVec},
     setting::{NumberFieldOptions, SettingField, SettingGroup, SettingItem, SettingPage, Settings},
     v_flex,
+};
+use gpui_kit::*;
+use gpui_kit::{
+    App, AppContext, Context, Entity, Global, IntoElement, ParentElement as _, Render,
+    SharedString, Styled, Window, px,
 };
 use serde::{Deserialize, Serialize};
 

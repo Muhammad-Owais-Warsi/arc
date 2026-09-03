@@ -7,12 +7,12 @@ use crate::playground::Playground;
 use crate::request_playground::RequestPlayground;
 use crate::response_panel::ResponsePanel;
 use crate::stress_engine::{RequestMetric, StressEngine, StressTestConfig, StressTestStats};
-use gpui::prelude::FluentBuilder;
-use gpui::*;
-use gpui_component::button::{Button, ButtonVariants};
-use gpui_component::chart::AreaChart;
-use gpui_component::input::{Input, InputState, NumberInput};
-use gpui_component::{ActiveTheme, StyledExt};
+use gpui_kit::component::button::{Button, ButtonVariants};
+use gpui_kit::component::chart::AreaChart;
+use gpui_kit::component::input::{Input, InputState, NumberInput};
+use gpui_kit::component::{ActiveTheme, StyledExt};
+use gpui_kit::prelude::FluentBuilder;
+use gpui_kit::*;
 use std::path::Path;
 use tokio_util::sync::CancellationToken;
 

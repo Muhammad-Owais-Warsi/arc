@@ -3,19 +3,19 @@ use crate::actions::{
     CopyPath, CopyRelativePath, CreateFile, CreateFolder, DeleteItem, RenameItem,
     StressTestPlayground, TrashItem,
 };
-
 use crate::fs;
 use crate::helpers::{next_id, render_method_tag};
+use gpui_kit::*;
 
 use crate::settings_panel::AppSettings;
-use gpui::*;
-// use gpui_component::Icon;
-use gpui_component::input::{Input, InputEvent, InputState};
+
+// use gpui_kit::component::Icon;
+use gpui_kit::component::input::{Input, InputEvent, InputState};
 
 use crate::icons::IconName;
 use std::path::{Path, PathBuf};
-// use gpui_component::sidebar::Sidebar;
-use gpui_component::sidebar::{
+// use gpui_kit::component::sidebar::Sidebar;
+use gpui_kit::component::sidebar::{
     Sidebar, SidebarCollapsible, SidebarGroup, SidebarMenu, SidebarMenuItem,
 };
 use std::collections::HashMap;

@@ -1,12 +1,11 @@
-use gpui::*;
-use gpui_component::Sizable;
-use gpui_component::button::{Button, ButtonVariants};
-use gpui_component::checkbox::Checkbox;
-use gpui_component::input::{Input, InputEvent, InputState};
-use gpui_component::table::{Table, TableBody, TableCell, TableHead, TableHeader, TableRow};
-use gpui_component::{h_flex, v_flex};
-
 use crate::icons::IconName;
+use gpui_kit::component::Sizable;
+use gpui_kit::component::button::{Button, ButtonVariants};
+use gpui_kit::component::checkbox::Checkbox;
+use gpui_kit::component::input::{Input, InputEvent, InputState};
+use gpui_kit::component::table::{Table, TableBody, TableCell, TableHead, TableHeader, TableRow};
+use gpui_kit::component::{h_flex, v_flex};
+use gpui_kit::*;
 
 pub enum QueryParamsEvent {
     Changed,

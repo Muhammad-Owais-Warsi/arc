@@ -1,4 +1,4 @@
-use gpui::Action;
+use gpui_kit::Action;
 
 #[derive(Clone, PartialEq, Action)]
 pub struct CreateFile;
