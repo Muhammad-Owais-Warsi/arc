@@ -72,12 +72,13 @@ impl Body {
         cx.subscribe_in(
             &body_type_state,
             window,
-            move |this: &mut Self, _, event, _, cx| {
+            move |this: &mut Self, _, event, window, cx| {
                 if let SelectEvent::Confirm(Some(label)) = event {
                     if let Some(body_type) = BODY_TYPES.iter().find(|t| t.label == label) {
                         this.body.update(cx, |editor, cx| {
+                            let value = editor.value().to_string();
                             editor.set_highlighter(body_type.language, cx);
-                            cx.notify();
+                            editor.set_value(value, window, cx);
                         });
                         cx.emit(BodyEvent::Changed);
                     }
@@ -136,9 +137,8 @@ impl Body {
             state.set_selected_index(Some(IndexPath::default().row(row)), window, cx);
         });
         self.body.update(cx, |editor, cx| {
-            editor.set_value(body_value, window, cx);
             editor.set_highlighter(language, cx);
-            cx.notify();
+            editor.set_value(body_value, window, cx);
         });
     }
 }
