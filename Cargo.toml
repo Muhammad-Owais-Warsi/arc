@@ -4,7 +4,7 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
-gpui-kit = { version = "0.6", default-features = false, features = ["component"] }
+gpui-kit = { version = "0.6", default-features = false, features = ["component", "tree-sitter", "tree-sitter-html"] }
 anyhow = "1.0"
 reqwest = { version = "0.13", features = ["json", "query", "cookies"] }
 tokio = { version = "1", features = ["full"] }
