@@ -24,6 +24,7 @@ pub enum IconName {
     FolderOpen,
     PanelBottom,
     PanelLeftClose,
+    ChevronLeft,
     PanelLeftOpen,
     Plus,
     Send,
