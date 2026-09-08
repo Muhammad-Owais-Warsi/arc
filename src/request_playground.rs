@@ -13,9 +13,9 @@ use gpui_kit::component::{
 use gpui_kit::prelude::FluentBuilder;
 use gpui_kit::*;
 
-use crate::fs;
 use crate::fs::request::{Auth as AuthContent, Body as BodyContent, KeyValue, RequestFileContent};
 use crate::http_client::HttpClient;
+use crate::http_request::HttpRequest;
 use crate::http_response::{AuthPayload, RequestStats, Response, ResponseBody, ResponseHeaders};
 use crate::playground::Playground;
 use crate::settings_panel::AppSettings;
@@ -27,6 +27,7 @@ use crate::{
     query_params::{QueryParams, QueryParamsEvent},
     response_panel::ResponsePanel,
 };
+use crate::{curl::CurlRequest, fs};
 
 pub struct RequestPlayground {
     path: Option<String>,
@@ -121,8 +122,19 @@ impl RequestPlayground {
         )
         .detach();
 
-        cx.subscribe_in(&url, window, |this: &mut Self, _, event, _window, cx| {
+        cx.subscribe_in(&url, window, |this: &mut Self, _, event, window, cx| {
             if let InputEvent::Change = event {
+                let pasted_content = this.url.read(cx).value();
+                if CurlRequest::is_curl_command(&pasted_content) {
+                    match CurlRequest::parse(&pasted_content) {
+                        Ok(parsed_content) => {
+                            this.load(window, cx, &parsed_content);
+                            this.evaluate_dirty(cx);
+                        }
+                        Err(e) => println!("{}", e),
+                    }
+                }
+
                 this.evaluate_dirty(cx);
             }
         })

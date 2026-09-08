@@ -11,21 +11,21 @@ pub enum BodyEvent {
 
 impl EventEmitter<BodyEvent> for Body {}
 
-struct BodyType {
+struct RawBodyType {
     label: &'static str,
     language: &'static str,
 }
 
-const BODY_TYPES: [BodyType; 3] = [
-    BodyType {
+const RAW_BODY_TYPES: [RawBodyType; 3] = [
+    RawBodyType {
         label: "Text",
         language: "text",
     },
-    BodyType {
+    RawBodyType {
         label: "JSON",
         language: "json",
     },
-    BodyType {
+    RawBodyType {
         label: "HTML",
         language: "html",
     },
@@ -38,14 +38,15 @@ pub struct Body {
 
 impl Body {
     pub fn new(window: &mut Window, cx: &mut Context<Self>) -> Self {
-        let select_items: Vec<String> = BODY_TYPES.iter().map(|t| t.label.to_string()).collect();
+        let select_items: Vec<String> =
+            RAW_BODY_TYPES.iter().map(|t| t.label.to_string()).collect();
 
-        let selected = BODY_TYPES
+        let selected = RAW_BODY_TYPES
             .iter()
             .position(|t| t.language == "json")
             .unwrap_or(0);
 
-        let initial_language = BODY_TYPES[selected].language.to_string();
+        let initial_language = RAW_BODY_TYPES[selected].language.to_string();
 
         let body_type_state = cx.new(|cx| {
             SelectState::new(
@@ -74,7 +75,7 @@ impl Body {
             window,
             move |this: &mut Self, _, event, window, cx| {
                 if let SelectEvent::Confirm(Some(label)) = event {
-                    if let Some(body_type) = BODY_TYPES.iter().find(|t| t.label == label) {
+                    if let Some(body_type) = RAW_BODY_TYPES.iter().find(|t| t.label == label) {
                         this.body.update(cx, |editor, cx| {
                             let value = editor.value().to_string();
                             editor.set_highlighter(body_type.language, cx);
@@ -127,11 +128,11 @@ impl Body {
             .unwrap_or("JSON");
         let body_value = body.get("body").and_then(|v| v.as_str()).unwrap_or("");
 
-        let row = BODY_TYPES
+        let row = RAW_BODY_TYPES
             .iter()
             .position(|t| t.label == body_type)
             .unwrap_or(1);
-        let language = BODY_TYPES[row].language;
+        let language = RAW_BODY_TYPES[row].language;
 
         self.body_type.update(cx, |state, cx| {
             state.set_selected_index(Some(IndexPath::default().row(row)), window, cx);

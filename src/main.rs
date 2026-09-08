@@ -2,6 +2,7 @@ mod actions;
 pub mod assets;
 mod auth;
 mod body;
+mod curl;
 mod env_panel;
 mod env_playground;
 mod footer;
