@@ -2,6 +2,8 @@ V1 Goal for Arc API Client
 
 Based on the full audit, here's what I recommend:
 
+# Cookie store (reqwest has got something)
+
 ### Must-Have for V1 (Critical)
 
 | # | Feature | Why |

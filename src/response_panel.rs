@@ -271,6 +271,91 @@ impl ResponsePanel {
                     ),
             )
     }
+
+    fn render_cookies_table(cookies: &[(String, String)], cx: &App) -> impl IntoElement {
+        use gpui_kit::component::StyledExt;
+        use gpui_kit::component::scroll::ScrollableElement;
+
+        let theme = cx.theme();
+
+        div()
+            .id("response-cookies-vscroll")
+            .w_full()
+            .h_full()
+            .min_h(px(0.))
+            .min_w(px(0.))
+            .overflow_y_scrollbar()
+            .child(
+                div()
+                    .id("response-cookies-hscroll")
+                    .w_full()
+                    .min_w(px(0.))
+                    .overflow_y_scrollbar()
+                    .child(
+                        div()
+                            .flex_col()
+                            .min_w(px(432.))
+                            .child(
+                                h_flex()
+                                    .flex_none()
+                                    .h(px(32.))
+                                    .items_center()
+                                    .bg(theme.table_head)
+                                    .text_color(theme.table_head_foreground)
+                                    .border_b_1()
+                                    .border_color(theme.table_row_border)
+                                    .child(
+                                        div()
+                                            .w(px(200.))
+                                            .flex_none()
+                                            .px(px(12.))
+                                            .text_sm()
+                                            .font_semibold()
+                                            .child("Key"),
+                                    )
+                                    .child(
+                                        div()
+                                            .w(px(232.))
+                                            .flex_none()
+                                            .px(px(12.))
+                                            .text_sm()
+                                            .font_semibold()
+                                            .child("Value"),
+                                    ),
+                            )
+                            .children(cookies.iter().map(|(key, value)| {
+                                h_flex()
+                                    .flex_none()
+                                    .h(px(32.))
+                                    .items_center()
+                                    .border_b_1()
+                                    .border_color(theme.table_row_border)
+                                    .child(
+                                        div()
+                                            .w(px(200.))
+                                            .flex_none()
+                                            .px(px(12.))
+                                            .text_sm()
+                                            .text_ellipsis()
+                                            .overflow_hidden()
+                                            .whitespace_nowrap()
+                                            .child(key.clone()),
+                                    )
+                                    .child(
+                                        div()
+                                            .w(px(232.))
+                                            .flex_none()
+                                            .px(px(12.))
+                                            .text_sm()
+                                            .text_ellipsis()
+                                            .overflow_hidden()
+                                            .whitespace_nowrap()
+                                            .child(value.clone()),
+                                    )
+                            })),
+                    ),
+            )
+    }
 }
 
 impl Render for ResponsePanel {
@@ -321,7 +406,8 @@ impl Render for ResponsePanel {
                         cx.notify();
                     }))
                     .child(Tab::new().label("Body"))
-                    .child(Tab::new().label("Headers")),
+                    .child(Tab::new().label("Headers"))
+                    .child(Tab::new().label("Cookies")),
             )
             .child(match self.selected_config {
                 0 => div()
@@ -353,6 +439,21 @@ impl Render for ResponsePanel {
                         .overflow_y_scrollbar()
                         .px(px(24.))
                         .child(Self::render_headers_table(headers, cx))
+                        .into_any_element()
+                }
+                2 => {
+                    let cookies = self
+                        .data
+                        .as_ref()
+                        .map(|d| d.cookies.as_slice())
+                        .unwrap_or(&[]);
+                    div()
+                        .flex_1()
+                        .min_h(px(0.))
+                        .min_w(px(0.))
+                        .overflow_y_scrollbar()
+                        .px(px(24.))
+                        .child(Self::render_cookies_table(cookies, cx))
                         .into_any_element()
                 }
                 _ => div().child("issue").into_any_element(),
