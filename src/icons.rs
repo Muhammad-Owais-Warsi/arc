@@ -10,6 +10,8 @@ pub enum IconName {
     ArrowLeft,
     ArrowRight,
     SquarePen,
+    Replace,
+    CaseSensitive,
     X,
     Check,
     Eye,
