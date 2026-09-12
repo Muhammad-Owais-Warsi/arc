@@ -4,9 +4,8 @@ use gpui_kit::component::popover::Popover;
 use gpui_kit::component::scroll::ScrollableElement;
 use gpui_kit::component::tab::{self, Tab, TabBar};
 use gpui_kit::component::tag::Tag;
-use gpui_kit::*;
-// use gpui_kit::component::input::{}
 use gpui_kit::component::{ActiveTheme, ColorName, Icon, Sizable, StyledExt, h_flex, v_flex};
+use gpui_kit::*;
 
 use crate::helpers::format_size;
 use crate::icons::IconName;
@@ -404,6 +403,7 @@ impl Render for ResponsePanel {
                     .w_full()
                     .flex_none()
                     .px(px(24.))
+                    .bg(cx.theme().tokens.tab_bar)
                     .with_variant(tab::TabVariant::Underline)
                     .selected_index(self.selected_config)
                     .on_click(cx.listener(|this: &mut Self, idx: &usize, _window, cx| {

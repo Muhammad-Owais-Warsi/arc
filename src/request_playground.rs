@@ -17,7 +17,6 @@ use crate::dock::tabs::CenterTab;
 use crate::fs::request::{Auth as AuthContent, Body as BodyContent, KeyValue, RequestFileContent};
 use crate::helpers::render_method_tag;
 use crate::http_client::HttpClient;
-use crate::http_request::HttpRequest;
 use crate::http_response::{AuthPayload, RequestStats, Response, ResponseBody, ResponseHeaders};
 use crate::settings_panel::AppSettings;
 use crate::{
@@ -77,19 +76,11 @@ impl CenterTab for RequestPlayground {
         self.tab_name.clone().into()
     }
 
-    fn tab_prefix(
-        &mut self,
-        _window: &mut Window,
-        cx: &mut Context<Self>,
-    ) -> Option<AnyElement> {
+    fn tab_prefix(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> Option<AnyElement> {
         Some(render_method_tag(&self.method(cx)).into_any_element())
     }
 
-    fn tab_suffix(
-        &mut self,
-        _window: &mut Window,
-        cx: &mut Context<Self>,
-    ) -> Option<AnyElement> {
+    fn tab_suffix(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> Option<AnyElement> {
         if self.dirty {
             Some(
                 div()

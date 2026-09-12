@@ -1,52 +1,91 @@
+use std::collections::HashMap;
 use std::path::Path;
 
-use gpui_kit::base::dock::{DockEvent, DockLayout, DockPlacement, InsertTarget, NodeId, PanelId};
+use gpui_kit::base::dock::{DockLayout, DockPlacement, InsertTarget, NodeId, PanelId};
 use gpui_kit::component::IndexPath;
 use gpui_kit::*;
 
+use crate::dock::shell::DockShell;
 use crate::dock::tabs::EmptyTab;
+use crate::env_panel::EnvPanel;
 use crate::env_playground::{EnvPlayground, EnvPlaygroundEvent};
 use crate::fs;
 use crate::helpers::next_id;
+use crate::project_panel::ProjectPanel;
 use crate::request_playground::{RequestPlayground, RequestPlaygroundEvent};
+use crate::response_panel::ResponsePanel;
 use crate::settings_panel::AppSettings;
 use crate::stress_testing::StressTesting;
+use crate::welcome::WelcomeScreen;
 
 // ---------------------------------------------------------------------------
-// Dock-tab helpers on ApiClient. The old TabManager (IndexMap of Tabs
-// wrappers, manual TabBar, history) is gone: center tabs are dock panels,
-// the strip is the skin's TabBar. This keeps the behaviors that matter:
-// open/dedup/activate, rename sync, save-on-close write-through, response
-// sharing, and workspace reset. Tab selection itself lives in the dock.
+// TabManager: owns all center-tab state and logic.
+//
+// Follows Zed's Pane/Dock pattern: a real struct held as Entity<TabManager>
+// by ApiClient, with its own impl block. It holds shared Entity<T> handles to
+// shell, project_panel, env_panel, response, and welcome — the same objects
+// ApiClient references — which is idiomatic GPUI (one underlying object,
+// multiple cheap handles), not duplication.
+//
+// ApiClient holds one field: `tab_manager: Entity<TabManager>`.
+// All tab state (request_tabs, env_tabs, welcome_panel, tab_nav) lives here
+// and nowhere else.
 // ---------------------------------------------------------------------------
 
-pub struct RequestTabMeta {
-    pub panel: PanelId,
-    pub view: Entity<RequestPlayground>,
-    pub path: Option<String>,
+struct RequestTabMeta {
+    panel: PanelId,
+    view: Entity<RequestPlayground>,
+    path: Option<String>,
 }
 
-pub struct EnvTabMeta {
-    pub panel: PanelId,
-    pub view: Entity<EnvPlayground>,
+struct EnvTabMeta {
+    panel: PanelId,
+    view: Entity<EnvPlayground>,
 }
 
-// Simple browser-like tab navigation (replaces the old TabManager
-// history): every tab WE open/activate is pushed; back/forward walk the
-// stack, skipping panels closed since. Strip clicks bypass the stack —
-// kept simple on purpose.
+pub struct TabManager {
+    // Shared handles — one underlying object, referenced from here and ApiClient.
+    shell: Entity<DockShell>,
+    project_panel: Entity<ProjectPanel>,
+    env_panel: Entity<EnvPanel>,
+    response: Entity<ResponsePanel>,
+    welcome: Entity<WelcomeScreen>,
+    // Tab state owned exclusively by TabManager.
+    request_tabs: HashMap<usize, RequestTabMeta>,
+    env_tabs: Vec<EnvTabMeta>,
+    welcome_panel: Option<PanelId>,
+    // Browser-like nav history: every tab we open/activate is pushed;
+    // back/forward walk the stack, skipping panels closed since.
+    tab_nav: Vec<PanelId>,
+    tab_nav_ix: usize,
+}
 
+impl TabManager {
+    pub fn new(
+        shell: Entity<DockShell>,
+        project_panel: Entity<ProjectPanel>,
+        env_panel: Entity<EnvPanel>,
+        response: Entity<ResponsePanel>,
+        welcome: Entity<WelcomeScreen>,
+    ) -> Self {
+        Self {
+            shell,
+            project_panel,
+            env_panel,
+            response,
+            welcome,
+            request_tabs: HashMap::new(),
+            env_tabs: Vec::new(),
+            welcome_panel: None,
+            tab_nav: Vec::new(),
+            tab_nav_ix: 0,
+        }
+    }
 
-// Tab back/forward history (manual strip era). Commented out until an
-// external history (Vec<PanelId> synced to dock active changes) is built.
-// struct TabHistory {
-//     history: Vec<usize>,
-//     history_index: usize,
-// }
-// fn push_history(...) / remove_from_history(...) / can_back() / can_forward()
-// / back() / forward() — see git history of this file.
+    // -----------------------------------------------------------------------
+    // Dock helpers
+    // -----------------------------------------------------------------------
 
-impl crate::ApiClient {
     fn dock_area(&self, cx: &App) -> Entity<gpui_kit::base::dock::DockArea> {
         self.shell.read(cx).area()
     }
@@ -56,23 +95,25 @@ impl crate::ApiClient {
     }
 
     fn activate_dock_panel(&self, panel: PanelId, window: &mut Window, cx: &mut App) {
-        // Resolve the panel's CURRENT slot and re-insert there: ix: None
-        // would append at the end and visibly reshuffle the strip.
+        // Resolve the panel's CURRENT slot and re-insert there so the strip
+        // doesn't reshuffle on activation.
         let area = self.dock_area(cx);
-        let slot = area.read(cx).layout(DockPlacement::Center).and_then(|tree| {
-            let node = tree.find_panel_node(panel)?;
-            let tabs = tree.find_node(node)?;
-            let ix = match tabs.kind() {
-                gpui_kit::base::dock::PaneRef::Tabs { panels, .. } => {
-                    panels.iter().position(|id| *id == panel)
-                }
-                _ => None,
-            };
-            Some((node, ix))
-        });
+        let slot = area
+            .read(cx)
+            .layout(DockPlacement::Center)
+            .and_then(|tree| {
+                let node = tree.find_panel_node(panel)?;
+                let tabs = tree.find_node(node)?;
+                let ix = match tabs.kind() {
+                    gpui_kit::base::dock::PaneRef::Tabs { panels, .. } => {
+                        panels.iter().position(|id| *id == panel)
+                    }
+                    _ => None,
+                };
+                Some((node, ix))
+            });
         if let Some((node, ix)) = slot {
-            let shell = self.shell.clone();
-            shell.update(cx, |shell, cx| {
+            self.shell.clone().update(cx, |shell, cx| {
                 shell.move_panel(
                     panel,
                     InsertTarget::Tabs {
@@ -87,6 +128,50 @@ impl crate::ApiClient {
         }
     }
 
+    fn add_center_panel<P: gpui_kit::base::dock::Panel>(
+        &self,
+        view: Entity<P>,
+        target: Option<NodeId>,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> PanelId {
+        let pid = PanelId::from(view.entity_id());
+        self.shell.clone().update(cx, |shell, cx| {
+            shell.add_panel(view, DockPlacement::Center, window, cx);
+        });
+        if let Some(node) = target {
+            self.shell.clone().update(cx, |shell, cx| {
+                shell.move_panel(
+                    pid,
+                    InsertTarget::Tabs {
+                        node,
+                        ix: None,
+                        activate: true,
+                    },
+                    window,
+                    cx,
+                );
+            });
+        }
+        pid
+    }
+
+    fn remove_center_panel<P: gpui_kit::base::dock::Panel>(
+        &self,
+        view: Entity<P>,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let area = self.dock_area(cx);
+        area.update(cx, |area, cx| {
+            area.remove_panel(view, window, cx);
+        });
+    }
+
+    // -----------------------------------------------------------------------
+    // Nav history
+    // -----------------------------------------------------------------------
+
     fn nav_push(&mut self, panel: PanelId) {
         if self.tab_nav.last() == Some(&panel) {
             self.tab_nav_ix = self.tab_nav.len().saturating_sub(1);
@@ -95,6 +180,11 @@ impl crate::ApiClient {
         self.tab_nav.truncate(self.tab_nav_ix + 1);
         self.tab_nav.push(panel);
         self.tab_nav_ix = self.tab_nav.len().saturating_sub(1);
+    }
+
+    fn drop_nav_panel(&mut self, panel: PanelId) {
+        self.tab_nav.retain(|pid| *pid != panel);
+        self.tab_nav_ix = self.tab_nav_ix.min(self.tab_nav.len().saturating_sub(1));
     }
 
     pub fn nav_back(&mut self, window: &mut Window, cx: &mut App) {
@@ -119,52 +209,9 @@ impl crate::ApiClient {
         }
     }
 
-    fn add_center_panel<P>(
-        &self,
-        view: Entity<P>,
-        target: Option<gpui_kit::base::dock::NodeId>,
-        window: &mut Window,
-        cx: &mut Context<Self>,
-    ) -> PanelId
-    where
-        P: gpui_kit::base::dock::Panel,
-    {
-        let pid = PanelId::from(view.entity_id());
-        let shell = self.shell.clone();
-        shell.update(cx, |shell, cx| {
-            shell.add_panel(view, DockPlacement::Center, window, cx);
-        });
-        if let Some(node) = target {
-            let shell = self.shell.clone();
-            shell.update(cx, |shell, cx| {
-                shell.move_panel(
-                    pid,
-                    InsertTarget::Tabs {
-                        node,
-                        ix: None,
-                        activate: true,
-                    },
-                    window,
-                    cx,
-                );
-            });
-        }
-        pid
-    }
-
-    fn remove_center_panel<P>(
-        &self,
-        view: Entity<P>,
-        window: &mut Window,
-        cx: &mut Context<Self>,
-    ) where
-        P: gpui_kit::base::dock::Panel,
-    {
-        let area = self.dock_area(cx);
-        area.update(cx, |area, cx| {
-            area.remove_panel(view, window, cx);
-        });
-    }
+    // -----------------------------------------------------------------------
+    // Tab open/close
+    // -----------------------------------------------------------------------
 
     pub fn open_request_file(
         &mut self,
@@ -186,23 +233,19 @@ impl crate::ApiClient {
 
         let playground = cx.new(|cx| RequestPlayground::new(window, cx));
         if method != "GET" {
-            let methods: Vec<String> = vec!["GET", "POST", "PUT", "PATCH", "DELETE", "HEAD", "OPTIONS"]
-                .into_iter()
-                .map(String::from)
+            let methods: Vec<String> = ["GET", "POST", "PUT", "PATCH", "DELETE", "HEAD", "OPTIONS"]
+                .iter()
+                .map(|s| s.to_string())
                 .collect();
-            let row = methods.iter().position(|m| *m == method).unwrap_or(0);
+            let row = methods.iter().position(|m| m == &method).unwrap_or(0);
             playground.update(cx, |pg, cx| {
                 pg.method_entity().update(cx, |state, cx| {
-                    state.set_selected_index(
-                        Some(IndexPath::default().row(row)),
-                        window,
-                        cx,
-                    );
-                })
+                    state.set_selected_index(Some(IndexPath::default().row(row)), window, cx);
+                });
             });
         }
         playground.update(cx, |pg, cx| {
-            pg.set_tab_name(name.clone(), cx);
+            pg.set_tab_name(name, cx);
             pg.set_response_panel(self.response.clone());
         });
         let request = fs::request::read(Path::new(&path));
@@ -219,13 +262,13 @@ impl crate::ApiClient {
             },
         );
 
+        let project_panel = self.project_panel.clone();
         cx.subscribe_in(
             &playground,
             window,
-            move |this: &mut Self, _, event, _window, cx| match event {
+            move |_this: &mut Self, _, event, _window, cx| match event {
                 RequestPlaygroundEvent::MethodChanged(method) => {
-                    this.project_panel
-                        .update(cx, |pp, _| pp.set_node_method(node_id, method));
+                    project_panel.update(cx, |pp, _| pp.set_node_method(node_id, method));
                 }
                 RequestPlaygroundEvent::ResponsePanelOpened => {}
             },
@@ -279,8 +322,25 @@ impl crate::ApiClient {
         }
     }
 
-    fn forget_request_tab(&mut self, node_id: usize) -> Option<RequestTabMeta> {
-        self.request_tabs.remove(&node_id)
+    pub fn close_request(&mut self, node_id: usize, window: &mut Window, cx: &mut Context<Self>) {
+        let Some(meta) = self.request_tabs.remove(&node_id) else {
+            return;
+        };
+        if AppSettings::global(cx)
+            .playground
+            .request_playground
+            .save_on_close
+        {
+            let content = meta.view.read(cx).current_content(cx);
+            if let Some(path) = meta.view.read(cx).path() {
+                fs::request::write(Path::new(&path), &content).ok();
+            }
+        }
+        let method = meta.view.read(cx).stored_method(cx);
+        self.project_panel
+            .update(cx, |pp, _| pp.set_node_method(node_id, &method));
+        self.drop_nav_panel(meta.panel);
+        self.remove_center_panel(meta.view, window, cx);
     }
 
     pub fn open_env_tab(&mut self, name: String, window: &mut Window, cx: &mut Context<Self>) {
@@ -292,20 +352,20 @@ impl crate::ApiClient {
                 return;
             }
         }
-
-        let playground = cx.new(|cx| EnvPlayground::new(name.clone(), window, cx));
+        let playground = cx.new(|cx| EnvPlayground::new(name, window, cx));
         let pid = self.add_center_panel(playground.clone(), None, window, cx);
         self.env_tabs.push(EnvTabMeta {
             panel: pid,
             view: playground.clone(),
         });
 
+        let env_panel = self.env_panel.clone();
         cx.subscribe_in(
             &playground,
             window,
-            |this: &mut Self, _, event, _window, cx| match event {
+            move |_this: &mut Self, _, event, _window, cx| match event {
                 EnvPlaygroundEvent::Renamed { .. } => {
-                    this.env_panel.update(cx, |panel, cx| panel.refresh(cx));
+                    env_panel.update(cx, |panel, cx| panel.refresh(cx));
                     cx.notify();
                 }
             },
@@ -326,11 +386,10 @@ impl crate::ApiClient {
             .env_tabs
             .iter()
             .enumerate()
-            .map(|(ix, meta)| (ix, meta.panel, meta.view.clone()))
-            .find(|(_, panel, view)| {
-                self.panel_alive(*panel, cx) && view.read(cx).name(cx) == name
+            .find(|(_, meta)| {
+                self.panel_alive(meta.panel, cx) && meta.view.read(cx).name(cx) == name
             })
-            .map(|(ix, _, _)| ix);
+            .map(|(ix, _)| ix);
         if let Some(ix) = found {
             let meta = self.env_tabs.remove(ix);
             self.remove_center_panel(meta.view, window, cx);
@@ -370,9 +429,10 @@ impl crate::ApiClient {
     }
 
     pub fn reset_center_tabs(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        // Untrack first: programmatic removals must NOT run close effects.
-        let requests: Vec<RequestTabMeta> =
-            std::mem::take(&mut self.request_tabs).into_values().collect();
+        // Untrack first: programmatic removals must NOT fire close effects.
+        let requests: Vec<RequestTabMeta> = std::mem::take(&mut self.request_tabs)
+            .into_values()
+            .collect();
         let envs: Vec<EnvTabMeta> = std::mem::take(&mut self.env_tabs);
         let welcome = self.welcome_panel.take();
         self.tab_nav.clear();
@@ -395,63 +455,57 @@ impl crate::ApiClient {
         cx.notify();
     }
 
-    /// Close side-effects for user-closed ([x]) tabs, discovered via
-    /// `DockEvent::LayoutChanged`: save-on-close write-through + method
-    /// sync back to the project tree. Programmatic removals untrack first,
-    /// so only real closes land here.
-    pub fn reconcile_closed_tabs(&mut self, cx: &mut Context<Self>) {
-        let gone: Vec<usize> = self
+    // -----------------------------------------------------------------------
+    // Close hook (registry → handle_panel_closed)
+    // -----------------------------------------------------------------------
+
+    pub fn install_close_hook(&mut self, cx: &mut Context<Self>) {
+        let weak = cx.weak_entity();
+        let hook: crate::dock::tabs::CloseHook = std::rc::Rc::new(move |panel, cx| {
+            weak.update(cx, |this, cx| this.handle_panel_closed(panel, cx))
+                .ok();
+        });
+        self.shell
+            .read(cx)
+            .tab_registry()
+            .set_close_hook(Some(hook));
+    }
+
+    fn handle_panel_closed(&mut self, panel: PanelId, cx: &mut App) {
+        let found = self
             .request_tabs
             .iter()
-            .filter(|(_, meta)| !self.panel_alive(meta.panel, cx))
-            .map(|(id, _)| *id)
-            .collect();
-        for node_id in gone {
+            .find(|(_, meta)| meta.panel == panel)
+            .map(|(id, _)| *id);
+        if let Some(node_id) = found {
             if let Some(meta) = self.request_tabs.remove(&node_id) {
-                let save_on_close = AppSettings::global(cx)
+                if AppSettings::global(cx)
                     .playground
                     .request_playground
-                    .save_on_close;
-                if save_on_close {
+                    .save_on_close
+                {
                     let content = meta.view.read(cx).current_content(cx);
                     if let Some(path) = meta.view.read(cx).path() {
                         fs::request::write(Path::new(&path), &content).ok();
                     }
                 }
                 let method = meta.view.read(cx).stored_method(cx);
-                self.project_panel.update(cx, |pp, _| {
-                    pp.set_node_method(node_id, &method);
-                });
+                self.project_panel
+                    .update(cx, |pp, _| pp.set_node_method(node_id, &method));
             }
         }
-        let mut ix = 0;
-        while ix < self.env_tabs.len() {
-            let alive = {
-                let meta = &self.env_tabs[ix];
-                self.panel_alive(meta.panel, cx)
-            };
-            if alive {
-                ix += 1;
-            } else {
-                self.env_tabs.remove(ix);
-            }
+        if let Some(ix) = self.env_tabs.iter().position(|meta| meta.panel == panel) {
+            self.env_tabs.remove(ix);
         }
-        if let Some(pid) = self.welcome_panel {
-            if !self.panel_alive(pid, cx) {
-                self.welcome_panel = None;
-            }
+        if self.welcome_panel == Some(panel) {
+            self.welcome_panel = None;
         }
-        let live_nav: Vec<PanelId> = self
-            .tab_nav
-            .iter()
-            .copied()
-            .filter(|pid| self.panel_alive(*pid, cx))
-            .collect();
-        self.tab_nav = live_nav;
-        self.tab_nav_ix = self
-            .tab_nav_ix
-            .min(self.tab_nav.len().saturating_sub(1));
+        self.drop_nav_panel(panel);
     }
+
+    // -----------------------------------------------------------------------
+    // Response aux slot
+    // -----------------------------------------------------------------------
 
     pub fn sync_response_aux(&mut self, cx: &mut Context<Self>) {
         let show = self.response.read(cx).is_shown();
@@ -463,17 +517,17 @@ impl crate::ApiClient {
                 shell.set_aux_named("response", "Response", Some(view), cx);
             });
         } else if show && !visible {
-            // Mounted but hidden (toggled off earlier): re-show it.
-            self.shell.update(cx, |shell, cx| {
-                shell.toggle_aux(cx);
-            });
+            self.shell.update(cx, |shell, cx| shell.toggle_aux(cx));
         } else if !show && visible {
-            self.shell.update(cx, |shell, cx| {
-                shell.toggle_aux(cx);
-            });
+            self.shell.update(cx, |shell, cx| shell.toggle_aux(cx));
         }
     }
 
+    // -----------------------------------------------------------------------
+    // Event subscriptions
+    // -----------------------------------------------------------------------
+
+    /// Subscribe to panel/dock events that drive tab lifecycle.
     pub fn subscribe_dock_events(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         let project_panel = self.project_panel.clone();
         cx.subscribe_in(
@@ -507,12 +561,12 @@ impl crate::ApiClient {
                 }
                 crate::project_panel::ProjectPanelEvent::FileDeleted { node_id, .. }
                 | crate::project_panel::ProjectPanelEvent::FileTrashed { node_id, .. } => {
-                    if let Some(meta) = this.forget_request_tab(*node_id) {
-                        let view = meta.view.clone();
-                        this.remove_center_panel(view, window, cx);
-                    }
+                    this.close_request(*node_id, window, cx);
                 }
-                crate::project_panel::ProjectPanelEvent::StressTestPlayground { path, node_name } => {
+                crate::project_panel::ProjectPanelEvent::StressTestPlayground {
+                    path,
+                    node_name,
+                } => {
                     this.add_stress_test_tab(path.clone(), node_name.clone(), window, cx);
                 }
             },
@@ -534,37 +588,21 @@ impl crate::ApiClient {
         )
         .detach();
 
-        let area = self.dock_area(cx);
-        cx.subscribe_in(
-            &area,
-            window,
-            |this: &mut Self, _, event, _window, cx| match event {
-                DockEvent::LayoutChanged => {
-                    this.reconcile_closed_tabs(cx);
-                }
-                DockEvent::DragDrop { .. } => {}
-            },
-        )
-        .detach();
-
+        // Sync the response aux slot whenever the response panel changes.
         cx.observe(&self.response, |this, _, cx| {
             this.sync_response_aux(cx);
-            // Response state drives the footer toggle too (show_toggle on
-            // first data, collapsed mirror) — not just shell changes.
-            this.sync_footer_from_shell(cx);
         })
         .detach();
     }
 
+    // -----------------------------------------------------------------------
+    // Bootstrap
+    // -----------------------------------------------------------------------
+
     pub fn seed_empty_center(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         let empty = cx.new(EmptyTab::new);
-        let shell = self.shell.clone();
-        shell.update(cx, |shell, cx| {
-            shell.set_center(
-                DockLayout::tabs().panel(empty).active_index(0),
-                window,
-                cx,
-            );
+        self.shell.clone().update(cx, |shell, cx| {
+            shell.set_center(DockLayout::tabs().panel(empty).active_index(0), window, cx);
         });
     }
 }

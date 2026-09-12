@@ -1,3 +1,4 @@
+use std::cell::RefCell;
 use std::collections::HashMap;
 use std::rc::Rc;
 use std::sync::Arc;
@@ -20,19 +21,11 @@ use crate::dock::skin::TabChrome;
 pub trait CenterTab: Panel {
     fn tab_label(&self, cx: &App) -> SharedString;
 
-    fn tab_prefix(
-        &mut self,
-        _window: &mut Window,
-        _cx: &mut Context<Self>,
-    ) -> Option<AnyElement> {
+    fn tab_prefix(&mut self, _window: &mut Window, _cx: &mut Context<Self>) -> Option<AnyElement> {
         None
     }
 
-    fn tab_suffix(
-        &mut self,
-        _window: &mut Window,
-        _cx: &mut Context<Self>,
-    ) -> Option<AnyElement> {
+    fn tab_suffix(&mut self, _window: &mut Window, _cx: &mut Context<Self>) -> Option<AnyElement> {
         None
     }
 
@@ -41,11 +34,7 @@ pub trait CenterTab: Panel {
         true
     }
 
-    fn tab_chrome(
-        &mut self,
-        window: &mut Window,
-        cx: &mut Context<Self>,
-    ) -> TabChrome {
+    fn tab_chrome(&mut self, window: &mut Window, cx: &mut Context<Self>) -> TabChrome {
         TabChrome {
             prefix: self.tab_prefix(window, cx),
             label: self.tab_label(cx),
@@ -103,14 +92,25 @@ pub const KEEP_ALIVE_NAME: &str = "empty-tab";
 
 type ChromeFn = Rc<dyn Fn(&Arc<dyn PanelView>, &mut Window, &mut App) -> TabChrome>;
 type CanCloseFn = Rc<dyn Fn(&Arc<dyn PanelView>, &App) -> bool>;
-type RemoveFn =
-    Rc<dyn Fn(&Arc<dyn PanelView>, &Entity<DockArea>, &mut Window, &mut App) -> bool>;
+type RemoveFn = Rc<dyn Fn(&Arc<dyn PanelView>, &Entity<DockArea>, &mut Window, &mut App) -> bool>;
+pub type CloseHook = Rc<dyn Fn(PanelId, &mut App)>;
 
-#[derive(Default)]
 pub struct TabChromeRegistry {
     items: HashMap<&'static str, ChromeFn>,
     closers: HashMap<&'static str, CanCloseFn>,
     removers: HashMap<&'static str, RemoveFn>,
+    on_closed: Rc<RefCell<Option<CloseHook>>>,
+}
+
+impl Default for TabChromeRegistry {
+    fn default() -> Self {
+        Self {
+            items: HashMap::new(),
+            closers: HashMap::new(),
+            removers: HashMap::new(),
+            on_closed: Rc::new(RefCell::new(None)),
+        }
+    }
 }
 
 impl TabChromeRegistry {
@@ -129,6 +129,10 @@ impl TabChromeRegistry {
         self.items.clear();
         self.closers.clear();
         self.removers.clear();
+    }
+
+    pub fn set_close_hook(&self, hook: Option<CloseHook>) {
+        *self.on_closed.borrow_mut() = hook;
     }
 
     pub fn register<T: CenterTab>(&mut self, name: &'static str) {
@@ -151,14 +155,19 @@ impl TabChromeRegistry {
         // Typed removal through the public DockArea API, which (unlike the
         // group's close path) is not gated on the area lock — the lock
         // exists to forbid splits, not to trap tabs.
-        let r: RemoveFn = Rc::new(|panel, area, window, cx| {
+        let notify = self.on_closed.clone();
+        let r: RemoveFn = Rc::new(move |panel, area, window, cx| {
             panel
                 .as_any()
                 .downcast_ref::<Entity<T>>()
                 .map(|e| {
+                    let pid = PanelId::from(e.entity_id());
                     area.update(cx, |area, cx| {
                         area.remove_panel(e.clone(), window, cx);
                     });
+                    if let Some(hook) = notify.borrow().clone() {
+                        hook(pid, cx);
+                    }
                     true
                 })
                 .unwrap_or(false)

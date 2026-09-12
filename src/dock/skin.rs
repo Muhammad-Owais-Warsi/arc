@@ -17,38 +17,6 @@ use crate::icons::IconName;
 
 use crate::dock::tabs::{KEEP_ALIVE_NAME, TabChromeRegistry};
 
-// ---------------------------------------------------------------------------
-// CleanSkin: base DockArea appearance with OUR tab bar (kit `TabBar`).
-//
-// This file is app-agnostic: tab chrome (label/prefix/suffix per panel
-// type), the bar prefix/suffix slots and the [+ new tab] action are
-// injected delegates; tabs themselves are the given kit `Tab`s, so the
-// host app (arc-dock demo or the real gpui client) supplies chrome and
-// changes nothing here.
-//
-// The skin only styles CENTER tab groups. Fixed side/bottom/aux panels
-// live outside the dock area (see shell.rs) as plain resizable slots, so
-// tab DnD physically cannot enter or leave them.
-//
-// Bar layout (Zed-style): `bar_prefix` (back/forward) + tabs + `bar_suffix`
-// ([+] by default). Tabs are the given kit `Tab`s built from registry
-// chrome (label/prefix/suffix + close); the skin applies selection,
-// click-to-select, drag and policy-gated drops on top.
-//
-// Structural removals vs gpui-component's skin (not flag-hides):
-// - no dock toggle buttons anywhere
-// - no zoom affordance anywhere (panels report zoomable() = false,
-//   ToggleZoom is refused, no button is drawn)
-// - no ellipsis menu
-// - no splits: area is locked so content drops never fire; tab-bar
-//   reorder within the strip is the only DnD path
-// - locked singles (one non-closable panel) render no strip at all
-//
-// Kept: reorder inside the strip (drag tabs, drop between tabs, drop past
-// last tab), insertion highlight, click-to-select, per-tab close, suffix
-// [+] (lands in the group whose button was clicked).
-// ---------------------------------------------------------------------------
-
 /// Custom tab chrome. The host maps its own panel types to a label plus
 /// optional prefix (method pill, icon) and suffix (extra controls)
 /// elements. Close (x) is drawn by the skin itself for closable panels.
@@ -74,8 +42,7 @@ pub type TabChromeFn = Rc<dyn Fn(&Arc<dyn PanelView>, &mut Window, &mut App) -> 
 /// group whose [+] was clicked, so the host can `add_panel` then
 /// `move_panel` the tab into that exact group.
 /// `None` hides the [+] button entirely.
-pub type AddTabAction =
-    Rc<dyn Fn(&Entity<DockArea>, Option<NodeId>, &mut Window, &mut App)>;
+pub type AddTabAction = Rc<dyn Fn(&Entity<DockArea>, Option<NodeId>, &mut Window, &mut App)>;
 
 /// Future-proof DnD switch. The area is locked exactly when splits are
 /// off, so base installs no content drops; the strip always draws its own
@@ -241,6 +208,10 @@ impl CleanSkin {
         *self.on_add_tab.borrow_mut() = action;
     }
 
+    pub fn registry(&self) -> Rc<TabChromeRegistry> {
+        self.registry.clone()
+    }
+
     pub fn set_bar_prefix(&mut self, slot: Option<BarSlotFn>) {
         self.options.borrow_mut().bar_prefix = slot;
     }
@@ -345,9 +316,10 @@ impl TabGroupRenderer for CleanSkin {
         // invisible keep-alive panel is exempt: a group holding ONLY it is
         // an emptied center group, which keeps the full strip + empty state.
         let locked_single = group.panels().len() == 1
-            && group.panels().first().is_some_and(|p| {
-                !p.closable(cx) && p.panel_name(cx) != KEEP_ALIVE_NAME
-            });
+            && group
+                .panels()
+                .first()
+                .is_some_and(|p| !p.closable(cx) && p.panel_name(cx) != KEEP_ALIVE_NAME);
         if locked_single {
             return Empty.into_any_element();
         }
@@ -381,13 +353,10 @@ impl TabGroupRenderer for CleanSkin {
             .collect();
         let selected_pos = visible.iter().position(|(ix, _)| *ix == active);
 
-        let mut bar = TabBar::new(SharedString::from(format!(
-            "dock-tabbar:{}",
-            node.as_u64()
-        )))
-        .with_variant(bar_variant)
-        .h(px(tab_height))
-        .w_full();
+        let mut bar = TabBar::new(SharedString::from(format!("dock-tabbar:{}", node.as_u64())))
+            .with_variant(bar_variant)
+            .h(px(tab_height))
+            .w_full();
         if let Some(prefix) = bar_prefix.as_ref().and_then(|f| f(window, cx)) {
             bar = bar.prefix(prefix);
         }

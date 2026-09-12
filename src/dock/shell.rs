@@ -1,14 +1,13 @@
 use std::rc::Rc;
 
+use crate::dock::skin::{AddTabAction, BarSlotFn, CleanSkin, SkinOptions};
 use gpui_kit::base::dock::{DockArea, DockLayout, DockPlacement, InsertTarget, Panel, PanelId};
 use gpui_kit::component::button::{Button, ButtonVariants};
 use gpui_kit::component::resizable::{
-    ResizablePanel, ResizablePanelEvent, ResizableState, h_resizable, resizable_panel,
-    v_resizable,
+    ResizablePanel, ResizablePanelEvent, ResizableState, h_resizable, resizable_panel, v_resizable,
 };
 use gpui_kit::component::{Sizable, h_flex};
 use gpui_kit::*;
-use crate::dock::skin::{AddTabAction, BarSlotFn, CleanSkin, SkinOptions};
 
 use crate::dock::tabs::TabChromeRegistry;
 
@@ -78,11 +77,7 @@ pub struct FixedPanel {
 }
 
 impl FixedPanel {
-    pub fn new(
-        id: impl Into<SharedString>,
-        label: impl Into<SharedString>,
-        view: AnyView,
-    ) -> Self {
+    pub fn new(id: impl Into<SharedString>, label: impl Into<SharedString>, view: AnyView) -> Self {
         Self {
             id: id.into(),
             label: label.into(),
@@ -139,6 +134,16 @@ impl Default for ShellOptions {
 #[derive(Clone, Copy)]
 pub enum DockShellEvent {
     Changed,
+}
+
+/// A snapshot of the shell's panel/aux visibility, gathered in one read so
+/// callers don't have to poke individual panels by id. Mirrors the way Zed's
+/// `Workspace::capture_dock_state` returns the whole dock layout at once.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct ShellVisibility {
+    pub left_open: bool,
+    pub right_open: bool,
+    pub aux_visible: bool,
 }
 
 impl EventEmitter<DockShellEvent> for DockShell {}
@@ -277,12 +282,11 @@ impl DockShell {
         self.area.clone()
     }
 
-    pub fn set_center(
-        &mut self,
-        layout: DockLayout,
-        window: &mut Window,
-        cx: &mut Context<Self>,
-    ) {
+    pub fn tab_registry(&self) -> Rc<TabChromeRegistry> {
+        self._skin.registry()
+    }
+
+    pub fn set_center(&mut self, layout: DockLayout, window: &mut Window, cx: &mut Context<Self>) {
         self.area.update(cx, |area, cx| {
             area.set_center(layout, window, cx);
         });
@@ -309,9 +313,7 @@ impl DockShell {
         cx: &mut Context<Self>,
     ) {
         // Policy gate: splits refused while `dnd.allow_split` is off.
-        if !self._skin.options().dnd.allow_split
-            && matches!(target, InsertTarget::Split { .. })
-        {
+        if !self._skin.options().dnd.allow_split && matches!(target, InsertTarget::Split { .. }) {
             return;
         }
         self.area.update(cx, |area, cx| {
@@ -497,10 +499,7 @@ impl DockShell {
     /// open panel collapses the slot entirely — nothing lingers.
     pub fn toggle_panel(&mut self, id: &str, cx: &mut Context<Self>) {
         let side = self.side_of(id);
-        let shown = side
-            .and_then(|s| self.active_panel_id(s))
-            .as_deref()
-            == Some(id)
+        let shown = side.and_then(|s| self.active_panel_id(s)).as_deref() == Some(id)
             && self.is_panel_open(id);
         match (side, shown) {
             (Some(_), true) => self.set_panel_open(id, false, cx),
@@ -577,8 +576,7 @@ impl DockShell {
             Side::Right => self.active_right.as_ref(),
         };
         let active = Self::resolve_active_id(slot, stored);
-        slot
-            .iter()
+        slot.iter()
             .map(|p| FixedPanelInfo {
                 id: p.id.clone(),
                 label: p.label.clone(),
@@ -640,6 +638,25 @@ impl DockShell {
 
     pub fn aux_visible(&self) -> bool {
         self.aux.as_ref().is_some_and(|a| a.visible)
+    }
+
+    /// Whether a fixed panel is mounted on either side, by id.
+    // pub fn has_panel(&self, id: &str) -> bool {
+    //     self.left
+    //         .iter()
+    //         .chain(self.right.iter())
+    //         .any(|p| p.id == id)
+    // }
+
+    /// One-shot snapshot of sidebar + aux visibility. Prefer this over
+    /// separate `is_panel_open` / `aux_visible` calls when mirroring shell
+    /// state elsewhere (e.g. the footer), so the read set lives in one place.
+    pub fn visibility(&self, project_panel_id: &str, env_panel_id: &str) -> ShellVisibility {
+        ShellVisibility {
+            left_open: self.is_panel_open(project_panel_id),
+            right_open: self.is_panel_open(env_panel_id),
+            aux_visible: self.aux_visible(),
+        }
     }
 
     /// Slot: exactly one panel mounted — the resolved active view, no

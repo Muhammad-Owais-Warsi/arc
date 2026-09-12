@@ -25,8 +25,8 @@ mod settings_window;
 mod stress_engine;
 mod stress_testing;
 mod tab_manager;
+mod titlebar;
 mod welcome;
-use std::collections::HashMap;
 use std::rc::Rc;
 
 use crate::actions::{
@@ -37,47 +37,36 @@ use crate::assets::Assets;
 use crate::dock::shell::{DockShell, DockShellEvent, FixedPanel, Side};
 use crate::dock::tabs::TabChromeRegistry;
 use crate::footer::{Footer, FooterEvent};
-use crate::fs::env;
-use crate::fs::request;
-use crate::fs::settings;
-use crate::fs::workspace;
+
 use crate::helpers::{get_active_theme, get_theme_config, get_themes};
-use crate::icons::IconName;
+
 use crate::project_panel::{DirTree, ProjectPanel};
 use crate::response_panel::ResponsePanel;
 use crate::settings_panel::{AppSettings, SidebarDock};
 use crate::settings_window::SettingsWindow;
-use crate::tab_manager::{EnvTabMeta, RequestTabMeta};
+use crate::tab_manager::TabManager;
+use crate::titlebar::TitleBarView;
 use crate::welcome::WelcomeScreen;
-use gpui_kit::base::dock::PanelId;
-use gpui_kit::component::button::{Button, ButtonVariants};
 use gpui_kit::component::command::{Command, CommandItem, CommandState};
-use gpui_kit::component::menu::DropdownMenu;
-use gpui_kit::component::popover::Popover;
-use gpui_kit::component::*;
 use gpui_kit::component::{Theme, *};
-use gpui_kit::prelude::FluentBuilder;
 use gpui_kit::*;
+
+/// Stable ids for the two fixed sidebar panels. Kept as named constants so the
+/// shell is addressed by symbol rather than scattered string literals.
+const PROJECT_PANEL_ID: &str = "project-panel";
+const ENV_PANEL_ID: &str = "environment-panel";
 
 pub struct ApiClient {
     project_panel: Entity<project_panel::ProjectPanel>,
     footer: Entity<Footer>,
-    env_panel: Entity<env_panel::EnvPanel>,
+    pub(crate) env_panel: Entity<env_panel::EnvPanel>,
     shell: Entity<DockShell>,
     response: Entity<ResponsePanel>,
-    request_tabs: HashMap<usize, RequestTabMeta>,
-    env_tabs: Vec<EnvTabMeta>,
-    welcome_panel: Option<PanelId>,
-    tab_nav: Vec<PanelId>,
-    tab_nav_ix: usize,
-    workspace_palette: Entity<CommandState>,
-    workspace_palette_open: bool,
-    environment_pallete_open: bool,
-    environment_pallete: Entity<CommandState>,
-    workspaces: Vec<(String, String)>,
-    selected_workspace: Option<usize>,
-    settings_window: Option<(WeakEntity<SettingsWindow>, AnyWindowHandle)>,
-    welcome: Entity<WelcomeScreen>,
+    tab_manager: Entity<TabManager>,
+    titlebar: Entity<TitleBarView>,
+    pub(crate) workspaces: Vec<(String, String)>,
+    pub(crate) selected_workspace: Option<usize>,
+    pub(crate) settings_window: Option<(WeakEntity<SettingsWindow>, AnyWindowHandle)>,
     theme: Entity<CommandState>,
 }
 
@@ -88,7 +77,7 @@ impl ApiClient {
         let response = cx.new(|cx| ResponsePanel::new(window, cx));
 
         let workspace_palette = cx.new(|cx| CommandState::new(window, cx));
-        let environment_pallete = cx.new(|cx| CommandState::new(window, cx));
+        let env_palette = cx.new(|cx| CommandState::new(window, cx));
 
         let mut registry = TabChromeRegistry::new();
         registry.register::<crate::request_playground::RequestPlayground>("request");
@@ -101,25 +90,29 @@ impl ApiClient {
 
         let theme_switcher = cx.new(|cx| CommandState::new(window, cx));
 
+        let tab_manager = cx.new(|_| {
+            TabManager::new(
+                shell.clone(),
+                project_panel.clone(),
+                env_panel.clone(),
+                response.clone(),
+                welcome,
+            )
+        });
+
+        let titlebar = cx.new(|_| TitleBarView::new(workspace_palette, env_palette));
+
         let this = Self {
             project_panel,
             footer,
             env_panel,
             shell,
             response,
-            request_tabs: HashMap::new(),
-            env_tabs: Vec::new(),
-            welcome_panel: None,
-            tab_nav: Vec::new(),
-            tab_nav_ix: 0,
-            workspace_palette,
-            workspace_palette_open: false,
-            environment_pallete_open: false,
-            environment_pallete,
+            tab_manager,
+            titlebar,
             workspaces: Vec::new(),
             selected_workspace: None,
             settings_window: None,
-            welcome,
             theme: theme_switcher,
         };
 
@@ -134,7 +127,7 @@ impl ApiClient {
                     SidebarDock::Right => Side::Right,
                 },
                 FixedPanel::new(
-                    "project-panel",
+                    PROJECT_PANEL_ID,
                     "Project",
                     this.project_panel.clone().into(),
                 ),
@@ -145,15 +138,11 @@ impl ApiClient {
                     SidebarDock::Left => Side::Left,
                     SidebarDock::Right => Side::Right,
                 },
-                FixedPanel::new(
-                    "environment-panel",
-                    "Environments",
-                    this.env_panel.clone().into(),
-                ),
+                FixedPanel::new(ENV_PANEL_ID, "Environments", this.env_panel.clone().into()),
                 cx,
             );
-            shell.set_panel_open("project-panel", false, cx);
-            shell.set_panel_open("environment-panel", false, cx);
+            shell.set_panel_open(PROJECT_PANEL_ID, false, cx);
+            shell.set_panel_open(ENV_PANEL_ID, false, cx);
         });
 
         this
@@ -168,7 +157,9 @@ impl ApiClient {
         let weak = cx.weak_entity();
         let action: AddTabAction = std::rc::Rc::new(move |_area, target, window, cx| {
             weak.update(cx, |this, cx| {
-                this.open_untitled_request_in(target, window, cx);
+                this.tab_manager.update(cx, |tabs, cx| {
+                    tabs.open_untitled_request_in(target, window, cx);
+                });
             })
             .ok();
         });
@@ -178,19 +169,20 @@ impl ApiClient {
     }
 
     fn init(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        // TMP-DIAG: auto-open theme picker for screenshot.
-        cx.spawn(async move |this, cx| {
-            cx.background_executor()
-                .timer(std::time::Duration::from_millis(1500))
-                .await;
-            let _ = this.update_in(cx, |_, window, cx| {
-                window.dispatch_action(Box::new(ThemeChange), cx);
-            });
+        // Wire the ApiClient weak handle into TitleBarView now that the entity exists.
+        let weak = cx.weak_entity();
+        self.titlebar.update(cx, |tb, _| tb.set_client(weak));
+        self.tab_manager.update(cx, |tabs, cx| {
+            tabs.seed_empty_center(window, cx);
+            tabs.install_close_hook(cx);
+            tabs.subscribe_dock_events(window, cx);
+        });
+        self.sync_footer_from_shell(cx);
+        // Mirror response state into the footer whenever the response changes.
+        cx.observe(&self.response, |this, _, cx| {
+            this.sync_footer_from_shell(cx);
         })
         .detach();
-        self.seed_empty_center(window, cx);
-        self.subscribe_dock_events(window, cx);
-        self.sync_footer_from_shell(cx);
         let shell = self.shell.clone();
         cx.subscribe_in(
             &shell,
@@ -207,19 +199,15 @@ impl ApiClient {
     }
 
     fn sync_footer_from_shell(&mut self, cx: &mut Context<Self>) {
-        let (pp_open, ep_open, aux_visible, has_response) = {
-            let shell = self.shell.read(cx);
-            (
-                shell.is_panel_open("project-panel"),
-                shell.is_panel_open("environment-panel"),
-                shell.aux_visible(),
-                self.response.read(cx).has_response(),
-            )
-        };
+        let vis = self
+            .shell
+            .read(cx)
+            .visibility(PROJECT_PANEL_ID, ENV_PANEL_ID);
+        let has_response = self.response.read(cx).has_response();
         self.footer.update(cx, |f, cx| {
-            f.set_project_panel_collapsed(!pp_open, cx);
-            f.set_env_panel_collapsed(!ep_open, cx);
-            f.set_response_collapsed(!aux_visible, cx);
+            f.set_project_panel_collapsed(!vis.left_open, cx);
+            f.set_env_panel_collapsed(!vis.right_open, cx);
+            f.set_response_collapsed(!vis.aux_visible, cx);
             f.set_show_toggle(has_response, cx);
         });
     }
@@ -233,16 +221,22 @@ impl ApiClient {
             .update(cx, |f, cx| f.set_env_panel_dock(ep_dock, cx));
     }
 
-    fn switch_workspace_to(&mut self, ix: usize, window: &mut Window, cx: &mut Context<Self>) {
+    pub(crate) fn switch_workspace_to(
+        &mut self,
+        ix: usize,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
         let Some((name, path)) = self.workspaces.get(ix).cloned() else {
             return;
         };
         self.selected_workspace = Some(ix);
         fs::workspace::save(&name, &path);
-        self.workspace_palette.update(cx, |state, cx| {
-            state.set_selected_index(Some(IndexPath::new(ix)), window, cx);
+        self.titlebar.update(cx, |tb, cx| {
+            tb.sync_workspace_selection(ix, window, cx);
         });
-        self.reset_center_tabs(window, cx);
+        self.tab_manager
+            .update(cx, |tabs, cx| tabs.reset_center_tabs(window, cx));
         self.env_panel.update(cx, |ep, cx| ep.refresh(cx));
 
         let project_panel = self.project_panel.clone();
@@ -262,6 +256,33 @@ impl ApiClient {
         cx.notify();
     }
 
+    /// Add a new workspace by name, create its directory, and switch to it.
+    pub(crate) fn add_workspace(
+        &mut self,
+        name: String,
+        path: String,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        if self.workspaces.iter().any(|(n, _)| n == &name) {
+            return;
+        }
+        let ix = self.workspaces.len();
+        self.workspaces.push((name.clone(), path.clone()));
+        self.project_panel.update(cx, |pp, cx| {
+            pp.set_tree(
+                name,
+                path,
+                DirTree {
+                    root_ids: Vec::new(),
+                    nodes: std::collections::HashMap::new(),
+                },
+                cx,
+            );
+        });
+        self.switch_workspace_to(ix, window, cx);
+    }
+
     fn start_walkdir(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         self.workspaces = ProjectPanel::list_workspace_dirs()
             .into_iter()
@@ -276,14 +297,12 @@ impl ApiClient {
                 .position(|(n, p)| *n == name && *p == path)
             {
                 self.switch_workspace_to(ix, window, cx);
-                self.workspace_palette.update(cx, |state, cx| {
-                    state.set_selected_index(Some(IndexPath::new(ix)), window, cx);
-                });
                 return;
             }
         }
 
-        self.open_welcome_tab(window, cx);
+        self.tab_manager
+            .update(cx, |tabs, cx| tabs.open_welcome_tab(window, cx));
     }
 
     fn footer_event_handler(&mut self, window: &mut Window, cx: &mut Context<Self>) {
@@ -294,17 +313,51 @@ impl ApiClient {
                 }
                 FooterEvent::ToggleProjectPanel => {
                     this.shell.update(cx, |shell, cx| {
-                        shell.toggle_panel("project-panel", cx);
+                        shell.toggle_panel(PROJECT_PANEL_ID, cx);
                     });
                 }
                 FooterEvent::ToggleEnvPanel => {
                     this.shell.update(cx, |shell, cx| {
-                        shell.toggle_panel("environment-panel", cx);
+                        shell.toggle_panel(ENV_PANEL_ID, cx);
                     });
                 }
             }
         })
         .detach();
+    }
+
+    fn set_project_dock(&mut self, dock: SidebarDock, cx: &mut Context<Self>) {
+        AppSettings::global_mut(cx).panel.project_panel.sidebar_dock = dock;
+        AppSettings::global_mut(cx).save();
+        self.footer
+            .update(cx, |f, cx| f.set_project_panel_dock(dock, cx));
+        self.shell.update(cx, |shell, cx| {
+            shell.set_panel_side(
+                PROJECT_PANEL_ID,
+                match dock {
+                    SidebarDock::Left => Side::Left,
+                    SidebarDock::Right => Side::Right,
+                },
+                cx,
+            );
+        });
+    }
+
+    fn set_env_dock(&mut self, dock: SidebarDock, cx: &mut Context<Self>) {
+        AppSettings::global_mut(cx).panel.env_panel.sidebar_dock = dock;
+        AppSettings::global_mut(cx).save();
+        self.footer
+            .update(cx, |f, cx| f.set_env_panel_dock(dock, cx));
+        self.shell.update(cx, |shell, cx| {
+            shell.set_panel_side(
+                ENV_PANEL_ID,
+                match dock {
+                    SidebarDock::Left => Side::Left,
+                    SidebarDock::Right => Side::Right,
+                },
+                cx,
+            );
+        });
     }
 
     fn handle_dock_sidebar_left(
@@ -313,13 +366,7 @@ impl ApiClient {
         _window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        AppSettings::global_mut(cx).panel.project_panel.sidebar_dock = SidebarDock::Left;
-        AppSettings::global_mut(cx).save();
-        self.footer
-            .update(cx, |f, cx| f.set_project_panel_dock(SidebarDock::Left, cx));
-        self.shell.update(cx, |shell, cx| {
-            shell.set_panel_side("project-panel", Side::Left, cx);
-        });
+        self.set_project_dock(SidebarDock::Left, cx);
     }
 
     fn handle_dock_sidebar_right(
@@ -328,13 +375,7 @@ impl ApiClient {
         _window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        AppSettings::global_mut(cx).panel.project_panel.sidebar_dock = SidebarDock::Right;
-        AppSettings::global_mut(cx).save();
-        self.footer
-            .update(cx, |f, cx| f.set_project_panel_dock(SidebarDock::Right, cx));
-        self.shell.update(cx, |shell, cx| {
-            shell.set_panel_side("project-panel", Side::Right, cx);
-        });
+        self.set_project_dock(SidebarDock::Right, cx);
     }
 
     fn handle_dock_env_panel_left(
@@ -343,13 +384,7 @@ impl ApiClient {
         _window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        AppSettings::global_mut(cx).panel.env_panel.sidebar_dock = SidebarDock::Left;
-        AppSettings::global_mut(cx).save();
-        self.footer
-            .update(cx, |f, cx| f.set_env_panel_dock(SidebarDock::Left, cx));
-        self.shell.update(cx, |shell, cx| {
-            shell.set_panel_side("environment-panel", Side::Left, cx);
-        });
+        self.set_env_dock(SidebarDock::Left, cx);
     }
 
     fn handle_dock_env_panel_right(
@@ -358,13 +393,7 @@ impl ApiClient {
         _window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        AppSettings::global_mut(cx).panel.env_panel.sidebar_dock = SidebarDock::Right;
-        AppSettings::global_mut(cx).save();
-        self.footer
-            .update(cx, |f, cx| f.set_env_panel_dock(SidebarDock::Right, cx));
-        self.shell.update(cx, |shell, cx| {
-            shell.set_panel_side("environment-panel", Side::Right, cx);
-        });
+        self.set_env_dock(SidebarDock::Right, cx);
     }
 
     fn render_footer(&mut self, _cx: &mut Context<Self>) -> impl IntoElement {
@@ -495,311 +524,6 @@ impl ApiClient {
                 })
         });
     }
-
-    fn render_titlebar(&mut self, cx: &mut Context<Self>) -> impl IntoElement {
-        let settings_window = self.settings_window.clone();
-        let this = cx.entity();
-        let workspace_palette = self.workspace_palette.clone();
-        let env_palette = self.environment_pallete.clone();
-        let env_panel = self.env_panel.clone();
-        let workspace_name = self
-            .selected_workspace
-            .and_then(|ix| self.workspaces.get(ix))
-            .map(|(name, _)| name.clone())
-            .unwrap_or_else(|| "open workspace".to_string());
-        let active_env = fs::env::read_active();
-
-        TitleBar::new()
-            .h(px(32.))
-            .bg(cx.theme().title_bar)
-            .on_close_window(move |_, _, cx| {
-                if let Some((_, settings_handle)) = settings_window.clone() {
-                    cx.update_window(settings_handle, |_root, window, _cx| {
-                        window.remove_window();
-                    })
-                    .ok();
-                }
-            })
-            .child(
-                h_flex()
-                    .h_full()
-                    .items_center()
-                    .gap_0p5()
-                    .child(
-                        Button::new("menu")
-                            .icon(IconName::Menu)
-                            .ghost()
-                            .small()
-                            .tooltip("Open Application Menu")
-                            .dropdown_menu(|menu, _, _| {
-                                menu.min_w(px(270.))
-                                    .link(
-                                        "About Arc",
-                                        "https://github.com/Muhammad-Owais-Warsi/arc",
-                                    )
-                                    .separator()
-                                    .menu("Open Settings", Box::new(actions::OpenSettings))
-                                    .menu("Copy Settings", Box::new(actions::CopySettings))
-                                    .separator()
-                                    .menu("Select Theme...", Box::new(actions::ThemeChange))
-                                    .separator()
-                                    .menu("Quit Arc", Box::new(actions::QuitArc))
-                            }),
-                    )
-                    .child(
-                        Popover::new("workspace-picker")
-                            .open(self.workspace_palette_open)
-                            .on_open_change({
-                                let this = this.clone();
-                                let palette = workspace_palette.clone();
-                                move |is_open, window, cx| {
-                                    if *is_open {
-                                        palette.update(cx, |palette, cx| {
-                                            palette.set_query("", window, cx);
-                                        });
-                                    }
-                                    this.update(cx, |this, cx| {
-                                        this.workspace_palette_open = *is_open;
-                                        cx.notify();
-                                    });
-                                }
-                            })
-                            .trigger(
-                                Button::new("workspace")
-                                    .ghost()
-                                    .small()
-                                    .label(workspace_name.clone())
-                                    .tooltip("Switch Workspace"),
-                            )
-                            .content({
-                                let this = this.clone();
-                                let palette = workspace_palette.clone();
-                                move |_, _, cx| {
-                                    let client = this.read(cx);
-                                    let items = client
-                                        .workspaces
-                                        .iter()
-                                        .enumerate()
-                                        .map(|(i, (name, _))| {
-                                            CommandItem::new()
-                                                .label(name.clone())
-                                                .icon(IconName::BriefcaseBusiness)
-                                                .checked(Some(i) == client.selected_workspace)
-                                        })
-                                        .collect::<Vec<_>>();
-                                    Command::new(&palette)
-                                        .bordered(false)
-                                        .placeholder("Search or switch workspace")
-                                        .w(px(260.))
-                                        .items(items)
-                                        .separator()
-                                        .footer({
-                                            let this = this.clone();
-                                            let palette = palette.clone();
-                                            move |_, _window, _cx| {
-                                                Button::new("add-workspace")
-                                                    .ghost()
-                                                    .label("Add Workspace")
-                                                    .icon(IconName::Plus)
-                                                    .w_full()
-                                                    .justify_start()
-                                                    .on_click({
-                                                        let this = this.clone();
-                                                        let palette = palette.clone();
-                                                        move |_, window, cx| {
-                                                            let name = palette
-                                                                .read(cx)
-                                                                .query(cx)
-                                                                .to_string();
-                                                            let name = name.trim().to_string();
-                                                            if name.is_empty() {
-                                                                return;
-                                                            }
-                                                            let path = match fs::workspace::create(
-                                                                &name,
-                                                            ) {
-                                                                Ok(path) => path,
-                                                                Err(err) => {
-                                                                    eprintln!(
-                                                                        "Failed to create workspace: {err}"
-                                                                    );
-                                                                    return;
-                                                                }
-                                                            };
-                                                            this.update(cx, |this, cx| {
-                                                                if this
-                                                                    .workspaces
-                                                                    .iter()
-                                                                    .any(|(n, _)| n == &name)
-                                                                {
-                                                                    return;
-                                                                }
-                                                                let ix = this.workspaces.len();
-                                                                this.workspaces.push((
-                                                                    name.clone(),
-                                                                    path.clone(),
-                                                                ));
-                                                                this.project_panel.update(
-                                                                    cx,
-                                                                    |pp, cx| {
-                                                                        pp.set_tree(
-                                                                            name.clone(),
-                                                                            path,
-                                                                            DirTree {
-                                                                                root_ids: Vec::new(),
-                                                                                nodes: std::collections::HashMap::new(),
-                                                                            },
-                                                                            cx,
-                                                                        );
-                                                                    },
-                                                                );
-                                                                this.switch_workspace_to(
-                                                                    ix, window, cx,
-                                                                );
-                                                                cx.notify();
-                                                            });
-                                                        }
-                                                    })
-                                                    .into_any_element()
-                                            }
-                                        })
-                                        .on_confirm({
-                                            let this = this.clone();
-                                            move |index, window, cx| {
-                                                this.update(cx, |this, cx| {
-                                                    this.workspace_palette_open = false;
-                                                    this.switch_workspace_to(
-                                                        index.row, window, cx,
-                                                    );
-                                                    cx.notify();
-                                                });
-                                            }
-                                        })
-                                        .into_any_element()
-                                }
-                            }),
-                    )
-                    .when(!active_env.is_empty(), |builder| {
-                        let this = this.clone();
-                        builder.child({
-                            let palette = env_palette.clone();
-                            let ep = env_panel.clone();
-                            Popover::new("environment-picker")
-                                .open(self.environment_pallete_open)
-                                .on_open_change({
-                                    let this = this.clone();
-                                    let palette = palette.clone();
-                                    move |is_open, window, cx| {
-                                        if *is_open {
-                                            palette.update(cx, |palette, cx| {
-                                                palette.set_query("", window, cx);
-                                            });
-                                        }
-                                        this.update(cx, |this, cx| {
-                                            this.environment_pallete_open = *is_open;
-                                            cx.notify();
-                                        });
-                                    }
-                                })
-                                .trigger(
-                                    Button::new("env-trigger")
-                                        .ghost()
-                                        .small()
-                                        .label(active_env.clone())
-                                        .tooltip("Switch Environment"),
-                                )
-                                .content(move |_, _, cx| {
-                                    let envs = ep.read(cx).envs.clone();
-                                    let active = active_env.clone();
-                                    let items: Vec<CommandItem> = envs
-                                        .iter()
-                                        .enumerate()
-                                        .map(|(_i, name)| {
-                                            CommandItem::new()
-                                                .label(name.clone())
-                                                .icon(IconName::Variable)
-                                                .checked(name.clone() == active)
-                                        })
-                                        .collect();
-                                    Command::new(&palette)
-                                        .bordered(false)
-                                        .placeholder("Search or switch environment")
-                                        .w(px(260.))
-                                        .items(items)
-                                        .separator()
-                                        .footer({
-                                            let this = this.clone();
-                                            let palette = palette.clone();
-                                            let ep = ep.clone();
-                                            move |_, _, _| {
-                                                Button::new("add-env")
-                                                    .ghost()
-                                                    .label("Add Environment")
-                                                    .icon(IconName::Plus)
-                                                    .w_full()
-                                                    .justify_start()
-                                                    .on_click({
-                                                        let this = this.clone();
-                                                        let palette = palette.clone();
-                                                        let ep = ep.clone();
-                                                        move |_, _window, cx| {
-                                                            let name = palette
-                                                                .read(cx)
-                                                                .query(cx)
-                                                                .to_string();
-                                                            let name = name.trim().to_string();
-                                                            if name.is_empty() {
-                                                                return;
-                                                            }
-                                                            let mut envs: Vec<
-                                                                crate::env_playground::Environment,
-                                                            > = serde_json::from_str(
-                                                                &fs::env::read_environments(),
-                                                            )
-                                                            .unwrap_or_default();
-                                                            if envs.iter().any(|e| e.name == name) {
-                                                                return;
-                                                            }
-                                                            envs.push(crate::env_playground::Environment {
-                                                                name: name.clone(),
-                                                                variables: Vec::new(),
-                                                            });
-                                                            let content = serde_json::to_string_pretty(
-                                                                &envs,
-                                                            )
-                                                            .unwrap_or_default();
-                                                            let _ = fs::env::write_environments(&content);
-                                                            ep.update(cx, |panel, cx| panel.refresh(cx));
-                                                             this.update(cx, |this, cx| {
-                                                                 cx.notify();
-                                                             });
-                                                        }
-                                                    })
-                                                    .into_any_element()
-                                            }
-                                        })
-                                        .on_confirm({
-                                            let this = this.clone();
-                                            let ep = ep.clone();
-                                            move |index, _window, cx| {
-                                                let envs = ep.read(cx).envs.clone();
-                                                if let Some(name) = envs.get(index.row) {
-                                                    let name = name.clone();
-                                                    fs::env::save_active(&name);
-                                                    ep.update(cx, |panel, cx| panel.refresh(cx));
-                                                     this.update(cx, |this, cx| {
-                                                         this.environment_pallete_open = false;
-                                                         cx.notify();
-                                                     });
-                                                }
-                                            }
-                                        })
-                                        .into_any_element()
-                                })
-                        })
-                    }),
-            )
-    }
 }
 
 impl Render for ApiClient {
@@ -817,7 +541,7 @@ impl Render for ApiClient {
             .on_action(cx.listener(Self::handle_dock_env_panel_left))
             .on_action(cx.listener(Self::handle_dock_env_panel_right))
             .on_action(cx.listener(Self::handle_theme_change))
-            .child(self.render_titlebar(cx))
+            .child(self.titlebar.clone())
             .child({
                 let shell = self.shell.clone();
 
