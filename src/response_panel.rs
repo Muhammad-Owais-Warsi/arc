@@ -47,12 +47,19 @@ impl ResponsePanel {
         self.show
     }
 
+    pub fn has_response(&self) -> bool {
+        self.data.is_some()
+    }
+
     pub fn toggle(&mut self, cx: &mut Context<Self>) {
         self.show = !self.show;
         cx.notify();
     }
 
     pub fn open(&mut self, cx: &mut Context<Self>) {
+        if self.show {
+            return;
+        }
         self.show = true;
         cx.notify();
     }
@@ -367,9 +374,7 @@ impl Render for ResponsePanel {
             .h_full()
             .min_h(px(0.))
             .v_flex()
-            .border_t_1()
-            .border_color(cx.theme().border)
-            .bg(cx.theme().background)
+            .bg(cx.theme().tokens.sidebar)
             .child(
                 h_flex()
                     .w_full()
@@ -416,6 +421,7 @@ impl Render for ResponsePanel {
                     .min_h(px(0.))
                     .min_w(px(0.))
                     .overflow_hidden()
+                    .bg(cx.theme().background)
                     .px(px(24.))
                     .child(
                         Editor::new(&self.body)
@@ -437,6 +443,7 @@ impl Render for ResponsePanel {
                         .min_h(px(0.))
                         .min_w(px(0.))
                         .overflow_y_scrollbar()
+                        .bg(cx.theme().background)
                         .px(px(24.))
                         .child(Self::render_headers_table(headers, cx))
                         .into_any_element()
@@ -452,6 +459,7 @@ impl Render for ResponsePanel {
                         .min_h(px(0.))
                         .min_w(px(0.))
                         .overflow_y_scrollbar()
+                        .bg(cx.theme().background)
                         .px(px(24.))
                         .child(Self::render_cookies_table(cookies, cx))
                         .into_any_element()

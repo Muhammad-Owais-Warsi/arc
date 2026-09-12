@@ -1,8 +1,9 @@
+use crate::dock::tabs::CenterTab;
 use crate::fs;
 use crate::fs::request::KeyValue;
+use crate::helpers::render_method_tag;
 use crate::icons::IconName;
-use crate::playground::Playground;
-use crate::response_panel::ResponsePanel;
+use gpui_kit::base::dock::{Panel, PanelEvent};
 use gpui_kit::component::button::{Button, ButtonCustomVariant, ButtonVariants};
 use gpui_kit::component::clipboard::Clipboard;
 use gpui_kit::component::input::{Input, InputEvent, InputState};
@@ -40,6 +41,7 @@ pub struct EnvPlayground {
     rows: Vec<EnvRow>,
     dirty: bool,
     initial: Vec<KeyValue>,
+    focus: FocusHandle,
 }
 
 impl EnvPlayground {
@@ -70,14 +72,15 @@ impl EnvPlayground {
             dirty: false,
             initial_name,
             initial,
+            focus: cx.focus_handle(),
         };
 
         this.watch_all_inputs(window, cx);
         this
     }
 
-    pub fn name(&self, cx: &mut Context<Self>) -> String {
-        self.name.read(cx).value().to_string().clone()
+    pub fn name(&self, cx: &App) -> String {
+        self.name.read(cx).value().to_string()
     }
 
     fn read_env_from_disk(name: &str) -> Vec<KeyValue> {
@@ -170,12 +173,53 @@ impl EnvPlayground {
     }
 }
 
-impl Playground for EnvPlayground {
-    fn method(&self, _cx: &App) -> String {
-        "ENV".to_string()
+impl Panel for EnvPlayground {
+    fn panel_name(&self) -> &'static str {
+        "env"
     }
-    fn response_panel(&self, _cx: &App) -> Option<Entity<ResponsePanel>> {
-        None
+
+    fn zoomable(&self, _cx: &App) -> bool {
+        false
+    }
+}
+
+impl EventEmitter<PanelEvent> for EnvPlayground {}
+
+impl Focusable for EnvPlayground {
+    fn focus_handle(&self, _cx: &App) -> FocusHandle {
+        self.focus.clone()
+    }
+}
+
+impl CenterTab for EnvPlayground {
+    fn tab_label(&self, cx: &App) -> SharedString {
+        self.name(cx).into()
+    }
+
+    fn tab_prefix(
+        &mut self,
+        _window: &mut Window,
+        _cx: &mut Context<Self>,
+    ) -> Option<AnyElement> {
+        Some(render_method_tag("ENV").into_any_element())
+    }
+
+    fn tab_suffix(
+        &mut self,
+        _window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> Option<AnyElement> {
+        if self.dirty {
+            Some(
+                div()
+                    .size_2()
+                    .rounded_full()
+                    .bg(cx.theme().primary)
+                    .into_any_element(),
+            )
+        } else {
+            None
+        }
     }
 }
 

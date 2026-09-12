@@ -368,7 +368,8 @@ impl SettingsPanel {
                                         SidebarDock::Left
                                     };
                                 AppSettings::global_mut(cx).save();
-                                cx.refresh_windows();
+                                // Live-apply happens via the footer dock menus;
+                                // settings-window changes take effect on restart.
                             },
                         )
                         .default_value("left"),
@@ -399,7 +400,8 @@ impl SettingsPanel {
                                         SidebarDock::Left
                                     };
                                 AppSettings::global_mut(cx).save();
-                                cx.refresh_windows();
+                                // Live-apply happens via the footer dock menus;
+                                // settings-window changes take effect on restart.
                             },
                         )
                         .default_value("right"),

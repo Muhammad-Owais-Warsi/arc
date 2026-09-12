@@ -7,18 +7,15 @@ use crate::fs;
 use crate::helpers::{next_id, render_method_tag};
 use gpui_kit::*;
 
-use crate::settings_panel::AppSettings;
-
-// use gpui_kit::component::Icon;
 use gpui_kit::component::input::{Input, InputEvent, InputState};
+use gpui_kit::component::list::ListItem;
+use gpui_kit::component::tree::{TreeEvent, TreeItem, TreeState, tree};
+use gpui_kit::component::{ActiveTheme, Icon, IconNamed, StyledExt, h_flex};
+use gpui_kit::prelude::FluentBuilder;
 
 use crate::icons::IconName;
+use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
-// use gpui_kit::component::sidebar::Sidebar;
-use gpui_kit::component::sidebar::{
-    Sidebar, SidebarCollapsible, SidebarGroup, SidebarMenu, SidebarMenuItem,
-};
-use std::collections::HashMap;
 use walkdir::WalkDir;
 
 pub struct DirTree {
@@ -37,6 +34,7 @@ pub enum ProjectPanelEvent {
     FileRenamed {
         node_id: usize,
         new_name: String,
+        new_path: String,
     },
     FileDeleted {
         node_id: usize,
@@ -91,27 +89,43 @@ pub struct ProjectPanel {
     path: String,
     nodes: HashMap<usize, Node>,
     root_id: Vec<usize>,
-    sidebar_collapsed: bool,
     active_node_id: Option<usize>,
     pending_action: Option<PendingAction>,
     focus: FocusHandle,
     context_target: Option<usize>,
+    tree: Entity<TreeState>,
+    expanded: HashSet<String>,
 }
 
 impl EventEmitter<ProjectPanelEvent> for ProjectPanel {}
 
 impl ProjectPanel {
-    pub fn new(_window: &mut Window, cx: &mut Context<Self>) -> Self {
+    pub fn new(window: &mut Window, cx: &mut Context<Self>) -> Self {
+        let tree = cx.new(|cx| TreeState::new(cx));
+        cx.subscribe_in(
+            &tree,
+            window,
+            |this: &mut Self, _, event, _, _| match event {
+                TreeEvent::Expanded(id) => {
+                    this.expanded.insert(id.to_string());
+                }
+                TreeEvent::Collapsed(id) => {
+                    this.expanded.remove(id.as_ref());
+                }
+            },
+        )
+        .detach();
         Self {
             name: String::new(),
             path: String::new(),
             nodes: HashMap::new(),
             root_id: Vec::new(),
-            sidebar_collapsed: true,
             active_node_id: None,
             pending_action: None,
             focus: cx.focus_handle(),
             context_target: None,
+            tree,
+            expanded: HashSet::new(),
         }
     }
 
@@ -133,11 +147,55 @@ impl ProjectPanel {
         self.path = path;
         self.nodes = nodes;
         self.root_id = vec![root_id];
-        self.active_node_id = None;
         self.pending_action = None;
         self.context_target = None;
+        self.expanded.clear();
+        self.expanded.insert(root_id.to_string());
 
+        self.rebuild_tree(cx);
         cx.notify();
+    }
+
+    /// Rebuild kit tree items from the node map, restoring expansion.
+    fn rebuild_tree(&mut self, cx: &mut Context<Self>) {
+        let items: Vec<TreeItem> = self
+            .root_id
+            .clone()
+            .into_iter()
+            .filter_map(|id| self.build_tree_item(id))
+            .collect();
+        self.tree.update(cx, |tree, cx| {
+            tree.set_items(items, cx);
+        });
+    }
+
+    fn build_tree_item(&self, node_id: usize) -> Option<TreeItem> {
+        let node = self.nodes.get(&node_id)?;
+        let mut item = TreeItem::new(node_id.to_string(), node.name.clone());
+        if !node.children.is_empty() || self.pending_parent_is(node_id) {
+            let mut children: Vec<TreeItem> = node
+                .children
+                .iter()
+                .filter_map(|id| self.build_tree_item(*id))
+                .collect();
+            if self.pending_parent_is(node_id) {
+                children.push(TreeItem::new("pending:new", ""));
+            }
+            item = item.children(children);
+        }
+        if self.expanded.contains(&node_id.to_string()) {
+            item = item.expanded(true);
+        }
+        Some(item)
+    }
+
+    fn pending_parent_is(&self, node_id: usize) -> bool {
+        matches!(
+            &self.pending_action,
+            Some(PendingAction::CreateFile { parent_id, .. })
+            | Some(PendingAction::CreateFolder { parent_id, .. })
+                if *parent_id == node_id
+        )
     }
 
     pub fn list_workspace_dirs() -> Vec<(String, PathBuf)> {
@@ -221,185 +279,6 @@ impl ProjectPanel {
             return true;
         }
         false
-    }
-
-    fn build_node_context(
-        &self,
-        item: SidebarMenuItem,
-        node_id: usize,
-        is_file: bool,
-        cx: &mut Context<Self>,
-    ) -> SidebarMenuItem {
-        let this = cx.weak_entity();
-        let focus = self.focus.clone();
-        let is_workspace_root = self.is_workspace_root(node_id);
-
-        item.context_menu(move |menu, _, cx| {
-            this.update(cx, move |p, _cx| {
-                p.context_target = Some(node_id);
-            })
-            .ok();
-
-            let menu = menu.min_w(px(200.)).action_context(focus.clone());
-
-            let menu = if !is_file {
-                menu.menu("Create File", Box::new(CreateFile))
-                    .menu("Create Folder", Box::new(CreateFolder))
-                    .separator()
-            } else {
-                menu.menu("Stress Test", Box::new(StressTestPlayground))
-                    .separator()
-            };
-
-            let menu = menu
-                .menu("Copy Path", Box::new(CopyPath))
-                .menu("Copy Relative Path", Box::new(CopyRelativePath))
-                .separator();
-
-            if !is_workspace_root {
-                menu.menu("Rename", Box::new(RenameItem))
-                    .menu("Trash", Box::new(TrashItem))
-                    .menu("Delete", Box::new(DeleteItem))
-            } else {
-                menu
-            }
-        })
-    }
-
-    fn is_workspace_root(&self, node_id: usize) -> bool {
-        node_id == self.root_id[0]
-    }
-
-    fn add_node_click_handler(
-        item: SidebarMenuItem,
-        node_id: usize,
-        name: &str,
-        path: &str,
-        method: &str,
-        cx: &mut Context<Self>,
-    ) -> SidebarMenuItem {
-        let name = name.to_owned();
-        let path = path.to_owned();
-        let method = method.to_owned();
-
-        item.on_click(cx.listener(move |this, _event, window, cx| {
-            window.focus(&this.focus, cx);
-            this.active_node_id = Some(node_id);
-
-            cx.emit(ProjectPanelEvent::FileActivated {
-                node_id,
-                name: name.clone(),
-                path: path.clone(),
-                method: method.clone(),
-            });
-
-            cx.notify();
-        }))
-    }
-
-    fn node_pending_file_or_folder(
-        &mut self,
-        item: SidebarMenuItem,
-        pending_parent_id: Option<usize>,
-        children_ids: Vec<usize>,
-        cx: &mut Context<Self>,
-    ) -> SidebarMenuItem {
-        let mut children = Vec::new();
-
-        if let Some(_parent_id) = pending_parent_id {
-            if let Some(ref pending) = self.pending_action {
-                let input = match pending {
-                    PendingAction::CreateFile { input, .. }
-                    | PendingAction::CreateFolder { input, .. } => Some(input.clone()),
-                    _ => None,
-                };
-                if let Some(input) = input {
-                    children.push(SidebarMenuItem::new("").suffix(move |_window, _cx| {
-                        Input::new(&input).appearance(false).into_any_element()
-                    }));
-                }
-            }
-        }
-
-        children.extend(
-            children_ids
-                .iter()
-                .map(|&child_id| self.render_node(child_id, cx)),
-        );
-
-        item.children(children)
-    }
-
-    pub fn render_node(&mut self, node_id: usize, cx: &mut Context<Self>) -> SidebarMenuItem {
-        let Some(node) = self.nodes.get(&node_id) else {
-            return SidebarMenuItem::new("???".to_string());
-        };
-
-        let is_file = node.is_file;
-        let name = node.name.clone();
-        let method = node.method.clone();
-        let path = node.path.clone();
-        let children_ids: Vec<usize> = node.children.clone();
-
-        let method_for_suffix = method.clone();
-        let is_renaming = matches!(
-            &self.pending_action,
-            Some(PendingAction::Rename { node_id: id, .. }) if *id == node_id
-        );
-
-        let mut item = if is_renaming {
-            if let Some(PendingAction::Rename { input, .. }) = &self.pending_action {
-                let input = input.clone();
-                SidebarMenuItem::new("")
-                    .suffix(move |_, _| Input::new(&input).appearance(false).into_any_element())
-            } else {
-                SidebarMenuItem::new(name.clone())
-            }
-        } else {
-            SidebarMenuItem::new(name.clone()).suffix(move |_, _| {
-                if is_file {
-                    div()
-                        .child(render_method_tag(&method_for_suffix))
-                        .into_any_element()
-                } else {
-                    div().into_any_element()
-                }
-            })
-        };
-
-        let is_active = self.active_node_id == Some(node_id);
-        if !is_file && !self.sidebar_collapsed {
-            item = item.icon(if is_active {
-                IconName::FolderOpen
-            } else {
-                IconName::Folder
-            });
-        }
-
-        item = self.build_node_context(item, node_id, is_file, cx);
-
-        let is_active = self.active_node_id == Some(node_id);
-        item = item.active(is_active);
-
-        if is_file {
-            item = Self::add_node_click_handler(item, node_id, &name, &path, &method, cx)
-        }
-
-        let pending_parent_id = match &self.pending_action {
-            Some(PendingAction::CreateFile { parent_id, .. })
-            | Some(PendingAction::CreateFolder { parent_id, .. })
-                if *parent_id == node_id =>
-            {
-                Some(*parent_id)
-            }
-            _ => None,
-        };
-
-        if children_ids.is_empty() && pending_parent_id.is_none() {
-            item
-        } else {
-            self.node_pending_file_or_folder(item, pending_parent_id, children_ids, cx)
-        }
     }
 
     pub fn activate_stress_test_playground(
@@ -514,6 +393,7 @@ impl ProjectPanel {
             return;
         }
         self.remove_node_from_tree(node_id);
+        self.rebuild_tree(cx);
         cx.emit(ProjectPanelEvent::FileDeleted {
             node_id,
             path,
@@ -539,6 +419,7 @@ impl ProjectPanel {
         }
 
         self.remove_node_from_tree(node_id);
+        self.rebuild_tree(cx);
 
         cx.emit(ProjectPanelEvent::FileTrashed {
             node_id: node_id,
@@ -626,6 +507,7 @@ impl ProjectPanel {
                         eprintln!("Failed to create file: {err}");
                     }
                 }
+                self.rebuild_tree(cx);
             }
 
             PendingAction::CreateFolder { parent_id, input } => {
@@ -665,6 +547,7 @@ impl ProjectPanel {
                         eprintln!("Failed to create folder: {err}");
                     }
                 }
+                self.rebuild_tree(cx);
             }
 
             PendingAction::Rename { node_id, input } => {
@@ -689,18 +572,26 @@ impl ProjectPanel {
 
                 if fs::request::rename(&old_path, &new_path).is_ok() {
                     if let Some(node) = ws.nodes.get_mut(&node_id) {
-                        let old_name = node.name.clone();
-                        let clean_name = old_name.strip_suffix(".json").unwrap_or(&old_name);
+                        // Display name tracks the NEW name (sans extension),
+                        // not the old one.
+                        let clean_name = new_name
+                            .strip_suffix(".json")
+                            .unwrap_or(&new_name);
                         node.name = clean_name.to_string();
-                        node.path = new_path;
+                        node.path = new_path.clone();
                     }
 
-                    cx.emit(ProjectPanelEvent::FileRenamed { node_id, new_name });
+                    cx.emit(ProjectPanelEvent::FileRenamed {
+                        node_id,
+                        new_name,
+                        new_path,
+                    });
                 } else {
                     eprintln!("Failed to rename");
                 }
 
                 self.nodes = ws.nodes;
+                self.rebuild_tree(cx);
                 cx.notify();
             }
         }
@@ -732,17 +623,21 @@ impl ProjectPanel {
         Self::update_node_method(&mut self.nodes, node_id, method);
     }
 
-    pub fn set_collapsed(&mut self, collapsed: bool, cx: &mut Context<Self>) {
-        self.sidebar_collapsed = collapsed;
+    /// Mark the opened file (kept for context-menu targeting) and move
+    /// tree selection to it, so it carries the selected-row background
+    /// (Zed-style) instead of a one-off color.
+    pub fn set_active_node(&mut self, node_id: Option<usize>, cx: &mut Context<Self>) {
+        self.active_node_id = node_id;
+        if let Some(id) = node_id {
+            let key: SharedString = id.to_string().into();
+            self.tree.update(cx, |tree, cx| {
+                if let Some(ix) = tree.index_of(&key) {
+                    tree.set_selected_index(Some(ix), cx);
+                    tree.reveal_item(&key, gpui::ScrollStrategy::Top, cx);
+                }
+            });
+        }
         cx.notify();
-    }
-
-    pub fn is_collapsed(&self) -> bool {
-        self.sidebar_collapsed
-    }
-
-    pub fn set_active_node(&mut self, node_id: Option<usize>) {
-        self.active_node_id = node_id
     }
 
     pub fn handle_copy_path(&mut self, _: &CopyPath, _w: &mut Window, cx: &mut Context<Self>) {
@@ -794,44 +689,177 @@ impl ProjectPanel {
 impl Render for ProjectPanel {
     fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let ws_name = self.name.clone();
-        let root_ids: Vec<usize> = self.root_id.clone();
+        let nodes = self.nodes.clone();
+        let root_id = self.root_id.first().copied();
+        let panel = cx.weak_entity();
+        let focus = self.focus.clone();
 
-        let sidebar = if self.nodes.is_empty() {
-            Sidebar::new("api-sidebar")
-                .collapsible(SidebarCollapsible::Offcanvas)
-                .collapsed(self.sidebar_collapsed)
-                .side(
-                    AppSettings::global(cx)
-                        .panel
-                        .project_panel
-                        .sidebar_dock
-                        .to_side(),
-                )
-                .into_element()
+        let pending_new: Option<Entity<InputState>> = match &self.pending_action {
+            Some(PendingAction::CreateFile { input, .. })
+            | Some(PendingAction::CreateFolder { input, .. }) => Some(input.clone()),
+            _ => None,
+        };
+        let pending_rename: Option<(usize, Entity<InputState>)> = match &self.pending_action {
+            Some(PendingAction::Rename { node_id, input }) => Some((*node_id, input.clone())),
+            _ => None,
+        };
+
+        let menu_nodes = nodes.clone();
+        let menu_panel = panel.clone();
+        let menu_focus = focus.clone();
+        let menu_roots = root_id;
+        let content = if self.nodes.is_empty() {
+            div()
+                .flex_1()
+                .flex()
+                .items_center()
+                .justify_center()
+                .text_color(cx.theme().muted_foreground)
+                .child("No workspace")
+                .into_any_element()
         } else {
-            Sidebar::new("api-sidebar")
-                .collapsible(SidebarCollapsible::Offcanvas)
-                .side(
-                    AppSettings::global(cx)
-                        .panel
-                        .project_panel
-                        .sidebar_dock
-                        .to_side(),
-                )
-                .collapsed(self.sidebar_collapsed)
-                .child(
-                    SidebarGroup::new(&ws_name).child(
-                        SidebarMenu::new()
-                            .children(root_ids.iter().map(|&id| self.render_node(id, cx))),
-                    ),
-                )
-                .into_element()
+            tree(
+                &self.tree,
+                move |ix, entry, selected, _window, cx| {
+                    let key = entry.item().id.clone();
+                    if key.as_ref() == "pending:new" {
+                        if let Some(input) = pending_new.clone() {
+                            return ListItem::new(("pending-row", ix))
+                                .mx(px(4.))
+                                .rounded(px(6.))
+                                .child(Input::new(&input).appearance(false));
+                        }
+                    }
+                    let node_id: usize = key.parse().unwrap_or(usize::MAX);
+                    let Some(node) = nodes.get(&node_id).cloned() else {
+                        return ListItem::new(("missing-row", ix));
+                    };
+                    if let Some((rename_id, input)) = pending_rename.clone() {
+                        if rename_id == node_id {
+                            return ListItem::new(("rename-row", ix))
+                                .selected(selected)
+                                .mx(px(4.))
+                                .rounded(px(6.))
+                                .child(Input::new(&input).appearance(false));
+                        }
+                    }
+                    let expanded = entry.is_expanded();
+                    let folder_icon = if node.is_file {
+                        None
+                    } else if expanded {
+                        Some(IconName::FolderOpen)
+                    } else {
+                        Some(IconName::Folder)
+                    };
+                    let chevron = if node.is_file {
+                        None
+                    } else if expanded {
+                        Some(IconName::ChevronDown)
+                    } else {
+                        Some(IconName::ChevronRight)
+                    };
+                    let muted = cx.theme().muted_foreground;
+                    // Zed-compact: 15px icons, small label, no extra padding.
+                    let icon_el = |name: IconName| {
+                        Icon::empty()
+                            .path(name.path())
+                            .size(px(15.))
+                            .into_any_element()
+                    };
+                    let (name, path, method, is_file) = (
+                        node.name.clone(),
+                        node.path.clone(),
+                        node.method.clone(),
+                        node.is_file,
+                    );
+                    let row_panel = panel.clone();
+                    ListItem::new(("file-row", ix))
+                        .selected(selected)
+                        .mx(px(4.))
+                        .rounded(px(6.))
+                        .child(
+                            h_flex()
+                                .w_full()
+                                .items_center()
+                                .gap_1()
+                                .pl(px(6. + entry.depth() as f32 * 14.))
+                                .children(folder_icon.map(|icon| div().flex_none().child(icon_el(icon))))
+                                .child(div().text_sm().child(name.clone()))
+                                .child(div().flex_1())
+                                .when(is_file, |t| {
+                                    t.child(render_method_tag(&method))
+                                })
+                                .children(chevron.map(|icon| {
+                                    div().flex_none().text_color(muted).child(
+                                        Icon::empty()
+                                            .path(icon.path())
+                                            .size(px(12.)),
+                                    )
+                                })),
+                        )
+                        .on_click(move |_, window, cx| {
+                            row_panel
+                                .update(cx, |p, cx| {
+                                    window.focus(&p.focus, cx);
+                                    p.active_node_id = Some(node_id);
+                                    if is_file {
+                                        cx.emit(ProjectPanelEvent::FileActivated {
+                                            node_id,
+                                            name: name.clone(),
+                                            path: path.clone(),
+                                            method: method.clone(),
+                                        });
+                                    }
+                                    cx.notify();
+                                })
+                                .ok();
+                        })
+                },
+            )
+            .context_menu(move |_ix, entry, menu, _window, cx| {
+                let node_id: usize = entry.item().id.parse().unwrap_or(usize::MAX);
+                menu_panel
+                    .update(cx, |p, _| {
+                        p.context_target = Some(node_id);
+                    })
+                    .ok();
+                let is_file = menu_nodes
+                    .get(&node_id)
+                    .map(|n| n.is_file)
+                    .unwrap_or(true);
+                let is_root = menu_roots.is_some_and(|id| id == node_id);
+                let menu = menu.min_w(px(200.)).action_context(menu_focus.clone());
+                let menu = if !is_file {
+                    menu.menu("Create File", Box::new(CreateFile))
+                        .menu("Create Folder", Box::new(CreateFolder))
+                        .separator()
+                } else {
+                    menu.menu("Stress Test", Box::new(StressTestPlayground))
+                        .separator()
+                };
+                let menu = menu
+                    .menu("Copy Path", Box::new(CopyPath))
+                    .menu("Copy Relative Path", Box::new(CopyRelativePath))
+                    .separator();
+                if !is_root {
+                    menu.menu("Rename", Box::new(RenameItem))
+                        .menu("Trash", Box::new(TrashItem))
+                        .menu("Delete", Box::new(DeleteItem))
+                } else {
+                    menu
+                }
+            })
+            .into_any_element()
         };
 
         div()
             .id("project-panel")
             .track_focus(&self.focus)
             .h_full()
+            .w_full()
+            .v_flex()
+            .overflow_hidden()
+            .bg(cx.theme().tokens.sidebar)
             .on_action(cx.listener(Self::handle_create_file))
             .on_action(cx.listener(Self::handle_create_folder))
             .on_action(cx.listener(Self::handle_rename_item))
@@ -840,7 +868,16 @@ impl Render for ProjectPanel {
             .on_action(cx.listener(Self::handle_copy_path))
             .on_action(cx.listener(Self::handle_copy_relative_path))
             .on_action(cx.listener(Self::activate_stress_test_playground))
-            .child(sidebar)
+            .child(
+                div()
+                    .flex_none()
+                    .px_3()
+                    .py_2()
+                    .text_sm()
+                    .font_semibold()
+                    .child(ws_name),
+            )
+            .child(div().flex_1().min_h(px(0.)).px(px(2.)).child(content))
             .into_element()
     }
 }

@@ -1,3 +1,4 @@
+use gpui_kit::base::dock::{Panel, PanelEvent};
 use gpui_kit::component::button::{Button, ButtonVariants};
 use gpui_kit::component::clipboard::Clipboard;
 use gpui_kit::component::input::Input;
@@ -6,18 +7,18 @@ use gpui_kit::component::{ActiveTheme, StyledExt, h_flex, v_flex};
 use gpui_kit::component::{
     IndexPath,
     input::{InputEvent, InputState},
-    resizable::{resizable_panel, v_resizable},
     select::{Select, SelectEvent, SelectState},
     tab::{self, Tab, TabBar},
 };
 use gpui_kit::prelude::FluentBuilder;
 use gpui_kit::*;
 
+use crate::dock::tabs::CenterTab;
 use crate::fs::request::{Auth as AuthContent, Body as BodyContent, KeyValue, RequestFileContent};
+use crate::helpers::render_method_tag;
 use crate::http_client::HttpClient;
 use crate::http_request::HttpRequest;
 use crate::http_response::{AuthPayload, RequestStats, Response, ResponseBody, ResponseHeaders};
-use crate::playground::Playground;
 use crate::settings_panel::AppSettings;
 use crate::{
     auth::{Auth, AuthEvent, AuthType},
@@ -31,6 +32,7 @@ use crate::{curl::CurlRequest, fs};
 
 pub struct RequestPlayground {
     path: Option<String>,
+    tab_name: String,
     method: Entity<SelectState<Vec<String>>>,
     url: Entity<InputState>,
     auth: Entity<Auth>,
@@ -42,6 +44,7 @@ pub struct RequestPlayground {
     dirty: bool,
     response_panel: Entity<ResponsePanel>,
     snapshot: RequestFileContent,
+    focus: FocusHandle,
 }
 
 pub enum RequestPlaygroundEvent {
@@ -51,12 +54,53 @@ pub enum RequestPlaygroundEvent {
 
 impl EventEmitter<RequestPlaygroundEvent> for RequestPlayground {}
 
-impl Playground for RequestPlayground {
-    fn method(&self, cx: &App) -> String {
-        self.method(cx)
+impl Panel for RequestPlayground {
+    fn panel_name(&self) -> &'static str {
+        "request"
     }
-    fn response_panel(&self, _cx: &App) -> Option<Entity<ResponsePanel>> {
-        Some(self.respone_panel_entity())
+
+    fn zoomable(&self, _cx: &App) -> bool {
+        false
+    }
+}
+
+impl EventEmitter<PanelEvent> for RequestPlayground {}
+
+impl Focusable for RequestPlayground {
+    fn focus_handle(&self, _cx: &App) -> FocusHandle {
+        self.focus.clone()
+    }
+}
+
+impl CenterTab for RequestPlayground {
+    fn tab_label(&self, _cx: &App) -> SharedString {
+        self.tab_name.clone().into()
+    }
+
+    fn tab_prefix(
+        &mut self,
+        _window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> Option<AnyElement> {
+        Some(render_method_tag(&self.method(cx)).into_any_element())
+    }
+
+    fn tab_suffix(
+        &mut self,
+        _window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> Option<AnyElement> {
+        if self.dirty {
+            Some(
+                div()
+                    .size_2()
+                    .rounded_full()
+                    .bg(cx.theme().primary)
+                    .into_any_element(),
+            )
+        } else {
+            None
+        }
     }
 }
 
@@ -106,6 +150,8 @@ impl RequestPlayground {
             response_panel,
             snapshot: RequestFileContent::default(),
             path: None,
+            tab_name: "Untitled".to_string(),
+            focus: cx.focus_handle(),
         };
         this.snapshot = this.current_content(cx);
 
@@ -249,8 +295,26 @@ impl RequestPlayground {
         }
     }
 
-    pub fn respone_panel_entity(&self) -> Entity<ResponsePanel> {
-        self.response_panel.clone()
+    pub fn set_response_panel(&mut self, panel: Entity<ResponsePanel>) {
+        self.response_panel = panel;
+    }
+
+    pub fn set_tab_name(&mut self, name: String, cx: &mut Context<Self>) {
+        if self.tab_name != name {
+            self.tab_name = name;
+            cx.notify();
+        }
+    }
+
+    /// Full rename sync: tab label + file path + saved snapshot name, so a
+    /// later save (or save-on-close) targets the new file with the new name
+    /// instead of resurrecting the old one.
+    pub fn rename_file(&mut self, name: String, path: String, cx: &mut Context<Self>) {
+        let clean_name = name.strip_suffix(".json").unwrap_or(&name).to_string();
+        self.tab_name = clean_name.clone();
+        self.snapshot.name = clean_name;
+        self.path = Some(path);
+        cx.notify();
     }
 
     pub fn set_path(&mut self, path: String) {
@@ -496,9 +560,9 @@ impl RequestPlayground {
 
 impl Render for RequestPlayground {
     fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
-        let show_response = self.response_panel.read(cx).is_shown();
-
-        let editor_content = div()
+        // The response lives in the shell's bottom aux slot now; center tabs
+        // render the editor only.
+        div()
             .size_full()
             .min_h(px(0.))
             .v_flex()
@@ -518,33 +582,7 @@ impl Render for RequestPlayground {
                     .overflow_y_scrollbar()
                     .px(px(24.))
                     .child(self.render_config_content(cx)),
-            );
-
-        if show_response {
-            div()
-                .flex_1()
-                .min_h(px(0.))
-                .w_full()
-                .overflow_hidden()
-                .child(
-                    v_resizable("editor-response-split")
-                        .child(
-                            resizable_panel()
-                                .size(px(500.))
-                                .size_range(px(200.)..px(1200.))
-                                .child(editor_content),
-                        )
-                        .child(
-                            resizable_panel()
-                                .size(px(280.))
-                                .size_range(px(100.)..px(600.))
-                                .child(self.response_panel.clone()),
-                        ),
-                )
-                .into_any_element()
-        } else {
-            editor_content.into_any_element()
-        }
+            )
     }
 }
 

@@ -41,31 +41,49 @@ impl Footer {
     }
 
     pub fn set_show_toggle(&mut self, show: bool, cx: &mut Context<Self>) {
+        if self.show_toggle == show {
+            return;
+        }
         self.show_toggle = show;
         cx.notify();
     }
 
     pub fn set_project_panel_collapsed(&mut self, collapsed: bool, cx: &mut Context<Self>) {
+        if self.project_panel_collapsed == collapsed {
+            return;
+        }
         self.project_panel_collapsed = collapsed;
         cx.notify();
     }
 
     pub fn set_env_panel_collapsed(&mut self, collapsed: bool, cx: &mut Context<Self>) {
+        if self.env_panel_collapsed == collapsed {
+            return;
+        }
         self.env_panel_collapsed = collapsed;
         cx.notify();
     }
 
     pub fn set_response_collapsed(&mut self, collapsed: bool, cx: &mut Context<Self>) {
+        if self.response_collapsed == collapsed {
+            return;
+        }
         self.response_collapsed = collapsed;
         cx.notify();
     }
 
     pub fn set_project_panel_dock(&mut self, dock: SidebarDock, cx: &mut Context<Self>) {
+        if self.project_panel_dock == dock {
+            return;
+        }
         self.project_panel_dock = dock;
         cx.notify();
     }
 
     pub fn set_env_panel_dock(&mut self, dock: SidebarDock, cx: &mut Context<Self>) {
+        if self.env_panel_dock == dock {
+            return;
+        }
         self.env_panel_dock = dock;
         cx.notify();
     }

@@ -1,22 +1,50 @@
-use crate::playground::Playground;
-use crate::response_panel::ResponsePanel;
+use crate::dock::tabs::CenterTab;
+use crate::helpers::render_method_tag;
+use gpui_kit::base::dock::{Panel, PanelEvent};
 use gpui_kit::component::{ActiveTheme, StyledExt};
 use gpui_kit::*;
 
-pub struct WelcomeScreen {}
+pub struct WelcomeScreen {
+    focus: FocusHandle,
+}
 
 impl WelcomeScreen {
-    pub fn new(_window: &mut Window, _cx: &mut Context<Self>) -> Self {
-        Self {}
+    pub fn new(_window: &mut Window, cx: &mut Context<Self>) -> Self {
+        Self {
+            focus: cx.focus_handle(),
+        }
     }
 }
 
-impl Playground for WelcomeScreen {
-    fn method(&self, _cx: &App) -> String {
-        "WELCOME".to_string()
+impl Panel for WelcomeScreen {
+    fn panel_name(&self) -> &'static str {
+        "welcome"
     }
-    fn response_panel(&self, _cx: &App) -> Option<Entity<ResponsePanel>> {
-        None
+
+    fn zoomable(&self, _cx: &App) -> bool {
+        false
+    }
+}
+
+impl EventEmitter<PanelEvent> for WelcomeScreen {}
+
+impl Focusable for WelcomeScreen {
+    fn focus_handle(&self, _cx: &App) -> FocusHandle {
+        self.focus.clone()
+    }
+}
+
+impl CenterTab for WelcomeScreen {
+    fn tab_label(&self, _cx: &App) -> SharedString {
+        "Welcome".into()
+    }
+
+    fn tab_prefix(
+        &mut self,
+        _window: &mut Window,
+        _cx: &mut Context<Self>,
+    ) -> Option<AnyElement> {
+        Some(render_method_tag("WELCOME").into_any_element())
     }
 }
 

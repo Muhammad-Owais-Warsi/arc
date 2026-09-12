@@ -1,11 +1,11 @@
+use crate::dock::tabs::CenterTab;
 use crate::fs;
 use crate::fs::request::RequestFileContent;
 use crate::helpers::render_method_tag;
 use crate::http_request::HttpRequest;
 use crate::icons::IconName;
-use crate::playground::Playground;
 use crate::request_playground::RequestPlayground;
-use crate::response_panel::ResponsePanel;
+use gpui_kit::base::dock::{Panel, PanelEvent};
 use crate::stress_engine::{RequestMetric, StressEngine, StressTestConfig, StressTestStats};
 use gpui_kit::component::button::{Button, ButtonVariants};
 use gpui_kit::component::chart::AreaChart;
@@ -41,6 +41,7 @@ fn format_duration(duration: std::time::Duration) -> String {
 pub struct StressTesting {
     request_playground: Option<WeakEntity<RequestPlayground>>,
     path: String,
+    tab_name: String,
     request_per_second: Entity<InputState>,
     status: StressTestingStatus,
     duration: Entity<InputState>,
@@ -50,12 +51,14 @@ pub struct StressTesting {
     stats: StressTestStats,
     started_at: Option<std::time::Instant>,
     elapsed: std::time::Duration,
+    focus: FocusHandle,
 }
 
 impl StressTesting {
     pub fn new(
         request_playground: Option<WeakEntity<RequestPlayground>>,
         path: String,
+        name: String,
         window: &mut Window,
         cx: &mut Context<Self>,
     ) -> Self {
@@ -82,6 +85,7 @@ impl StressTesting {
         Self {
             request_playground,
             path,
+            tab_name: name,
             request_per_second: rps_counter,
             status: StressTestingStatus::Cancelled,
             duration: duration_counter,
@@ -91,6 +95,7 @@ impl StressTesting {
             stats: StressTestStats::new(),
             started_at: None,
             elapsed: std::time::Duration::ZERO,
+            focus: cx.focus_handle(),
         }
     }
 
@@ -425,12 +430,35 @@ impl StressTesting {
     }
 }
 
-impl Playground for StressTesting {
-    fn method(&self, _cx: &App) -> String {
-        "STRESS TEST".to_string()
+impl Panel for StressTesting {
+    fn panel_name(&self) -> &'static str {
+        "stress"
     }
-    fn response_panel(&self, _cx: &App) -> Option<Entity<ResponsePanel>> {
-        None
+
+    fn zoomable(&self, _cx: &App) -> bool {
+        false
+    }
+}
+
+impl EventEmitter<PanelEvent> for StressTesting {}
+
+impl Focusable for StressTesting {
+    fn focus_handle(&self, _cx: &App) -> FocusHandle {
+        self.focus.clone()
+    }
+}
+
+impl CenterTab for StressTesting {
+    fn tab_label(&self, _cx: &App) -> SharedString {
+        self.tab_name.clone().into()
+    }
+
+    fn tab_prefix(
+        &mut self,
+        _window: &mut Window,
+        _cx: &mut Context<Self>,
+    ) -> Option<AnyElement> {
+        Some(render_method_tag("STRESS TEST").into_any_element())
     }
 }
 

@@ -1,340 +1,226 @@
-use crate::env_panel::{EnvPanel, EnvPanelEvent};
+use std::path::Path;
+
+use gpui_kit::base::dock::{DockEvent, DockLayout, DockPlacement, InsertTarget, NodeId, PanelId};
+use gpui_kit::component::IndexPath;
+use gpui_kit::*;
+
+use crate::dock::tabs::EmptyTab;
 use crate::env_playground::{EnvPlayground, EnvPlaygroundEvent};
 use crate::fs;
 use crate::helpers::next_id;
-use crate::playground::PlaygroundHandle;
-use crate::project_panel::{ProjectPanel, ProjectPanelEvent};
-
 use crate::request_playground::{RequestPlayground, RequestPlaygroundEvent};
 use crate::settings_panel::AppSettings;
 use crate::stress_testing::StressTesting;
-use crate::tab::{TabEvent, Tabs};
-use crate::welcome::WelcomeScreen;
 
-use crate::icons::IconName;
-use gpui_kit::component::tab::{Tab, TabBar};
-use gpui_kit::component::{ActiveTheme as _, button::*, *};
-use gpui_kit::prelude::FluentBuilder;
-use gpui_kit::*;
-use indexmap::IndexMap;
-use std::path::Path;
-use std::vec;
+// ---------------------------------------------------------------------------
+// Dock-tab helpers on ApiClient. The old TabManager (IndexMap of Tabs
+// wrappers, manual TabBar, history) is gone: center tabs are dock panels,
+// the strip is the skin's TabBar. This keeps the behaviors that matter:
+// open/dedup/activate, rename sync, save-on-close write-through, response
+// sharing, and workspace reset. Tab selection itself lives in the dock.
+// ---------------------------------------------------------------------------
 
-const WELCOME_NODE_ID: usize = usize::MAX - 2;
-
-pub struct TabManager {
-    project_panel: Entity<ProjectPanel>,
-    env_panel: Entity<EnvPanel>,
-    tabs: IndexMap<usize, Entity<Tabs>>,
-    active_tab_id: Option<usize>,
-    scroll_handle: ScrollHandle,
-    history: Vec<usize>,
-    history_index: usize,
+pub struct RequestTabMeta {
+    pub panel: PanelId,
+    pub view: Entity<RequestPlayground>,
+    pub path: Option<String>,
 }
 
-impl TabManager {
-    pub fn new(
-        window: &mut Window,
-        cx: &mut Context<Self>,
-        project_panel: Entity<ProjectPanel>,
-        env_panel: Entity<EnvPanel>,
-    ) -> Self {
-        cx.subscribe_in(
-            &project_panel,
-            window,
-            |this: &mut Self, _, event, window, cx| match event {
-                ProjectPanelEvent::FileActivated {
-                    node_id,
-                    name,
-                    path,
-                    method,
-                } => {
-                    this.activate_request_tab(
-                        *node_id,
-                        name.clone(),
-                        path.clone(),
-                        method.clone(),
-                        window,
-                        cx,
-                    );
-                }
-                ProjectPanelEvent::FileRenamed { node_id, new_name } => {
-                    this.rename_tab(*node_id, new_name.clone(), cx);
-                }
-                ProjectPanelEvent::FileDeleted { node_id, .. }
-                | ProjectPanelEvent::FileTrashed { node_id, .. } => {
-                    this.close_tab(*node_id, cx);
-                }
-                ProjectPanelEvent::StressTestPlayground { path, node_name } => {
-                    this.add_stress_test_tab(window, cx, path.clone(), node_name.clone());
-                }
-            },
-        )
-        .detach();
+pub struct EnvTabMeta {
+    pub panel: PanelId,
+    pub view: Entity<EnvPlayground>,
+}
 
-        cx.subscribe_in(
-            &env_panel,
-            window,
-            |this: &mut Self, _, event, window, cx| match event {
-                EnvPanelEvent::EnvActivated { name } => {
-                    this.open_env_tab(name.clone(), window, cx);
-                }
-                EnvPanelEvent::EnvDeleted { name } => {
-                    if let Some((&tab_id, _)) = this
-                        .tabs
-                        .iter()
-                        .find(|(_, tab)| tab.read(cx).name() == name)
-                    {
-                        this.close_tab(tab_id, cx);
-                    }
-                    fs::env::delete(&name);
-                    this.env_panel.update(cx, |panel, cx| panel.refresh(cx));
-                }
-            },
-        )
-        .detach();
+// Simple browser-like tab navigation (replaces the old TabManager
+// history): every tab WE open/activate is pushed; back/forward walk the
+// stack, skipping panels closed since. Strip clicks bypass the stack —
+// kept simple on purpose.
 
-        Self {
-            project_panel,
-            env_panel,
-            tabs: IndexMap::new(),
-            active_tab_id: None,
-            scroll_handle: ScrollHandle::new(),
-            history: Vec::new(),
-            history_index: 0,
+
+// Tab back/forward history (manual strip era). Commented out until an
+// external history (Vec<PanelId> synced to dock active changes) is built.
+// struct TabHistory {
+//     history: Vec<usize>,
+//     history_index: usize,
+// }
+// fn push_history(...) / remove_from_history(...) / can_back() / can_forward()
+// / back() / forward() — see git history of this file.
+
+impl crate::ApiClient {
+    fn dock_area(&self, cx: &App) -> Entity<gpui_kit::base::dock::DockArea> {
+        self.shell.read(cx).area()
+    }
+
+    fn panel_alive(&self, panel: PanelId, cx: &App) -> bool {
+        self.dock_area(cx).read(cx).panel(panel).is_some()
+    }
+
+    fn activate_dock_panel(&self, panel: PanelId, window: &mut Window, cx: &mut App) {
+        // Resolve the panel's CURRENT slot and re-insert there: ix: None
+        // would append at the end and visibly reshuffle the strip.
+        let area = self.dock_area(cx);
+        let slot = area.read(cx).layout(DockPlacement::Center).and_then(|tree| {
+            let node = tree.find_panel_node(panel)?;
+            let tabs = tree.find_node(node)?;
+            let ix = match tabs.kind() {
+                gpui_kit::base::dock::PaneRef::Tabs { panels, .. } => {
+                    panels.iter().position(|id| *id == panel)
+                }
+                _ => None,
+            };
+            Some((node, ix))
+        });
+        if let Some((node, ix)) = slot {
+            let shell = self.shell.clone();
+            shell.update(cx, |shell, cx| {
+                shell.move_panel(
+                    panel,
+                    InsertTarget::Tabs {
+                        node,
+                        ix,
+                        activate: true,
+                    },
+                    window,
+                    cx,
+                );
+            });
         }
     }
 
-    pub fn reset(&mut self, _window: &mut Window, cx: &mut Context<Self>) {
-        self.tabs.clear();
-        self.active_tab_id = None;
-        self.scroll_handle = ScrollHandle::new();
-        self.history.clear();
-        self.history_index = 0;
-
-        cx.notify();
-    }
-
-    pub fn activate_request_tab(
-        &mut self,
-        node_id: usize,
-        name: String,
-        path: String,
-        method: String,
-        window: &mut Window,
-        cx: &mut Context<Self>,
-    ) {
-        if self.tabs.contains_key(&node_id) {
-            self.active_tab_id = Some(node_id);
-            self.push_history(node_id);
-            cx.notify();
+    fn nav_push(&mut self, panel: PanelId) {
+        if self.tab_nav.last() == Some(&panel) {
+            self.tab_nav_ix = self.tab_nav.len().saturating_sub(1);
             return;
         }
-
-        let (playground, tab) = self.add_request_tab(window, cx, node_id, name.clone(), method);
-        let request = fs::request::read(Path::new(&path));
-        playground.update(cx, |pg, cx| pg.load(window, cx, &request));
-        playground.update(cx, |pg, _cx| pg.set_path(path.clone()));
-
-        // let tab = self.add_tab(window, cx, node_id, name.clone(), Box::new(playground));
-
-        self.tabs.insert(node_id, tab);
-        self.push_history(node_id);
-        self.active_tab_id = Some(node_id);
-        cx.notify();
+        self.tab_nav.truncate(self.tab_nav_ix + 1);
+        self.tab_nav.push(panel);
+        self.tab_nav_ix = self.tab_nav.len().saturating_sub(1);
     }
 
-    pub fn rename_tab(&mut self, node_id: usize, new_name: String, cx: &mut Context<Self>) {
-        if let Some(tab) = self.tabs.get(&node_id) {
-            tab.update(cx, |t, _| t.update_name(new_name));
-            cx.notify();
-        }
-    }
-
-    pub fn close_tab(&mut self, node_id: usize, cx: &mut Context<Self>) {
-        self.tabs.shift_remove(&node_id);
-        self.remove_from_history(node_id);
-        self.active_tab_id = self.history.get(self.history_index).copied();
-        cx.notify();
-    }
-
-    pub fn has_tabs(&self) -> bool {
-        self.active_tab_id.is_some()
-    }
-
-    pub fn env_names(&self, cx: &App) -> Vec<String> {
-        self.env_panel.read(cx).envs.clone()
-    }
-
-    pub fn active_playground(&self, cx: &App) -> Option<Box<dyn PlaygroundHandle>> {
-        self.active_tab_id
-            .and_then(|id| self.tabs.get(&id))
-            .map(|tab| tab.read(cx).playground())
-    }
-
-    pub fn toggle_active_response(&mut self, cx: &mut Context<Self>) {
-        if let Some(content) = self.active_playground(cx) {
-            if let Some(panel) = content.response_panel(cx) {
-                panel.update(cx, |panel, cx| panel.toggle(cx));
+    pub fn nav_back(&mut self, window: &mut Window, cx: &mut App) {
+        while self.tab_nav_ix > 0 {
+            self.tab_nav_ix -= 1;
+            let pid = self.tab_nav[self.tab_nav_ix];
+            if self.panel_alive(pid, cx) {
+                self.activate_dock_panel(pid, window, cx);
+                return;
             }
         }
     }
 
-    pub fn add_stress_test_tab(
-        &mut self,
-        window: &mut Window,
-        cx: &mut Context<Self>,
-        path: String,
-        node_name: String,
-    ) {
-        let tab_key = next_id();
-
-        let source = self
-            .active_playground(cx)
-            .and_then(|content| content.entity().downcast::<RequestPlayground>().ok())
-            .map(|pg| pg.downgrade());
-
-        let stress_test_playground = cx.new(|cx| StressTesting::new(source, path, window, cx));
-
-        let content: Box<dyn PlaygroundHandle> = stress_test_playground.clone_box();
-        let tab_entity = cx.new(|_cx| Tabs::new(tab_key, tab_key, node_name, content));
-
-        cx.subscribe_in(
-            &tab_entity,
-            window,
-            |this: &mut Self, _, event, _window, cx| {
-                if let TabEvent::Close(node_id) = event {
-                    this.close_tab(*node_id, cx);
-                }
-            },
-        )
-        .detach();
-
-        self.tabs.insert(tab_key, tab_entity);
-        self.push_history(tab_key);
-        self.active_tab_id = Some(tab_key);
-        cx.notify();
-    }
-
-    pub fn open_welcome_tab(
-        &mut self,
-        window: &mut Window,
-        cx: &mut Context<Self>,
-        welcome: Entity<WelcomeScreen>,
-    ) {
-        let node_id = WELCOME_NODE_ID;
-        if self.tabs.contains_key(&node_id) {
-            self.active_tab_id = Some(node_id);
-            self.push_history(node_id);
-            cx.notify();
-            return;
+    pub fn nav_forward(&mut self, window: &mut Window, cx: &mut App) {
+        while self.tab_nav_ix + 1 < self.tab_nav.len() {
+            self.tab_nav_ix += 1;
+            let pid = self.tab_nav[self.tab_nav_ix];
+            if self.panel_alive(pid, cx) {
+                self.activate_dock_panel(pid, window, cx);
+                return;
+            }
         }
-
-        let content: Box<dyn PlaygroundHandle> = welcome.clone_box();
-        let tab_entity =
-            cx.new(|_cx| Tabs::new(WELCOME_NODE_ID, WELCOME_NODE_ID, "Welcome".into(), content));
-
-        cx.subscribe_in(
-            &tab_entity,
-            window,
-            move |this: &mut Self, _, event, _window, cx| {
-                if let TabEvent::Close(node_id) = event {
-                    this.close_tab(*node_id, cx);
-                }
-            },
-        )
-        .detach();
-
-        self.tabs.insert(node_id, tab_entity);
-        self.push_history(node_id);
-        self.active_tab_id = Some(node_id);
-        cx.notify();
     }
 
-    pub fn open_env_tab(&mut self, name: String, window: &mut Window, cx: &mut Context<Self>) {
-        if let Some((&tab_id, _)) = self
-            .tabs
-            .iter()
-            .find(|(_, tab)| tab.read(cx).name() == name)
-        {
-            self.active_tab_id = Some(tab_id);
-            self.push_history(tab_id);
-            cx.notify();
-            return;
-        }
-
-        let tab_key = next_id();
-
-        let playground = cx.new(|cx| EnvPlayground::new(name.clone(), window, cx));
-        let content: Box<dyn PlaygroundHandle> = playground.clone_box();
-        let tab_entity = cx.new(|_cx| Tabs::new(tab_key, tab_key, name.clone(), content));
-
-        cx.subscribe_in(
-            &playground,
-            window,
-            |this: &mut Self, _, event, _window, cx| match event {
-                EnvPlaygroundEvent::Renamed { old_name, new_name } => {
-                    if let Some((&tab_id, _)) = this
-                        .tabs
-                        .iter()
-                        .find(|(_, tab)| tab.read(cx).name() == old_name)
-                    {
-                        this.rename_tab(tab_id, new_name.clone(), cx);
-                    }
-                    this.env_panel.update(cx, |panel, cx| panel.refresh(cx));
-                    cx.notify();
-                }
-            },
-        )
-        .detach();
-
-        cx.subscribe_in(
-            &tab_entity,
-            window,
-            |this: &mut Self, _, event, _window, cx| {
-                if let TabEvent::Close(tab_id) = event {
-                    this.close_tab(*tab_id, cx);
-                }
-            },
-        )
-        .detach();
-
-        self.tabs.insert(tab_key, tab_entity);
-        self.push_history(tab_key);
-        self.active_tab_id = Some(tab_key);
-        cx.notify();
-    }
-
-    fn add_request_tab(
-        &mut self,
+    fn add_center_panel<P>(
+        &self,
+        view: Entity<P>,
+        target: Option<gpui_kit::base::dock::NodeId>,
         window: &mut Window,
         cx: &mut Context<Self>,
+    ) -> PanelId
+    where
+        P: gpui_kit::base::dock::Panel,
+    {
+        let pid = PanelId::from(view.entity_id());
+        let shell = self.shell.clone();
+        shell.update(cx, |shell, cx| {
+            shell.add_panel(view, DockPlacement::Center, window, cx);
+        });
+        if let Some(node) = target {
+            let shell = self.shell.clone();
+            shell.update(cx, |shell, cx| {
+                shell.move_panel(
+                    pid,
+                    InsertTarget::Tabs {
+                        node,
+                        ix: None,
+                        activate: true,
+                    },
+                    window,
+                    cx,
+                );
+            });
+        }
+        pid
+    }
+
+    fn remove_center_panel<P>(
+        &self,
+        view: Entity<P>,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) where
+        P: gpui_kit::base::dock::Panel,
+    {
+        let area = self.dock_area(cx);
+        area.update(cx, |area, cx| {
+            area.remove_panel(view, window, cx);
+        });
+    }
+
+    pub fn open_request_file(
+        &mut self,
         node_id: usize,
         name: String,
+        path: String,
         method: String,
-    ) -> (Entity<RequestPlayground>, Entity<Tabs>) {
-        let id = next_id();
-        let playground = cx.new(|cx| RequestPlayground::new(window, cx));
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        if let Some(meta) = self.request_tabs.get(&node_id) {
+            if self.panel_alive(meta.panel, cx) {
+                let panel = meta.panel;
+                self.nav_push(panel);
+                self.activate_dock_panel(panel, window, cx);
+                return;
+            }
+        }
 
+        let playground = cx.new(|cx| RequestPlayground::new(window, cx));
         if method != "GET" {
-            let methods: Vec<String> =
-                vec!["GET", "POST", "PUT", "PATCH", "DELETE", "HEAD", "OPTIONS"]
-                    .into_iter()
-                    .map(String::from)
-                    .collect();
+            let methods: Vec<String> = vec!["GET", "POST", "PUT", "PATCH", "DELETE", "HEAD", "OPTIONS"]
+                .into_iter()
+                .map(String::from)
+                .collect();
             let row = methods.iter().position(|m| *m == method).unwrap_or(0);
             playground.update(cx, |pg, cx| {
                 pg.method_entity().update(cx, |state, cx| {
-                    state.set_selected_index(Some(IndexPath::default().row(row)), window, cx);
+                    state.set_selected_index(
+                        Some(IndexPath::default().row(row)),
+                        window,
+                        cx,
+                    );
                 })
             });
         }
+        playground.update(cx, |pg, cx| {
+            pg.set_tab_name(name.clone(), cx);
+            pg.set_response_panel(self.response.clone());
+        });
+        let request = fs::request::read(Path::new(&path));
+        playground.update(cx, |pg, cx| pg.load(window, cx, &request));
+        playground.update(cx, |pg, _| pg.set_path(path.clone()));
 
-        let tab_entity = cx.new(|_cx| Tabs::new(id, node_id, name, playground.clone_box()));
+        let pid = self.add_center_panel(playground.clone(), None, window, cx);
+        self.request_tabs.insert(
+            node_id,
+            RequestTabMeta {
+                panel: pid,
+                view: playground.clone(),
+                path: Some(path),
+            },
+        );
 
-        let pg = playground.clone();
         cx.subscribe_in(
-            &pg,
+            &playground,
             window,
             move |this: &mut Self, _, event, _window, cx| match event {
                 RequestPlaygroundEvent::MethodChanged(method) => {
@@ -346,218 +232,339 @@ impl TabManager {
         )
         .detach();
 
+        self.nav_push(pid);
+        self.activate_dock_panel(pid, window, cx);
+    }
+
+    pub fn open_untitled_request(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        self.open_untitled_request_in(None, window, cx);
+    }
+
+    pub fn open_untitled_request_in(
+        &mut self,
+        target: Option<NodeId>,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let node_id = next_id();
+        let playground = cx.new(|cx| RequestPlayground::new(window, cx));
+        playground.update(cx, |pg, cx| {
+            pg.set_tab_name("Untitled".to_string(), cx);
+            pg.set_response_panel(self.response.clone());
+        });
+        let pid = self.add_center_panel(playground.clone(), target, window, cx);
+        self.request_tabs.insert(
+            node_id,
+            RequestTabMeta {
+                panel: pid,
+                view: playground,
+                path: None,
+            },
+        );
+        self.nav_push(pid);
+        self.activate_dock_panel(pid, window, cx);
+    }
+
+    pub fn rename_request_tab(
+        &mut self,
+        node_id: usize,
+        new_name: String,
+        new_path: String,
+        cx: &mut Context<Self>,
+    ) {
+        if let Some(meta) = self.request_tabs.get(&node_id) {
+            meta.view.update(cx, |pg, cx| {
+                pg.rename_file(new_name, new_path, cx);
+            });
+        }
+    }
+
+    fn forget_request_tab(&mut self, node_id: usize) -> Option<RequestTabMeta> {
+        self.request_tabs.remove(&node_id)
+    }
+
+    pub fn open_env_tab(&mut self, name: String, window: &mut Window, cx: &mut Context<Self>) {
+        for meta in &self.env_tabs {
+            if self.panel_alive(meta.panel, cx) && meta.view.read(cx).name(cx) == name {
+                let panel = meta.panel;
+                self.nav_push(panel);
+                self.activate_dock_panel(panel, window, cx);
+                return;
+            }
+        }
+
+        let playground = cx.new(|cx| EnvPlayground::new(name.clone(), window, cx));
+        let pid = self.add_center_panel(playground.clone(), None, window, cx);
+        self.env_tabs.push(EnvTabMeta {
+            panel: pid,
+            view: playground.clone(),
+        });
+
         cx.subscribe_in(
-            &tab_entity,
+            &playground,
             window,
-            move |this: &mut Self, _, event, _window, cx| {
-                if let TabEvent::Close(node_id) = event {
-                    let save_on_close = AppSettings::global(cx)
-                        .playground
-                        .request_playground
-                        .save_on_close;
-
-                    if save_on_close {
-                        let content = playground.read(cx).current_content(cx);
-                        if let Some(path) = playground.read(cx).path() {
-                            fs::request::write(Path::new(&path), &content).ok();
-                        }
-                    }
-
-                    let method = playground.read(cx).stored_method(cx);
-                    this.project_panel.update(cx, |pp, _| {
-                        pp.set_node_method(*node_id, &method);
-                    });
-
-                    this.close_tab(*node_id, cx);
+            |this: &mut Self, _, event, _window, cx| match event {
+                EnvPlaygroundEvent::Renamed { .. } => {
+                    this.env_panel.update(cx, |panel, cx| panel.refresh(cx));
                     cx.notify();
                 }
             },
         )
         .detach();
 
-        (pg, tab_entity)
+        self.nav_push(pid);
+        self.activate_dock_panel(pid, window, cx);
     }
 
-    fn render_tab_bar(&mut self, cx: &mut Context<Self>) -> AnyElement {
-        let tab_ids: Vec<usize> = self.tabs.keys().copied().collect();
-        let selected = self
-            .active_tab_id
-            .and_then(|id| tab_ids.iter().position(|&k| k == id))
-            .unwrap_or(0);
-
-        let tabs: Vec<Tab> = self
-            .tabs
+    pub fn close_env_tab_by_name(
+        &mut self,
+        name: &str,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let found = self
+            .env_tabs
             .iter()
-            .map(|(_, tab)| tab.update(cx, |this, cx| this.to_tab_element(cx)))
-            .collect();
-
-        TabBar::new("tabs")
-            .w_full()
-            .h(px(32.))
-            .with_size(gpui_kit::component::Size::Large)
-            .when(self.has_tabs(), |this| {
-                this.prefix(
-                    h_flex()
-                        .h_full()
-                        .gap_1()
-                        .items_center()
-                        .px_2()
-                        .border_r_1()
-                        .border_color(cx.theme().border)
-                        .child({
-                            let mut btn = Button::new("back")
-                                .tooltip("Go Back")
-                                .ghost()
-                                .small()
-                                .icon(IconName::ArrowLeft);
-                            if !self.can_back() {
-                                btn = btn.disabled(true);
-                            }
-                            btn.on_click(cx.listener(|this, _, _, cx| this.back(cx)))
-                        })
-                        .child({
-                            let mut btn = Button::new("forward")
-                                .tooltip("Go Forward")
-                                .ghost()
-                                .small()
-                                .icon(IconName::ArrowRight);
-                            if !self.can_forward() {
-                                btn = btn.disabled(true);
-                            }
-                            btn.on_click(cx.listener(|this, _, _, cx| this.forward(cx)))
-                        }),
-                )
+            .enumerate()
+            .map(|(ix, meta)| (ix, meta.panel, meta.view.clone()))
+            .find(|(_, panel, view)| {
+                self.panel_alive(*panel, cx) && view.read(cx).name(cx) == name
             })
-            .selected_index(selected)
-            .on_click(
-                cx.listener(move |this: &mut Self, idx: &usize, _window, cx| {
-                    let tab_ids: Vec<usize> = this.tabs.keys().copied().collect();
-                    if let Some(&id) = tab_ids.get(*idx) {
-                        this.active_tab_id = Some(id);
-                        this.push_history(id);
-                        let active = this.active_tab_id;
-                        this.project_panel.update(cx, |pp, cx| {
-                            pp.set_active_node(active);
-                            cx.notify();
-                        });
-                        cx.notify();
+            .map(|(ix, _, _)| ix);
+        if let Some(ix) = found {
+            let meta = self.env_tabs.remove(ix);
+            self.remove_center_panel(meta.view, window, cx);
+        }
+    }
+
+    pub fn add_stress_test_tab(
+        &mut self,
+        path: String,
+        node_name: String,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let source = self
+            .request_tabs
+            .values()
+            .find(|meta| meta.path.as_deref() == Some(path.as_str()))
+            .map(|meta| meta.view.downgrade());
+        let view = cx.new(|cx| StressTesting::new(source, path, node_name, window, cx));
+        let pid = self.add_center_panel(view, None, window, cx);
+        self.nav_push(pid);
+        self.activate_dock_panel(pid, window, cx);
+    }
+
+    pub fn open_welcome_tab(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        if let Some(pid) = self.welcome_panel {
+            if self.panel_alive(pid, cx) {
+                self.nav_push(pid);
+                self.activate_dock_panel(pid, window, cx);
+                return;
+            }
+        }
+        let pid = self.add_center_panel(self.welcome.clone(), None, window, cx);
+        self.welcome_panel = Some(pid);
+        self.nav_push(pid);
+        self.activate_dock_panel(pid, window, cx);
+    }
+
+    pub fn reset_center_tabs(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        // Untrack first: programmatic removals must NOT run close effects.
+        let requests: Vec<RequestTabMeta> =
+            std::mem::take(&mut self.request_tabs).into_values().collect();
+        let envs: Vec<EnvTabMeta> = std::mem::take(&mut self.env_tabs);
+        let welcome = self.welcome_panel.take();
+        self.tab_nav.clear();
+        self.tab_nav_ix = 0;
+        let area = self.dock_area(cx);
+        area.update(cx, |area, cx| {
+            for meta in requests {
+                area.remove_panel(meta.view, window, cx);
+            }
+            for meta in envs {
+                area.remove_panel(meta.view, window, cx);
+            }
+        });
+        if welcome.is_some() {
+            let welcome = self.welcome.clone();
+            area.update(cx, |area, cx| {
+                area.remove_panel(welcome, window, cx);
+            });
+        }
+        cx.notify();
+    }
+
+    /// Close side-effects for user-closed ([x]) tabs, discovered via
+    /// `DockEvent::LayoutChanged`: save-on-close write-through + method
+    /// sync back to the project tree. Programmatic removals untrack first,
+    /// so only real closes land here.
+    pub fn reconcile_closed_tabs(&mut self, cx: &mut Context<Self>) {
+        let gone: Vec<usize> = self
+            .request_tabs
+            .iter()
+            .filter(|(_, meta)| !self.panel_alive(meta.panel, cx))
+            .map(|(id, _)| *id)
+            .collect();
+        for node_id in gone {
+            if let Some(meta) = self.request_tabs.remove(&node_id) {
+                let save_on_close = AppSettings::global(cx)
+                    .playground
+                    .request_playground
+                    .save_on_close;
+                if save_on_close {
+                    let content = meta.view.read(cx).current_content(cx);
+                    if let Some(path) = meta.view.read(cx).path() {
+                        fs::request::write(Path::new(&path), &content).ok();
                     }
-                }),
-            )
-            .track_scroll(&self.scroll_handle)
-            .suffix(self.render_new_tab_button(cx))
-            .children(tabs)
-            .into_any_element()
-    }
-
-    fn push_history(&mut self, id: usize) {
-        self.history.truncate(self.history_index + 1);
-        self.history.push(id);
-        self.history_index = self.history.len() - 1;
-    }
-
-    fn remove_from_history(&mut self, id: usize) {
-        self.history.retain(|&hid| hid != id);
-        self.history_index = self.history_index.min(self.history.len().saturating_sub(1));
-    }
-
-    fn can_back(&self) -> bool {
-        self.history_index > 0
-    }
-
-    fn can_forward(&self) -> bool {
-        self.history_index + 1 < self.history.len()
-    }
-
-    fn back(&mut self, cx: &mut Context<Self>) {
-        if !self.can_back() {
-            return;
+                }
+                let method = meta.view.read(cx).stored_method(cx);
+                self.project_panel.update(cx, |pp, _| {
+                    pp.set_node_method(node_id, &method);
+                });
+            }
         }
-        self.history_index -= 1;
-        self.active_tab_id = Some(self.history[self.history_index]);
-        cx.notify();
-    }
-
-    fn forward(&mut self, cx: &mut Context<Self>) {
-        if !self.can_forward() {
-            return;
+        let mut ix = 0;
+        while ix < self.env_tabs.len() {
+            let alive = {
+                let meta = &self.env_tabs[ix];
+                self.panel_alive(meta.panel, cx)
+            };
+            if alive {
+                ix += 1;
+            } else {
+                self.env_tabs.remove(ix);
+            }
         }
-        self.history_index += 1;
-        self.active_tab_id = Some(self.history[self.history_index]);
-        cx.notify();
+        if let Some(pid) = self.welcome_panel {
+            if !self.panel_alive(pid, cx) {
+                self.welcome_panel = None;
+            }
+        }
+        let live_nav: Vec<PanelId> = self
+            .tab_nav
+            .iter()
+            .copied()
+            .filter(|pid| self.panel_alive(*pid, cx))
+            .collect();
+        self.tab_nav = live_nav;
+        self.tab_nav_ix = self
+            .tab_nav_ix
+            .min(self.tab_nav.len().saturating_sub(1));
     }
 
-    fn render_new_tab_button(&self, cx: &mut Context<Self>) -> impl IntoElement {
-        h_flex()
-            .h_full()
-            .items_center()
-            .justify_center()
-            .px_2()
-            .border_l_1()
-            .border_color(cx.theme().border)
-            .child(
-                Button::new("add-tab")
-                    .ghost()
-                    .small()
-                    .icon(IconName::Plus)
-                    .tooltip("Add Tab")
-                    .on_click(cx.listener(|this: &mut Self, _event, window, cx| {
-                        let tab_key = next_id();
-                        let (_playground, tab) = this.add_request_tab(
-                            window,
-                            cx,
-                            tab_key,
-                            "Untitled".to_string(),
-                            "GET".into(),
-                        );
-                        this.tabs.insert(tab_key, tab);
-                        this.active_tab_id = Some(tab_key);
-                        cx.notify();
-                    })),
-            )
+    pub fn sync_response_aux(&mut self, cx: &mut Context<Self>) {
+        let show = self.response.read(cx).is_shown();
+        let mounted = self.shell.read(cx).aux_info().is_some();
+        let visible = self.shell.read(cx).aux_visible();
+        if show && !mounted {
+            let view: AnyView = self.response.clone().into();
+            self.shell.update(cx, |shell, cx| {
+                shell.set_aux_named("response", "Response", Some(view), cx);
+            });
+        } else if show && !visible {
+            // Mounted but hidden (toggled off earlier): re-show it.
+            self.shell.update(cx, |shell, cx| {
+                shell.toggle_aux(cx);
+            });
+        } else if !show && visible {
+            self.shell.update(cx, |shell, cx| {
+                shell.toggle_aux(cx);
+            });
+        }
     }
-}
 
-impl Render for TabManager {
-    fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
-        let has_tab = self.active_tab_id.is_some();
+    pub fn subscribe_dock_events(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let project_panel = self.project_panel.clone();
+        cx.subscribe_in(
+            &project_panel,
+            window,
+            |this: &mut Self, _, event, window, cx| match event {
+                crate::project_panel::ProjectPanelEvent::FileActivated {
+                    node_id,
+                    name,
+                    path,
+                    method,
+                } => {
+                    this.project_panel.update(cx, |pp, cx| {
+                        pp.set_active_node(Some(*node_id), cx);
+                    });
+                    this.open_request_file(
+                        *node_id,
+                        name.clone(),
+                        path.clone(),
+                        method.clone(),
+                        window,
+                        cx,
+                    );
+                }
+                crate::project_panel::ProjectPanelEvent::FileRenamed {
+                    node_id,
+                    new_name,
+                    new_path,
+                } => {
+                    this.rename_request_tab(*node_id, new_name.clone(), new_path.clone(), cx);
+                }
+                crate::project_panel::ProjectPanelEvent::FileDeleted { node_id, .. }
+                | crate::project_panel::ProjectPanelEvent::FileTrashed { node_id, .. } => {
+                    if let Some(meta) = this.forget_request_tab(*node_id) {
+                        let view = meta.view.clone();
+                        this.remove_center_panel(view, window, cx);
+                    }
+                }
+                crate::project_panel::ProjectPanelEvent::StressTestPlayground { path, node_name } => {
+                    this.add_stress_test_tab(path.clone(), node_name.clone(), window, cx);
+                }
+            },
+        )
+        .detach();
 
-        let main_content = if has_tab {
-            self.active_tab_id
-                .and_then(|id| self.tabs.get(&id))
-                .map(|tab| tab.read(cx).playground().render_into())
-                .unwrap_or_else(|| div().into_any_element())
-        } else {
-            div()
-                .size_full()
-                .flex()
-                .items_center()
-                .justify_center()
-                .text_color(cx.theme().muted_foreground)
-                .child("No tab open")
-                .into_any_element()
-        };
+        let env_panel = self.env_panel.clone();
+        cx.subscribe_in(
+            &env_panel,
+            window,
+            |this: &mut Self, _, event, window, cx| match event {
+                crate::env_panel::EnvPanelEvent::EnvActivated { name } => {
+                    this.open_env_tab(name.clone(), window, cx);
+                }
+                crate::env_panel::EnvPanelEvent::EnvDeleted { name } => {
+                    this.close_env_tab_by_name(name, window, cx);
+                }
+            },
+        )
+        .detach();
 
-        div()
-            .flex_1()
-            .h_full()
-            .min_h(px(0.))
-            .overflow_hidden()
-            .v_flex()
-            .child(
-                div()
-                    .w_full()
-                    .flex_none()
-                    .overflow_x_hidden()
-                    .child(self.render_tab_bar(cx)),
-            )
-            .child(
-                div()
-                    .flex_1()
-                    .v_flex()
-                    .min_h(px(0.))
-                    .overflow_hidden()
-                    .child(main_content),
-            )
+        let area = self.dock_area(cx);
+        cx.subscribe_in(
+            &area,
+            window,
+            |this: &mut Self, _, event, _window, cx| match event {
+                DockEvent::LayoutChanged => {
+                    this.reconcile_closed_tabs(cx);
+                }
+                DockEvent::DragDrop { .. } => {}
+            },
+        )
+        .detach();
+
+        cx.observe(&self.response, |this, _, cx| {
+            this.sync_response_aux(cx);
+            // Response state drives the footer toggle too (show_toggle on
+            // first data, collapsed mirror) — not just shell changes.
+            this.sync_footer_from_shell(cx);
+        })
+        .detach();
+    }
+
+    pub fn seed_empty_center(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let empty = cx.new(EmptyTab::new);
+        let shell = self.shell.clone();
+        shell.update(cx, |shell, cx| {
+            shell.set_center(
+                DockLayout::tabs().panel(empty).active_index(0),
+                window,
+                cx,
+            );
+        });
     }
 }
