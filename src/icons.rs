@@ -12,6 +12,8 @@ pub enum IconName {
     SquarePen,
     Replace,
     CaseSensitive,
+    CircleX,
+    CircleCheck,
     X,
     Check,
     Eye,

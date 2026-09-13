@@ -4,7 +4,6 @@ mod auth;
 mod body;
 mod curl;
 mod dock;
-
 mod env_panel;
 mod env_playground;
 mod footer;
@@ -17,6 +16,7 @@ mod http_response;
 mod icons;
 mod project_panel;
 mod query_params;
+mod toast;
 
 mod request_playground;
 mod response_panel;
@@ -529,6 +529,7 @@ impl ApiClient {
 impl Render for ApiClient {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let dialog_layer = Root::render_dialog_layer(window, cx);
+        let notification_layer = Root::render_notification_layer(window, cx);
         div()
             .size_full()
             .flex()
@@ -554,6 +555,7 @@ impl Render for ApiClient {
             })
             .child(self.render_footer(cx))
             .children(dialog_layer)
+            .children(notification_layer)
     }
 }
 
@@ -584,6 +586,7 @@ fn open_settings_window(api_client: Entity<ApiClient>, cx: &mut App) {
 
 fn main() {
     let app = gpui_kit::application().with_assets(Assets);
+
     app.run(move |cx| {
         gpui_kit::init(cx);
         let _ = fs::workspace::init();
@@ -627,6 +630,7 @@ fn main() {
         theme.font_family = settings.font.family.into();
         theme.mono_font_family = ".ZedMono".into();
         theme.font_size = px(settings.font.size);
+        theme.notification.placement = Anchor::BottomCenter;
         cx.spawn(async move |cx| {
             cx.open_window(
                 WindowOptions {
@@ -640,6 +644,7 @@ fn main() {
                         client.init(window, cx);
                         client
                     });
+
                     view.update(cx, |client, cx| client.install_add_tab(cx));
                     cx.new(|cx| Root::new(view, window, cx))
                 },

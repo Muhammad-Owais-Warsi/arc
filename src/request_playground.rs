@@ -1,9 +1,13 @@
+use gpui_kit::IntoElement;
 use gpui_kit::base::dock::{Panel, PanelEvent};
 use gpui_kit::component::button::{Button, ButtonVariants};
 use gpui_kit::component::clipboard::Clipboard;
 use gpui_kit::component::input::Input;
+use gpui_kit::component::notification::{
+    Notification, NotificationDelivery, NotificationSettings, NotificationType,
+};
 use gpui_kit::component::scroll::ScrollableElement;
-use gpui_kit::component::{ActiveTheme, StyledExt, h_flex, v_flex};
+use gpui_kit::component::{ActiveTheme, StyledExt, WindowExt, h_flex, v_flex};
 use gpui_kit::component::{
     IndexPath,
     input::{InputEvent, InputState},
@@ -19,6 +23,7 @@ use crate::helpers::render_method_tag;
 use crate::http_client::HttpClient;
 use crate::http_response::{AuthPayload, RequestStats, Response, ResponseBody, ResponseHeaders};
 use crate::settings_panel::AppSettings;
+use crate::toast::Toast;
 use crate::{
     auth::{Auth, AuthEvent, AuthType},
     body::{Body, BodyEvent},
@@ -167,11 +172,28 @@ impl RequestPlayground {
                         Ok(parsed_content) => {
                             this.load(window, cx, &parsed_content);
                             this.evaluate_dirty(cx);
+                            window.push_notification(
+                                Notification::new()
+                                    .autohide(true)
+                                    .placement(Anchor::BottomCenter)
+                                    .with_type(NotificationType::Success)
+                                    .message("Imported cURL request successfully"),
+                                cx,
+                            );
                         }
-                        Err(e) => println!("{}", e),
+                        Err(e) => {
+                            let msg: SharedString = format!("cURL import failed").into();
+                            window.push_notification(
+                                Notification::new()
+                                    .with_type(NotificationType::Error)
+                                    .autohide(true)
+                                    .placement(Anchor::BottomCenter)
+                                    .message(msg),
+                                cx,
+                            );
+                        }
                     }
                 }
-
                 this.evaluate_dirty(cx);
             }
         })
