@@ -1,5 +1,5 @@
 use std::{
-    fs::{OpenOptions, read_to_string, remove_dir_all, remove_file},
+    fs::{OpenOptions, create_dir_all, read_to_string, remove_dir_all, remove_file},
     io::{self},
     path::Path,
 };
@@ -143,6 +143,6 @@ pub fn file(name: &str, parent_dir: &str) -> io::Result<String> {
 
 pub fn folder(name: &str, parent_dir: &str) -> io::Result<String> {
     let path = format!("{parent_dir}/{name}");
-    std::fs::create_dir(&path)?;
+    create_dir_all(&path)?;
     Ok(path)
 }

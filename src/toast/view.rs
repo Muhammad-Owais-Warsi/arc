@@ -1,11 +1,15 @@
+use gpui_kit::base::{Toast as BaseToast, ToastTransitionStatus};
 use gpui_kit::component::button::{Button, ButtonVariants};
-use gpui_kit::component::{ActiveTheme, Icon, IconName, Sizable};
+use gpui_kit::component::{ActiveTheme, Icon, IconName, Sizable, StyledExt};
 use gpui_kit::*;
 use std::rc::Rc;
+
+#[derive(Clone, Copy)]
 pub enum ToastVariant {
     Success,
     Error,
 }
+
 use gpui_kit::IntoElement;
 #[derive(IntoElement)]
 pub struct Toast {
@@ -13,6 +17,7 @@ pub struct Toast {
     message: SharedString,
     on_close: Option<Rc<dyn Fn(&mut Window, &mut App)>>,
 }
+
 impl Toast {
     pub fn success(msg: impl Into<SharedString>) -> Self {
         Self {
@@ -33,16 +38,18 @@ impl Toast {
         self
     }
 }
+
 impl RenderOnce for Toast {
     fn render(self, _w: &mut Window, cx: &mut App) -> impl IntoElement {
         let theme = cx.theme();
         let (icon, icon_color) = match self.variant {
-            ToastVariant::Success => (IconName::Check, theme.success),
+            ToastVariant::Success => (IconName::CircleCheck, theme.success),
             ToastVariant::Error => (IconName::CircleX, theme.danger),
         };
         let on_close = self.on_close.clone();
-        div()
-            .flex()
+        BaseToast::new("toast")
+            .transition_status(ToastTransitionStatus::Present)
+            .h_flex()
             .items_center()
             .gap_2()
             .px_3()

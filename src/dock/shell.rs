@@ -691,14 +691,20 @@ impl DockShell {
                 let view = aux.view.clone().into_any_element();
                 let o = &self.shell_options;
                 let col = SharedString::from(format!("{}-center-col", o.group_prefix));
-                v_resizable(col)
-                    .with_state(&self.center_col_state)
-                    .child(resizable_panel().child(area))
+                div()
+                    .size_full()
+                    .flex()
+                    .flex_col()
                     .child(
-                        resizable_panel()
-                            .size(px(o.aux_bottom_height))
-                            .flex_none()
-                            .child(view),
+                        v_resizable(col)
+                            .with_state(&self.center_col_state)
+                            .child(resizable_panel().flex_1().child(area))
+                            .child(
+                                resizable_panel()
+                                    .size(px(o.aux_bottom_height))
+                                    .flex_none()
+                                    .child(view),
+                            ),
                     )
                     .into_any_element()
             }
@@ -714,7 +720,12 @@ impl Render for DockShell {
         h_resizable(key)
             .with_state(&self.shell_state)
             .child(self.render_slot(Side::Left, px(o.left_width), cx))
-            .child(resizable_panel().child(self.render_center()))
+            .child(
+                resizable_panel()
+                    .flex_1()
+                    .h_full()
+                    .child(self.render_center()),
+            )
             .child(self.render_slot(Side::Right, px(o.right_width), cx))
     }
 }

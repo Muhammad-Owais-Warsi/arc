@@ -5,6 +5,7 @@ use gpui_kit::base::dock::{DockLayout, DockPlacement, InsertTarget, NodeId, Pane
 use gpui_kit::component::IndexPath;
 use gpui_kit::*;
 
+use crate::code::CodeScreen;
 use crate::dock::shell::DockShell;
 use crate::dock::tabs::EmptyTab;
 use crate::env_panel::EnvPanel;
@@ -270,6 +271,9 @@ impl TabManager {
                 RequestPlaygroundEvent::MethodChanged(method) => {
                     project_panel.update(cx, |pp, _| pp.set_node_method(node_id, method));
                 }
+                RequestPlaygroundEvent::CopyAsCode => {
+                    _this.open_code_tab(_window, cx);
+                }
                 RequestPlaygroundEvent::ResponsePanelOpened => {}
             },
         )
@@ -296,6 +300,17 @@ impl TabManager {
             pg.set_response_panel(self.response.clone());
         });
         let pid = self.add_center_panel(playground.clone(), target, window, cx);
+        cx.subscribe_in(
+            &playground,
+            window,
+            move |this: &mut Self, _, event, _window, cx| match event {
+                RequestPlaygroundEvent::CopyAsCode => {
+                    this.open_code_tab(_window, cx);
+                }
+                _ => {}
+            },
+        )
+        .detach();
         self.request_tabs.insert(
             node_id,
             RequestTabMeta {
@@ -372,6 +387,13 @@ impl TabManager {
         )
         .detach();
 
+        self.nav_push(pid);
+        self.activate_dock_panel(pid, window, cx);
+    }
+
+    pub fn open_code_tab(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let view = cx.new(|cx| CodeScreen::new(window, cx));
+        let pid = self.add_center_panel(view, None, window, cx);
         self.nav_push(pid);
         self.activate_dock_panel(pid, window, cx);
     }

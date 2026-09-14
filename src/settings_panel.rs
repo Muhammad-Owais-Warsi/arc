@@ -1,4 +1,5 @@
 use crate::{
+    ApiClient,
     fs,
     helpers::{get_active_theme, get_theme_config, get_themes},
     icons::IconName,
@@ -212,11 +213,19 @@ impl AppSettings {
 
 pub struct SettingsPanel {
     font_state: Option<Entity<FontSelect>>,
+    client: Option<WeakEntity<ApiClient>>,
 }
 
 impl SettingsPanel {
     pub fn new(_cx: &mut Context<Self>) -> Self {
-        Self { font_state: None }
+        Self {
+            font_state: None,
+            client: None,
+        }
+    }
+
+    pub fn set_client(&mut self, client: WeakEntity<ApiClient>) {
+        self.client = Some(client);
     }
 
     fn ensure_font_state(&mut self, window: &mut Window, cx: &mut Context<Self>) {
@@ -339,7 +348,9 @@ impl SettingsPanel {
         ]
     }
 
-    fn panels_settings() -> SettingPage {
+    fn panels_settings(&self) -> SettingPage {
+        let project_client = self.client.clone();
+        let env_client = self.client.clone();
         SettingPage::new("Panels")
             .resettable(true)
             .icon(Icon::new(IconName::PanelLeftOpen))
@@ -360,16 +371,24 @@ impl SettingsPanel {
                                     "left"
                                 })
                             },
-                            |val: SharedString, cx: &mut App| {
-                                AppSettings::global_mut(cx).panel.project_panel.sidebar_dock =
-                                    if val == "right" {
-                                        SidebarDock::Right
-                                    } else {
-                                        SidebarDock::Left
-                                    };
-                                AppSettings::global_mut(cx).save();
-                                // Live-apply happens via the footer dock menus;
-                                // settings-window changes take effect on restart.
+                            move |val: SharedString, cx: &mut App| {
+                                let dock = if val == "right" {
+                                    SidebarDock::Right
+                                } else {
+                                    SidebarDock::Left
+                                };
+                                match project_client.clone().and_then(|c| c.upgrade()) {
+                                    Some(client) => client.update(cx, |c, cx| {
+                                        c.set_project_dock(dock, cx);
+                                    }),
+                                    None => {
+                                        AppSettings::global_mut(cx)
+                                            .panel
+                                            .project_panel
+                                            .sidebar_dock = dock;
+                                        AppSettings::global_mut(cx).save();
+                                    }
+                                }
                             },
                         )
                         .default_value("left"),
@@ -392,16 +411,24 @@ impl SettingsPanel {
                                     "left"
                                 })
                             },
-                            |val: SharedString, cx: &mut App| {
-                                AppSettings::global_mut(cx).panel.env_panel.sidebar_dock =
-                                    if val == "right" {
-                                        SidebarDock::Right
-                                    } else {
-                                        SidebarDock::Left
-                                    };
-                                AppSettings::global_mut(cx).save();
-                                // Live-apply happens via the footer dock menus;
-                                // settings-window changes take effect on restart.
+                            move |val: SharedString, cx: &mut App| {
+                                let dock = if val == "right" {
+                                    SidebarDock::Right
+                                } else {
+                                    SidebarDock::Left
+                                };
+                                match env_client.clone().and_then(|c| c.upgrade()) {
+                                    Some(client) => client.update(cx, |c, cx| {
+                                        c.set_env_dock(dock, cx);
+                                    }),
+                                    None => {
+                                        AppSettings::global_mut(cx)
+                                            .panel
+                                            .env_panel
+                                            .sidebar_dock = dock;
+                                        AppSettings::global_mut(cx).save();
+                                    }
+                                }
                             },
                         )
                         .default_value("right"),
@@ -455,7 +482,7 @@ impl SettingsPanel {
                 .default_open(true)
                 .icon(Icon::new(IconName::SlidersHorizontal))
                 .groups(Self::appearance_settings(font_state.clone(), cx)),
-            Self::panels_settings(),
+            self.panels_settings(),
             Self::request_playground_settings(),
             SettingPage::new("About")
                 .icon(Icon::new(IconName::Info))

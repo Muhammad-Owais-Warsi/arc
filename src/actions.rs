@@ -57,3 +57,9 @@ pub struct DeleteEnv;
 
 #[derive(Clone, PartialEq, Action)]
 pub struct CopyEnv;
+
+#[derive(Clone, PartialEq, Action)]
+pub struct CopyURL;
+
+#[derive(Clone, PartialEq, Action)]
+pub struct CopyAsCode;

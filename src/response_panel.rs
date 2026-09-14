@@ -2,9 +2,11 @@ use gpui_kit::component::button::{Button, ButtonVariants};
 use gpui_kit::component::input::{Editor, EditorState, TabSize};
 use gpui_kit::component::popover::Popover;
 use gpui_kit::component::scroll::ScrollableElement;
+use gpui_kit::component::spinner::Spinner;
 use gpui_kit::component::tab::{self, Tab, TabBar};
 use gpui_kit::component::tag::Tag;
 use gpui_kit::component::{ActiveTheme, ColorName, Icon, Sizable, StyledExt, h_flex, v_flex};
+use gpui_kit::prelude::FluentBuilder;
 use gpui_kit::*;
 
 use crate::helpers::format_size;
@@ -12,12 +14,24 @@ use crate::icons::IconName;
 
 use crate::http_response::Response;
 
+const ASYNC_PRETTY_THRESHOLD: usize = 200_000;
+const MAX_PRETTY_BYTES: usize = 1_500_000;
+
+fn pretty_print_body(raw: String) -> String {
+    serde_json::from_str::<serde_json::Value>(&raw)
+        .ok()
+        .and_then(|json| serde_json::to_string_pretty(&json).ok())
+        .unwrap_or(raw)
+}
+
 #[derive(Clone)]
 pub struct ResponsePanel {
     show: bool,
     selected_config: usize,
     body: Entity<EditorState>,
     data: Option<Response>,
+    formatting: bool,
+    format_id: u64,
 }
 
 impl ResponsePanel {
@@ -39,6 +53,8 @@ impl ResponsePanel {
             selected_config: 0,
             body,
             data: None,
+            formatting: false,
+            format_id: 0,
         }
     }
 
@@ -69,17 +85,44 @@ impl ResponsePanel {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        let body_text = response.body.body.clone();
-        let body_text = if let Ok(json) = serde_json::from_str::<serde_json::Value>(&body_text) {
-            serde_json::to_string_pretty(&json).unwrap_or(body_text)
-        } else {
-            body_text
-        };
-        self.body
-            .update(cx, |state, cx| state.set_value(body_text, window, cx));
+        let raw = response.body.body.clone();
+        let looks_json = matches!(raw.trim_start().chars().next(), Some('{') | Some('['));
+        if raw.len() < ASYNC_PRETTY_THRESHOLD || !looks_json || raw.len() >= MAX_PRETTY_BYTES {
+            let body_text = if looks_json && raw.len() < MAX_PRETTY_BYTES {
+                pretty_print_body(raw)
+            } else {
+                raw
+            };
+            self.body
+                .update(cx, |state, cx| state.set_value(body_text, window, cx));
+            self.data = Some(response);
+            self.show = true;
+            self.formatting = false;
+            cx.notify();
+            return;
+        }
+        self.format_id += 1;
+        let my_id = self.format_id;
         self.data = Some(response);
+        self.formatting = true;
         self.show = true;
         cx.notify();
+        cx.spawn(async move |this, cx| {
+            let pretty = cx
+                .background_executor()
+                .spawn(async move { pretty_print_body(raw) })
+                .await;
+            let _ = this.update_in(cx, |this, window, cx| {
+                if this.format_id != my_id {
+                    return;
+                }
+                this.formatting = false;
+                this.body
+                    .update(cx, |state, cx| state.set_value(pretty, window, cx));
+                cx.notify();
+            });
+        })
+        .detach();
     }
 
     fn render_status_tag(data: &Response) -> impl IntoElement {
@@ -414,57 +457,91 @@ impl Render for ResponsePanel {
                     .child(Tab::new().label("Headers"))
                     .child(Tab::new().label("Cookies")),
             )
-            .child(match self.selected_config {
-                0 => div()
-                    .id("response-body-hscroll")
+            // Content area: flex_1 takes remaining height after header+tabbar.
+            // All three tab panes are absolute-positioned inside so they fill
+            // this box; inactive ones are hidden.
+            .child(
+                div()
+                    .id("response-content")
+                    .relative()
                     .flex_1()
+                    .w_full()
                     .min_h(px(0.))
-                    .min_w(px(0.))
-                    .overflow_hidden()
                     .bg(cx.theme().background)
-                    .px(px(24.))
+                    // Body tab
                     .child(
-                        Editor::new(&self.body)
-                            .flex_1()
-                            .h_full()
-                            .appearance(false)
-                            .bordered(false)
-                            .readonly(true),
+                        div()
+                            .id("response-body-hscroll")
+                            .absolute()
+                            .top_0()
+                            .left_0()
+                            .right_0()
+                            .bottom_0()
+                            .overflow_hidden()
+                            .px(px(24.))
+                            .when(self.selected_config != 0, |this| this.hidden())
+                            .child(if self.formatting {
+                                div()
+                                    .size_full()
+                                    .flex()
+                                    .items_center()
+                                    .justify_center()
+                                    .gap_2()
+                                    .child(
+                                        Spinner::new().large().color(cx.theme().muted_foreground),
+                                    )
+                                    .child(
+                                        div()
+                                            .text_sm()
+                                            .text_color(cx.theme().muted_foreground)
+                                            .child("Formatting…"),
+                                    )
+                                    .into_any_element()
+                            } else {
+                                Editor::new(&self.body)
+                                    .w_full()
+                                    .h_full()
+                                    .appearance(false)
+                                    .readonly(true)
+                                    .into_any_element()
+                            }),
                     )
-                    .into_any_element(),
-                1 => {
-                    let headers = self
-                        .data
-                        .as_ref()
-                        .map(|d| d.headers.headers.as_slice())
-                        .unwrap_or(&[]);
-                    div()
-                        .flex_1()
-                        .min_h(px(0.))
-                        .min_w(px(0.))
-                        .overflow_y_scrollbar()
-                        .bg(cx.theme().background)
-                        .px(px(24.))
-                        .child(Self::render_headers_table(headers, cx))
-                        .into_any_element()
-                }
-                2 => {
-                    let cookies = self
-                        .data
-                        .as_ref()
-                        .map(|d| d.cookies.as_slice())
-                        .unwrap_or(&[]);
-                    div()
-                        .flex_1()
-                        .min_h(px(0.))
-                        .min_w(px(0.))
-                        .overflow_y_scrollbar()
-                        .bg(cx.theme().background)
-                        .px(px(24.))
-                        .child(Self::render_cookies_table(cookies, cx))
-                        .into_any_element()
-                }
-                _ => div().child("issue").into_any_element(),
-            })
+                    // Headers tab
+                    .child({
+                        let headers = self
+                            .data
+                            .as_ref()
+                            .map(|d| d.headers.headers.as_slice())
+                            .unwrap_or(&[]);
+                        div()
+                            .absolute()
+                            .top_0()
+                            .left_0()
+                            .right_0()
+                            .bottom_0()
+                            .overflow_y_scrollbar()
+                            .px(px(24.))
+                            .when(self.selected_config != 1, |this| this.hidden())
+                            .child(Self::render_headers_table(headers, cx))
+                    })
+                    // Cookies tab
+                    .child({
+                        let cookies = self
+                            .data
+                            .as_ref()
+                            .map(|d| d.cookies.as_slice())
+                            .unwrap_or(&[]);
+                        div()
+                            .absolute()
+                            .top_0()
+                            .left_0()
+                            .right_0()
+                            .bottom_0()
+                            .overflow_y_scrollbar()
+                            .px(px(24.))
+                            .when(self.selected_config != 2, |this| this.hidden())
+                            .child(Self::render_cookies_table(cookies, cx))
+                    }),
+            )
     }
 }

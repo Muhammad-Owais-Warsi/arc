@@ -203,24 +203,6 @@ impl CenterTab for EnvPlayground {
     ) -> Option<AnyElement> {
         Some(render_method_tag("ENV").into_any_element())
     }
-
-    fn tab_suffix(
-        &mut self,
-        _window: &mut Window,
-        cx: &mut Context<Self>,
-    ) -> Option<AnyElement> {
-        if self.dirty {
-            Some(
-                div()
-                    .size_2()
-                    .rounded_full()
-                    .bg(cx.theme().primary)
-                    .into_any_element(),
-            )
-        } else {
-            None
-        }
-    }
 }
 
 impl Render for EnvPlayground {

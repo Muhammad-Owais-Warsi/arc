@@ -2,6 +2,7 @@ mod actions;
 pub mod assets;
 mod auth;
 mod body;
+mod code;
 mod curl;
 mod dock;
 mod env_panel;
@@ -14,10 +15,9 @@ mod http_client;
 mod http_request;
 mod http_response;
 mod icons;
+mod overlay;
 mod project_panel;
 mod query_params;
-mod toast;
-
 mod request_playground;
 mod response_panel;
 mod settings_panel;
@@ -26,6 +26,7 @@ mod stress_engine;
 mod stress_testing;
 mod tab_manager;
 mod titlebar;
+mod toast;
 mod welcome;
 use std::rc::Rc;
 
@@ -38,8 +39,6 @@ use crate::dock::shell::{DockShell, DockShellEvent, FixedPanel, Side};
 use crate::dock::tabs::TabChromeRegistry;
 use crate::footer::{Footer, FooterEvent};
 
-use crate::helpers::{get_active_theme, get_theme_config, get_themes};
-
 use crate::project_panel::{DirTree, ProjectPanel};
 use crate::response_panel::ResponsePanel;
 use crate::settings_panel::{AppSettings, SidebarDock};
@@ -47,7 +46,7 @@ use crate::settings_window::SettingsWindow;
 use crate::tab_manager::TabManager;
 use crate::titlebar::TitleBarView;
 use crate::welcome::WelcomeScreen;
-use gpui_kit::component::command::{Command, CommandItem, CommandState};
+use gpui_kit::component::command::CommandState;
 use gpui_kit::component::{Theme, *};
 use gpui_kit::*;
 
@@ -84,6 +83,7 @@ impl ApiClient {
         registry.register::<crate::env_playground::EnvPlayground>("env");
         registry.register::<crate::stress_testing::StressTesting>("stress");
         registry.register::<crate::welcome::WelcomeScreen>("welcome");
+        registry.register::<crate::code::CodeScreen>("code");
         let shell = cx.new(|cx| DockShell::new(window, cx, Rc::new(registry), None));
         let footer = cx.new(|cx| Footer::new(window, cx));
         let welcome = cx.new(|cx| WelcomeScreen::new(window, cx));
@@ -101,6 +101,11 @@ impl ApiClient {
         });
 
         let titlebar = cx.new(|_| TitleBarView::new(workspace_palette, env_palette));
+
+        let toast_root = cx.new(|_| toast::ToastRoot::new());
+        cx.set_global(toast::GlobalToastRoot(toast_root));
+        let overlay_root = cx.new(|_| overlay::OverlayRoot::new());
+        cx.set_global(overlay::GlobalOverlayRoot(overlay_root));
 
         let this = Self {
             project_panel,
@@ -341,6 +346,7 @@ impl ApiClient {
                 cx,
             );
         });
+        self.refresh_settings_window(cx);
     }
 
     fn set_env_dock(&mut self, dock: SidebarDock, cx: &mut Context<Self>) {
@@ -358,6 +364,13 @@ impl ApiClient {
                 cx,
             );
         });
+        self.refresh_settings_window(cx);
+    }
+
+    fn refresh_settings_window(&mut self, cx: &mut Context<Self>) {
+        if let Some((settings, _)) = self.settings_window.clone() {
+            settings.update(cx, |_, cx| cx.notify()).ok();
+        }
     }
 
     fn handle_dock_sidebar_left(
@@ -443,86 +456,7 @@ impl ApiClient {
         cx: &mut Context<Self>,
     ) {
         let state = self.theme.clone();
-        let committed_theme = get_active_theme(cx).to_string();
-        let themes = Rc::new(
-            get_themes(cx)
-                .into_iter()
-                .map(|(name, _)| name)
-                .collect::<Vec<_>>(),
-        );
-        let items: Vec<CommandItem> = themes
-            .iter()
-            .map(|name| {
-                CommandItem::new()
-                    .label(name.as_ref())
-                    .checked(name.as_ref() == committed_theme)
-            })
-            .collect();
-        window.open_dialog(cx, move |dialog, _, _cx| {
-            let state = state.clone();
-            let items = items.clone();
-            let themes = themes.clone();
-            let cancel_committed = committed_theme.clone();
-            let preview = |name: &str, window: &mut Window, cx: &mut App| {
-                let name = SharedString::from(name);
-                if let Some(theme_config) = get_theme_config(cx, &name) {
-                    let mode = theme_config.mode;
-                    let t = Theme::global_mut(cx);
-                    if mode.is_dark() {
-                        t.dark_theme = theme_config.clone();
-                    } else {
-                        t.light_theme = theme_config.clone();
-                    }
-                    Theme::change(mode, Some(window), cx);
-                    let app_settings = AppSettings::global(cx).clone();
-                    let t = Theme::global_mut(cx);
-                    t.font_family = app_settings.font.family.clone().into();
-                    t.font_size = px(app_settings.font.size);
-                    window.refresh();
-                }
-            };
-            let cancel_restore = cancel_committed.clone();
-            dialog
-                .close_button(false)
-                .overlay_closable(true)
-                .overlay(true)
-                .p_0()
-                .on_cancel(move |_, window, cx| {
-                    let restore = cancel_restore.clone();
-                    window.defer(cx, move |window, cx| {
-                        preview(&restore, window, cx);
-                    });
-                    true
-                })
-                .content(move |content, _, _| {
-                    let select_themes = themes.clone();
-                    let confirm_themes = themes.clone();
-                    let preview = preview;
-                    content.child(
-                        Command::new(&state)
-                            .bordered(false)
-                            .placeholder("Select Theme...")
-                            .items(items.clone())
-                            .on_select(move |index, window, cx| {
-                                if let Some(name) = select_themes.get(index.row) {
-                                    preview(name.as_ref(), window, cx);
-                                }
-                            })
-                            .on_confirm(move |index, window, cx| {
-                                if let Some(name) = confirm_themes.get(index.row) {
-                                    preview(name.as_ref(), window, cx);
-                                    AppSettings::global_mut(cx).theme.name = name.to_string();
-                                    if let Some(theme_config) = get_theme_config(cx, name) {
-                                        AppSettings::global_mut(cx).theme.mode =
-                                            theme_config.mode.name().to_string();
-                                    }
-                                    AppSettings::global_mut(cx).save();
-                                }
-                                window.close_dialog(cx);
-                            }),
-                    )
-                })
-        });
+        crate::overlay::theme_picker::open(state, window, cx);
     }
 }
 
@@ -554,6 +488,8 @@ impl Render for ApiClient {
                     .child(shell)
             })
             .child(self.render_footer(cx))
+            .child(crate::toast::ToastRoot::overlay(cx))
+            .child(crate::overlay::OverlayRoot::overlay(window, cx))
             .children(dialog_layer)
             .children(notification_layer)
     }
@@ -571,7 +507,8 @@ fn open_settings_window(api_client: Entity<ApiClient>, cx: &mut App) {
             },
             |window, cx| {
                 let window_handle = window.window_handle();
-                let settings = cx.new(|cx| SettingsWindow::new(window, cx));
+                let client_handle = api_client.downgrade();
+                let settings = cx.new(|cx| SettingsWindow::new(client_handle, window, cx));
                 api_client.update(cx, |client, cx| {
                     client.settings_window = Some((settings.downgrade(), window_handle));
                     cx.notify();

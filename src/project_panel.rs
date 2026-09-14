@@ -9,7 +9,8 @@ use gpui_kit::*;
 
 use gpui_kit::component::input::{Input, InputEvent, InputState};
 use gpui_kit::component::list::ListItem;
-use gpui_kit::component::tree::{TreeEvent, TreeItem, TreeState, tree};
+use gpui_kit::component::menu::PopupMenu;
+use gpui_kit::component::tree::{TreeEntry, TreeEvent, TreeItem, TreeState, tree};
 use gpui_kit::component::{ActiveTheme, Icon, IconNamed, StyledExt, h_flex};
 use gpui_kit::prelude::FluentBuilder;
 
@@ -84,6 +85,17 @@ enum PendingAction {
     },
 }
 
+#[derive(Clone)]
+struct TreeRenderDeps {
+    nodes: HashMap<usize, Node>,
+    root_id: Option<usize>,
+    panel: WeakEntity<ProjectPanel>,
+    focus: FocusHandle,
+    pending_new: Option<Entity<InputState>>,
+    pending_rename: Option<(usize, Entity<InputState>)>,
+    pending_error: Option<String>,
+}
+
 pub struct ProjectPanel {
     name: String,
     path: String,
@@ -91,6 +103,7 @@ pub struct ProjectPanel {
     root_id: Vec<usize>,
     active_node_id: Option<usize>,
     pending_action: Option<PendingAction>,
+    pending_error: Option<String>,
     focus: FocusHandle,
     context_target: Option<usize>,
     tree: Entity<TreeState>,
@@ -122,6 +135,7 @@ impl ProjectPanel {
             root_id: Vec::new(),
             active_node_id: None,
             pending_action: None,
+            pending_error: None,
             focus: cx.focus_handle(),
             context_target: None,
             tree,
@@ -149,6 +163,7 @@ impl ProjectPanel {
         self.root_id = vec![root_id];
         self.pending_action = None;
         self.context_target = None;
+        self.pending_error = None;
         self.expanded.clear();
         self.expanded.insert(root_id.to_string());
 
@@ -324,7 +339,12 @@ impl ProjectPanel {
 
         input.update(cx, |i, cx| i.focus(window, cx));
         self.pending_action = Some(pending);
+        self.rebuild_tree(cx);
         cx.notify();
+        let focus_input = input.clone();
+        window.defer(cx, move |window, cx| {
+            focus_input.update(cx, |i, cx| i.focus(window, cx));
+        });
     }
 
     pub fn handle_create_file(
@@ -333,9 +353,14 @@ impl ProjectPanel {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        let Some(parent_id) = self.folder_target() else {
+        let Some(parent_id) = self
+            .folder_target()
+            .or_else(|| self.root_id.first().copied())
+        else {
             return;
         };
+        self.expanded.insert(parent_id.to_string());
+        self.pending_error = None;
         let input = cx.new(|cx| InputState::new(window, cx).placeholder("file-name"));
         self.initiate_pending(PendingAction::CreateFile { parent_id, input }, window, cx);
     }
@@ -346,9 +371,14 @@ impl ProjectPanel {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        let Some(parent_id) = self.folder_target() else {
+        let Some(parent_id) = self
+            .folder_target()
+            .or_else(|| self.root_id.first().copied())
+        else {
             return;
         };
+        self.expanded.insert(parent_id.to_string());
+        self.pending_error = None;
         let input = cx.new(|cx| InputState::new(window, cx).placeholder("folder-name"));
         self.initiate_pending(PendingAction::CreateFolder { parent_id, input }, window, cx);
     }
@@ -372,6 +402,7 @@ impl ProjectPanel {
                 .default_value(current_name)
                 .placeholder("new name")
         });
+        self.pending_error = None;
         self.initiate_pending(PendingAction::Rename { node_id, input }, window, cx);
     }
 
@@ -460,6 +491,7 @@ impl ProjectPanel {
             Some(pending) => pending,
             None => return,
         };
+        self.context_target = None;
 
         let mut ws = Workspace {
             name: self.name.clone(),
@@ -472,25 +504,29 @@ impl ProjectPanel {
             PendingAction::CreateFile { parent_id, input } => {
                 let Some(parent_path) = ws.nodes.get(&parent_id).map(|node| node.path.clone())
                 else {
+                    self.rebuild_tree(cx);
                     return;
                 };
 
                 let name = input.read(cx).value().trim().to_string();
+                let name = name.strip_suffix(".json").unwrap_or(&name).to_string();
 
                 if name.is_empty() {
+                    self.pending_error = Some("Please enter a name.".to_string());
+                    self.pending_action =
+                        Some(PendingAction::CreateFile { parent_id, input });
+                    self.rebuild_tree(cx);
                     return cx.notify();
                 }
 
                 match fs::request::file(&name, &parent_path) {
                     Ok(path) => {
                         let id = next_id();
-                        let new_name = format!("{name}.json");
-                        let clean_name = new_name.strip_suffix(".json").unwrap_or(&new_name);
                         ws.nodes.insert(
                             id,
                             Node {
                                 id,
-                                name: clean_name.to_string(),
+                                name: name.clone(),
                                 path,
                                 is_file: true,
                                 method: "GET".to_string(),
@@ -501,10 +537,20 @@ impl ProjectPanel {
                         Self::insert_child_sorted(&mut ws.nodes, parent_id, id);
 
                         self.nodes = ws.nodes;
+                        self.expanded.insert(parent_id.to_string());
+                        self.active_node_id = Some(id);
+                        self.pending_error = None;
                         cx.notify();
                     }
                     Err(err) => {
-                        eprintln!("Failed to create file: {err}");
+                        self.pending_error = Some(if err.kind() == std::io::ErrorKind::AlreadyExists {
+                            format!("File or directory '{name}' already exists at location. Please choose a different name.")
+                        } else {
+                            format!("Failed to create '{name}': {err}")
+                        });
+                        self.pending_action =
+                            Some(PendingAction::CreateFile { parent_id, input });
+                        cx.notify();
                     }
                 }
                 self.rebuild_tree(cx);
@@ -513,12 +559,17 @@ impl ProjectPanel {
             PendingAction::CreateFolder { parent_id, input } => {
                 let Some(parent_path) = ws.nodes.get(&parent_id).map(|node| node.path.clone())
                 else {
+                    self.rebuild_tree(cx);
                     return;
                 };
 
                 let name = input.read(cx).value().trim().to_string();
 
                 if name.is_empty() {
+                    self.pending_error = Some("Please enter a name.".to_string());
+                    self.pending_action =
+                        Some(PendingAction::CreateFolder { parent_id, input });
+                    self.rebuild_tree(cx);
                     return cx.notify();
                 }
 
@@ -530,7 +581,7 @@ impl ProjectPanel {
                             id,
                             Node {
                                 id,
-                                name,
+                                name: name.clone(),
                                 path,
                                 is_file: false,
                                 method: String::new(),
@@ -541,10 +592,20 @@ impl ProjectPanel {
                         Self::insert_child_sorted(&mut ws.nodes, parent_id, id);
 
                         self.nodes = ws.nodes;
+                        self.expanded.insert(parent_id.to_string());
+                        self.active_node_id = Some(id);
+                        self.pending_error = None;
                         cx.notify();
                     }
                     Err(err) => {
-                        eprintln!("Failed to create folder: {err}");
+                        self.pending_error = Some(if err.kind() == std::io::ErrorKind::AlreadyExists {
+                            format!("File or directory '{name}' already exists at location. Please choose a different name.")
+                        } else {
+                            format!("Failed to create '{name}': {err}")
+                        });
+                        self.pending_action =
+                            Some(PendingAction::CreateFolder { parent_id, input });
+                        cx.notify();
                     }
                 }
                 self.rebuild_tree(cx);
@@ -554,40 +615,65 @@ impl ProjectPanel {
                 let new_name = input.read(cx).value().trim().to_string();
 
                 if new_name.is_empty() {
+                    self.rebuild_tree(cx);
                     return cx.notify();
                 }
 
                 let Some(old_path) = ws.nodes.get(&node_id).map(|node| node.path.clone()) else {
+                    self.rebuild_tree(cx);
                     return;
                 };
+                let is_file = ws.nodes.get(&node_id).map(|n| n.is_file).unwrap_or(true);
 
+                // Request files live on disk with a .json suffix: normalize so
+                // "y" and "y.json" resolve to the same target. Folders keep
+                // the typed name verbatim.
+                let (display_name, disk_name) = if is_file {
+                    let stem = new_name.strip_suffix(".json").unwrap_or(&new_name);
+                    (stem.to_string(), format!("{stem}.json"))
+                } else {
+                    (new_name.clone(), new_name.clone())
+                };
                 let new_path = format!(
                     "{}/{}",
                     Path::new(&old_path)
                         .parent()
                         .map(|path| path.to_string_lossy())
                         .unwrap_or_default(),
-                    new_name
+                    disk_name
                 );
 
-                if fs::request::rename(&old_path, &new_path).is_ok() {
-                    if let Some(node) = ws.nodes.get_mut(&node_id) {
-                        // Display name tracks the NEW name (sans extension),
-                        // not the old one.
-                        let clean_name = new_name
-                            .strip_suffix(".json")
-                            .unwrap_or(&new_name);
-                        node.name = clean_name.to_string();
-                        node.path = new_path.clone();
-                    }
+                // Never silently overwrite: a rename onto an existing path
+                // keeps the row open with an inline error instead.
+                if new_path != old_path && Path::new(&new_path).exists() {
+                    self.pending_error = Some(format!("File or directory '{display_name}' already exists at location. Please choose a different name."));
+                    self.pending_action =
+                        Some(PendingAction::Rename { node_id, input });
+                    self.rebuild_tree(cx);
+                    return cx.notify();
+                }
 
-                    cx.emit(ProjectPanelEvent::FileRenamed {
-                        node_id,
-                        new_name,
-                        new_path,
-                    });
-                } else {
-                    eprintln!("Failed to rename");
+                match fs::request::rename(&old_path, &new_path) {
+                    Ok(_) => {
+                        if let Some(node) = ws.nodes.get_mut(&node_id) {
+                            node.name = display_name.clone();
+                            node.path = new_path.clone();
+                        }
+                        self.pending_error = None;
+
+                        cx.emit(ProjectPanelEvent::FileRenamed {
+                            node_id,
+                            new_name: display_name,
+                            new_path,
+                        });
+                    }
+                    Err(err) => {
+                        self.pending_error =
+                            Some(format!("Failed to rename: {err}"));
+                        self.pending_action =
+                            Some(PendingAction::Rename { node_id, input });
+                        cx.notify();
+                    }
                 }
 
                 self.nodes = ws.nodes;
@@ -599,6 +685,9 @@ impl ProjectPanel {
 
     fn cancel_action(&mut self, cx: &mut Context<Self>) {
         self.pending_action = None;
+        self.context_target = None;
+        self.pending_error = None;
+        self.rebuild_tree(cx);
         cx.notify();
     }
 
@@ -703,6 +792,7 @@ impl Render for ProjectPanel {
             Some(PendingAction::Rename { node_id, input }) => Some((*node_id, input.clone())),
             _ => None,
         };
+        let pending_error = self.pending_error.clone();
 
         let menu_nodes = nodes.clone();
         let menu_panel = panel.clone();
@@ -724,10 +814,35 @@ impl Render for ProjectPanel {
                     let key = entry.item().id.clone();
                     if key.as_ref() == "pending:new" {
                         if let Some(input) = pending_new.clone() {
+                            let error = pending_error.clone();
                             return ListItem::new(("pending-row", ix))
                                 .mx(px(4.))
                                 .rounded(px(6.))
-                                .child(Input::new(&input).appearance(false));
+                                .child(
+                                    div()
+                                        .w_full()
+                                        .flex()
+                                        .flex_col()
+                                        .gap_1()
+                                        .child(Input::new(&input).appearance(false))
+                                        .when_some(error, |this, message| {
+                                            this.child(
+                                                div()
+                                                    .w_full()
+                                                    .border_1()
+                                                    .border_color(cx.theme().danger)
+                                                    .rounded(px(6.))
+                                                    .px_2()
+                                                    .py_1()
+                                                    .child(
+                                                        div()
+                                                            .text_sm()
+                                                            .text_color(cx.theme().danger)
+                                                            .child(message),
+                                                    ),
+                                            )
+                                        }),
+                                );
                         }
                     }
                     let node_id: usize = key.parse().unwrap_or(usize::MAX);
@@ -736,11 +851,36 @@ impl Render for ProjectPanel {
                     };
                     if let Some((rename_id, input)) = pending_rename.clone() {
                         if rename_id == node_id {
+                            let error = pending_error.clone();
                             return ListItem::new(("rename-row", ix))
                                 .selected(selected)
                                 .mx(px(4.))
                                 .rounded(px(6.))
-                                .child(Input::new(&input).appearance(false));
+                                .child(
+                                    div()
+                                        .w_full()
+                                        .flex()
+                                        .flex_col()
+                                        .gap_1()
+                                        .child(Input::new(&input).appearance(false))
+                                        .when_some(error, |this, message| {
+                                            this.child(
+                                                div()
+                                                    .w_full()
+                                                    .border_1()
+                                                    .border_color(cx.theme().danger)
+                                                    .rounded(px(6.))
+                                                    .px_2()
+                                                    .py_1()
+                                                    .child(
+                                                        div()
+                                                            .text_sm()
+                                                            .text_color(cx.theme().danger)
+                                                            .child(message),
+                                                    ),
+                                            )
+                                        }),
+                                );
                         }
                     }
                     let expanded = entry.is_expanded();

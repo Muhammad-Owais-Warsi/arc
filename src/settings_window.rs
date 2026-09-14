@@ -1,6 +1,7 @@
 use gpui_kit::component::{ActiveTheme as _, StyledExt as _, TitleBar};
 use gpui_kit::*;
 
+use crate::ApiClient;
 use crate::settings_panel::SettingsPanel;
 
 pub struct SettingsWindow {
@@ -8,8 +9,12 @@ pub struct SettingsWindow {
 }
 
 impl SettingsWindow {
-    pub fn new(_: &mut Window, cx: &mut Context<Self>) -> Self {
-        let settings_panel = cx.new(|cx| SettingsPanel::new(cx));
+    pub fn new(client: WeakEntity<ApiClient>, _: &mut Window, cx: &mut Context<Self>) -> Self {
+        let settings_panel = cx.new(|cx| {
+            let mut panel = SettingsPanel::new(cx);
+            panel.set_client(client);
+            panel
+        });
         Self { settings_panel }
     }
 }

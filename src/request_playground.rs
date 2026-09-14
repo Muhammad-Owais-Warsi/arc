@@ -3,11 +3,9 @@ use gpui_kit::base::dock::{Panel, PanelEvent};
 use gpui_kit::component::button::{Button, ButtonVariants};
 use gpui_kit::component::clipboard::Clipboard;
 use gpui_kit::component::input::Input;
-use gpui_kit::component::notification::{
-    Notification, NotificationDelivery, NotificationSettings, NotificationType,
-};
+use gpui_kit::component::menu::ContextMenuExt;
 use gpui_kit::component::scroll::ScrollableElement;
-use gpui_kit::component::{ActiveTheme, StyledExt, WindowExt, h_flex, v_flex};
+use gpui_kit::component::{ActiveTheme, Sizable, StyledExt, h_flex, v_flex};
 use gpui_kit::component::{
     IndexPath,
     input::{InputEvent, InputState},
@@ -17,13 +15,14 @@ use gpui_kit::component::{
 use gpui_kit::prelude::FluentBuilder;
 use gpui_kit::*;
 
+use crate::actions::{CopyAsCode, CopyURL};
 use crate::dock::tabs::CenterTab;
 use crate::fs::request::{Auth as AuthContent, Body as BodyContent, KeyValue, RequestFileContent};
 use crate::helpers::render_method_tag;
 use crate::http_client::HttpClient;
 use crate::http_response::{AuthPayload, RequestStats, Response, ResponseBody, ResponseHeaders};
 use crate::settings_panel::AppSettings;
-use crate::toast::Toast;
+use crate::toast::{ToastRoot, ToastVariant};
 use crate::{
     auth::{Auth, AuthEvent, AuthType},
     body::{Body, BodyEvent},
@@ -54,6 +53,7 @@ pub struct RequestPlayground {
 pub enum RequestPlaygroundEvent {
     MethodChanged(String),
     ResponsePanelOpened,
+    CopyAsCode,
 }
 
 impl EventEmitter<RequestPlaygroundEvent> for RequestPlayground {}
@@ -83,20 +83,6 @@ impl CenterTab for RequestPlayground {
 
     fn tab_prefix(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> Option<AnyElement> {
         Some(render_method_tag(&self.method(cx)).into_any_element())
-    }
-
-    fn tab_suffix(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> Option<AnyElement> {
-        if self.dirty {
-            Some(
-                div()
-                    .size_2()
-                    .rounded_full()
-                    .bg(cx.theme().primary)
-                    .into_any_element(),
-            )
-        } else {
-            None
-        }
     }
 }
 
@@ -172,25 +158,14 @@ impl RequestPlayground {
                         Ok(parsed_content) => {
                             this.load(window, cx, &parsed_content);
                             this.evaluate_dirty(cx);
-                            window.push_notification(
-                                Notification::new()
-                                    .autohide(true)
-                                    .placement(Anchor::BottomCenter)
-                                    .with_type(NotificationType::Success)
-                                    .message("Imported cURL request successfully"),
+                            ToastRoot::show(
                                 cx,
+                                ToastVariant::Success,
+                                "Imported cURL request successfully".into(),
                             );
                         }
-                        Err(e) => {
-                            let msg: SharedString = format!("cURL import failed").into();
-                            window.push_notification(
-                                Notification::new()
-                                    .with_type(NotificationType::Error)
-                                    .autohide(true)
-                                    .placement(Anchor::BottomCenter)
-                                    .message(msg),
-                                cx,
-                            );
+                        Err(_e) => {
+                            ToastRoot::show(cx, ToastVariant::Error, "cURL import failed".into());
                         }
                     }
                 }
@@ -396,6 +371,19 @@ impl RequestPlayground {
         self.dirty = false;
     }
 
+    fn handle_copy_url(&mut self, _: &CopyURL, _window: &mut Window, cx: &mut Context<Self>) {
+        cx.write_to_clipboard(ClipboardItem::new_string(self.url.read(cx).value().into()));
+    }
+
+    fn handle_copy_as_code(
+        &mut self,
+        _: &CopyAsCode,
+        _window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        cx.emit(RequestPlaygroundEvent::CopyAsCode);
+    }
+
     pub fn send_request(&mut self, _window: &mut Window, cx: &mut Context<Self>) {
         let url_str = self.url.read(cx).value().to_string();
         let method_str = self
@@ -491,9 +479,20 @@ impl RequestPlayground {
             .child(
                 div().flex_1().child(
                     Input::new(&self.url).suffix(
-                        Clipboard::new("url-clip")
-                            .tooltip("Copy")
-                            .value(self.url.read(cx).value()),
+                        h_flex().gap_1().items_center().child(
+                            div()
+                                .flex()
+                                .items_center()
+                                .child(
+                                    Clipboard::new("url-clip")
+                                        .tooltip("Copy")
+                                        .value(self.url.read(cx).value()),
+                                )
+                                .context_menu(move |menu, _, _| {
+                                    menu.menu("Copy URL", Box::new(CopyURL))
+                                        .menu("Copy as Code", Box::new(CopyAsCode))
+                                }),
+                        ),
                     ),
                 ),
             )
@@ -561,21 +560,61 @@ impl RequestPlayground {
     }
 
     fn render_config_content(&self, _cx: &mut Context<Self>) -> AnyElement {
-        match self.selected_config {
-            0 => self.query_params.clone().into_any_element(),
-            1 => self.auth.clone().into_any_element(),
-            2 => self.headers.clone().into_any_element(),
-            3 => self.body.clone().into_any_element(),
-            _ => div().into_any_element(),
-        }
+        div()
+            .w_full()
+            .h_full()
+            .min_h(px(0.))
+            .child(
+                div()
+                    .w_full()
+                    .h_full()
+                    .min_h(px(0.))
+                    .when(self.selected_config != 0, |this| {
+                        this.absolute().top_0().left_0().right_0().hidden()
+                    })
+                    .child(self.query_params.clone()),
+            )
+            .child(
+                div()
+                    .w_full()
+                    .h_full()
+                    .min_h(px(0.))
+                    .when(self.selected_config != 1, |this| {
+                        this.absolute().top_0().left_0().right_0().hidden()
+                    })
+                    .child(self.auth.clone()),
+            )
+            .child(
+                div()
+                    .w_full()
+                    .h_full()
+                    .min_h(px(0.))
+                    .when(self.selected_config != 2, |this| {
+                        this.absolute().top_0().left_0().right_0().hidden()
+                    })
+                    .child(self.headers.clone()),
+            )
+            .child(
+                div()
+                    .w_full()
+                    .h_full()
+                    .min_h(px(0.))
+                    .when(self.selected_config != 3, |this| {
+                        this.absolute().top_0().left_0().right_0().hidden()
+                    })
+                    .child(self.body.clone()),
+            )
+            .into_any_element()
     }
 }
 
 impl Render for RequestPlayground {
-    fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+    fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         // The response lives in the shell's bottom aux slot now; center tabs
         // render the editor only.
         div()
+            .on_action((cx.listener(Self::handle_copy_url)))
+            .on_action((cx.listener(Self::handle_copy_as_code)))
             .size_full()
             .min_h(px(0.))
             .v_flex()
