@@ -2,6 +2,7 @@ use crate::dock::tabs::CenterTab;
 use crate::helpers::render_method_tag;
 use gpui_kit::base::dock::{Panel, PanelEvent};
 use gpui_kit::component::{ActiveTheme, StyledExt};
+use gpui_kit::img;
 use gpui_kit::*;
 
 pub struct WelcomeScreen {
@@ -39,11 +40,7 @@ impl CenterTab for WelcomeScreen {
         "Welcome".into()
     }
 
-    fn tab_prefix(
-        &mut self,
-        _window: &mut Window,
-        _cx: &mut Context<Self>,
-    ) -> Option<AnyElement> {
+    fn tab_prefix(&mut self, _window: &mut Window, _cx: &mut Context<Self>) -> Option<AnyElement> {
         Some(render_method_tag("WELCOME").into_any_element())
     }
 }
@@ -52,24 +49,33 @@ impl Render for WelcomeScreen {
     fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         div().flex_1().flex().items_center().justify_center().child(
             div()
-                .flex_col()
+                .flex()
+                .flex_row()
                 .items_center()
-                .gap_0p5()
+                .gap_4()
+                .child(img("logo/arc.svg").size(px(64.)).rounded(px(12.)))
                 .child(
                     div()
-                        .text_2xl()
-                        .font_bold()
-                        .text_center()
-                        .text_color(cx.theme().foreground)
-                        .child("Welcome to Arc"),
-                )
-                .child(
-                    div()
-                        .text_sm()
-                        .italic()
-                        .text_center()
-                        .text_color(cx.theme().muted_foreground)
-                        .child("API client built for speed"),
+                        .flex()
+                        .flex_col()
+                        .items_center()
+                        .gap_0()
+                        .child(
+                            div()
+                                .text_xl()
+                                .font_semibold()
+                                .text_center()
+                                .text_color(cx.theme().foreground)
+                                .child("Welcome to Arc"),
+                        )
+                        .child(
+                            div()
+                                .text_sm()
+                                .italic()
+                                .text_center()
+                                .text_color(cx.theme().muted_foreground)
+                                .child("API client built for speed"),
+                        ),
                 ),
         )
     }
