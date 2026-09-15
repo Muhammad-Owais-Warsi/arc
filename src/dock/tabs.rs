@@ -228,7 +228,7 @@ impl EmptyTab {
     pub fn new(cx: &mut Context<Self>) -> Self {
         Self {
             focus: cx.focus_handle(),
-            hint: "No open tabs".into(),
+            hint: "".into(),
         }
     }
 

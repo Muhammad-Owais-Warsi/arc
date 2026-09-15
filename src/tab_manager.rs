@@ -44,6 +44,11 @@ struct EnvTabMeta {
     view: Entity<EnvPlayground>,
 }
 
+struct CodeTabMeta {
+    panel: PanelId,
+    view: Entity<CodeScreen>,
+}
+
 pub struct TabManager {
     // Shared handles — one underlying object, referenced from here and ApiClient.
     shell: Entity<DockShell>,
@@ -51,7 +56,9 @@ pub struct TabManager {
     env_panel: Entity<EnvPanel>,
     response: Entity<ResponsePanel>,
     welcome: Entity<WelcomeScreen>,
+
     // Tab state owned exclusively by TabManager.
+    code_tabs: HashMap<usize, CodeTabMeta>,
     request_tabs: HashMap<usize, RequestTabMeta>,
     env_tabs: Vec<EnvTabMeta>,
     welcome_panel: Option<PanelId>,
@@ -75,6 +82,7 @@ impl TabManager {
             env_panel,
             response,
             welcome,
+            code_tabs: HashMap::new(),
             request_tabs: HashMap::new(),
             env_tabs: Vec::new(),
             welcome_panel: None,
@@ -272,7 +280,7 @@ impl TabManager {
                     project_panel.update(cx, |pp, _| pp.set_node_method(node_id, method));
                 }
                 RequestPlaygroundEvent::CopyAsCode => {
-                    _this.open_code_tab(_window, cx);
+                    _this.open_code_tab(_window, node_id, cx);
                 }
                 RequestPlaygroundEvent::ResponsePanelOpened => {}
             },
@@ -305,7 +313,7 @@ impl TabManager {
             window,
             move |this: &mut Self, _, event, _window, cx| match event {
                 RequestPlaygroundEvent::CopyAsCode => {
-                    this.open_code_tab(_window, cx);
+                    this.open_code_tab(_window, node_id, cx);
                 }
                 _ => {}
             },
@@ -391,9 +399,27 @@ impl TabManager {
         self.activate_dock_panel(pid, window, cx);
     }
 
-    pub fn open_code_tab(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        let view = cx.new(|cx| CodeScreen::new(window, cx));
-        let pid = self.add_center_panel(view, None, window, cx);
+    pub fn open_code_tab(&mut self, window: &mut Window, node_id: usize, cx: &mut Context<Self>) {
+        if let Some(meta) = self.code_tabs.get(&node_id) {
+            if self.panel_alive(meta.panel, cx) {
+                let panel = meta.panel;
+                self.nav_push(panel);
+                self.activate_dock_panel(panel, window, cx);
+                return;
+            }
+        }
+        let source = self.request_tabs.get(&node_id).map(|m| m.view.downgrade());
+        let view = cx.new(|cx| CodeScreen::new(window, source, cx));
+        let pid = self.add_center_panel(view.clone(), None, window, cx);
+
+        self.code_tabs.insert(
+            node_id,
+            CodeTabMeta {
+                panel: pid,
+                view: view.clone(),
+            },
+        );
+
         self.nav_push(pid);
         self.activate_dock_panel(pid, window, cx);
     }

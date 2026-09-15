@@ -62,7 +62,7 @@ impl Render for WelcomeScreen {
                         .gap_0()
                         .child(
                             div()
-                                .text_xl()
+                                .text_2xl()
                                 .font_semibold()
                                 .text_center()
                                 .text_color(cx.theme().foreground)

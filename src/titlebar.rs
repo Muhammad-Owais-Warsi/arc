@@ -232,7 +232,7 @@ impl Render for TitleBarView {
                                 }
                             })
                     })
-                    .when(!active_env.is_empty(), |builder| {
+                    .when(selected_workspace.is_some(), |builder| {
                         let this = this.clone();
                         let palette = env_palette.clone();
                         let ep = env_panel.clone();
@@ -253,11 +253,15 @@ impl Render for TitleBarView {
                                     }
                                 })
                                 .trigger(
-                                    Button::new("env-trigger")
-                                        .ghost()
-                                        .small()
-                                        .label(active_env.clone())
-                                        .tooltip("Switch Environment"),
+                                Button::new("env-trigger")
+                                    .ghost()
+                                    .small()
+                                    .label(if active_env.is_empty() {
+                                        "no env".into()
+                                    } else {
+                                        active_env.clone()
+                                    })
+                                    .tooltip("Switch Environment"),
                                 )
                                 .content(move |_, _, cx| {
                                     let envs = ep.read(cx).envs.clone();

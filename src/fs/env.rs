@@ -34,9 +34,19 @@ fn default_data() -> serde_json::Value {
     })
 }
 
+fn empty_data() -> serde_json::Value {
+    serde_json::json!({
+        "active_environment": "",
+        "environments": []
+    })
+}
+
 fn read_data() -> serde_json::Value {
-    env_file_path()
-        .and_then(|path| fs::read_to_string(path).ok())
+    let Some(path) = env_file_path() else {
+        return empty_data();
+    };
+    fs::read_to_string(path)
+        .ok()
         .and_then(|content| serde_json::from_str(&content).ok())
         .unwrap_or_else(default_data)
 }
@@ -74,7 +84,7 @@ pub fn read_active() -> String {
     read_data()
         .get("active_environment")
         .and_then(|v| v.as_str())
-        .unwrap_or("local")
+        .unwrap_or("")
         .to_string()
 }
 
@@ -92,10 +102,7 @@ pub fn delete(name: &str) {
     write_data(&data);
 
     if read_active() == name {
-        let new_active = envs
-            .first()
-            .map(|e| e.name.clone())
-            .unwrap_or_else(|| "local".into());
+        let new_active = envs.first().map(|e| e.name.clone()).unwrap_or_default();
         save_active(&new_active);
     }
 }
@@ -135,7 +142,7 @@ pub fn interpolate(input: &str) -> String {
     let active = data
         .get("active_environment")
         .and_then(|v| v.as_str())
-        .unwrap_or("local");
+        .unwrap_or("");
     let vars: HashMap<String, String> = environments_from(&data)
         .into_iter()
         .find(|e| e.name == active)

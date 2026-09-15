@@ -150,7 +150,7 @@ impl Default for SkinOptions {
             show_add_tab: true,
             show_close: true,
             tab_height: 32.0,
-            empty_text: "No open tabs".into(),
+            empty_text: "".into(),
             dnd: DndPolicy::reorder_only(),
             bar_prefix: None,
             bar_suffix: None,

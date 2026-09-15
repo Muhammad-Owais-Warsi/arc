@@ -1,5 +1,7 @@
+use std::cell::RefCell;
 use std::rc::Rc;
 
+use gpui_kit::component::IndexPath;
 use gpui_kit::component::command::{Command, CommandItem, CommandState};
 use gpui_kit::component::Theme;
 use gpui_kit::*;
@@ -53,9 +55,13 @@ pub fn open(state: Entity<CommandState>, window: &mut Window, cx: &mut App) {
         });
     });
     let content_state = state.clone();
+    let seen: Rc<RefCell<(String, Option<IndexPath>)>> =
+        Rc::new(RefCell::new((String::new(), None)));
     let content: Rc<dyn Fn() -> AnyElement> = Rc::new(move || {
         let select_themes = themes.clone();
         let confirm_themes = themes.clone();
+        let query_state = content_state.clone();
+        let seen_guard = seen.clone();
         let items = items.clone();
         Command::new(&content_state)
             .bordered(false)
@@ -63,7 +69,16 @@ pub fn open(state: Entity<CommandState>, window: &mut Window, cx: &mut App) {
             .max_h(px(480.))
             .items((*items).clone())
             .on_select(move |index, window, cx| {
-                if let Some(name) = select_themes.get(index.row) {
+                let row = index.row;
+                let query = query_state.read(cx).query(cx).to_string();
+                let mut seen = seen_guard.borrow_mut();
+                if seen.0 != query {
+                    *seen = (query, None);
+                    return;
+                }
+                *seen = (query, Some(index));
+                drop(seen);
+                if let Some(name) = select_themes.get(row) {
                     preview_theme(name.as_ref(), window, cx);
                 }
             })
