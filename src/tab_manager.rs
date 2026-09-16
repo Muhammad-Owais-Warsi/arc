@@ -11,7 +11,9 @@ use crate::dock::tabs::EmptyTab;
 use crate::env_panel::EnvPanel;
 use crate::env_playground::{EnvPlayground, EnvPlaygroundEvent};
 use crate::fs;
+use crate::fs::request::RequestFileContent;
 use crate::helpers::next_id;
+use crate::http_request::HttpRequest;
 use crate::project_panel::ProjectPanel;
 use crate::request_playground::{RequestPlayground, RequestPlaygroundEvent};
 use crate::response_panel::ResponsePanel;
@@ -424,6 +426,30 @@ impl TabManager {
         self.activate_dock_panel(pid, window, cx);
     }
 
+    pub fn open_code_tab_with_request(
+        &mut self,
+        node_id: usize,
+        req: HttpRequest,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        if let Some(meta) = self.code_tabs.get(&node_id) {
+            if self.panel_alive(meta.panel, cx) {
+                let panel = meta.panel;
+                self.nav_push(panel);
+                self.activate_dock_panel(panel, window, cx);
+                return;
+            }
+        }
+        let view = cx.new(|cx| CodeScreen::new_with_request(req, window, cx));
+        let pid = self.add_center_panel(view.clone(), None, window, cx);
+
+        self.code_tabs.insert(node_id, CodeTabMeta { panel: pid, view });
+
+        self.nav_push(pid);
+        self.activate_dock_panel(pid, window, cx);
+    }
+
     pub fn close_env_tab_by_name(
         &mut self,
         name: &str,
@@ -616,6 +642,13 @@ impl TabManager {
                     node_name,
                 } => {
                     this.add_stress_test_tab(path.clone(), node_name.clone(), window, cx);
+                }
+                crate::project_panel::ProjectPanelEvent::CopyAsCode { node_id, path } => {
+                    let content: RequestFileContent =
+                        serde_json::from_value(fs::request::read(Path::new(path)))
+                            .unwrap_or_default();
+                    let req = HttpRequest::from_file_content(&content);
+                    this.open_code_tab_with_request(*node_id, req, window, cx);
                 }
             },
         )

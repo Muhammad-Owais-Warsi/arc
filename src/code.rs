@@ -61,6 +61,14 @@ impl CodeScreen {
             .and_then(|w| w.upgrade())
             .map(|v| HttpRequest::from_file_content(&v.read(cx).current_content(cx)))
             .unwrap_or_else(|| HttpRequest::new("GET", ""));
+        return Self::new_with_request(req, window, cx);
+    }
+
+    pub fn new_with_request(
+        req: HttpRequest,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> Self {
         let codes = Self::generate_all(&req);
 
         let items: Vec<String> = CODE_LANGS.iter().map(|l| l.label.to_string()).collect();

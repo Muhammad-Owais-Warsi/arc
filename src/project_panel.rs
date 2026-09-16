@@ -1,6 +1,6 @@
 // use gpui::Window;
 use crate::actions::{
-    CopyPath, CopyRelativePath, CreateFile, CreateFolder, DeleteItem, RenameItem,
+    CopyAsCode, CopyPath, CopyRelativePath, CreateFile, CreateFolder, DeleteItem, RenameItem,
     StressTestPlayground, TrashItem,
 };
 use crate::fs;
@@ -49,6 +49,10 @@ pub enum ProjectPanelEvent {
     StressTestPlayground {
         path: String,
         node_name: String,
+    },
+    CopyAsCode {
+        node_id: usize,
+        path: String,
     },
 }
 
@@ -311,6 +315,27 @@ impl ProjectPanel {
         cx.emit(ProjectPanelEvent::StressTestPlayground {
             path: node.path.clone(),
             node_name: node.name.clone(),
+        });
+    }
+
+    pub fn handle_copy_as_code(
+        &mut self,
+        _: &CopyAsCode,
+        _window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let Some(node_id) = self.target_id() else {
+            return;
+        };
+        let Some(node) = self.nodes.get(&node_id) else {
+            return;
+        };
+        if !node.is_file {
+            return;
+        }
+        cx.emit(ProjectPanelEvent::CopyAsCode {
+            node_id,
+            path: node.path.clone(),
         });
     }
 
@@ -975,6 +1000,7 @@ impl Render for ProjectPanel {
                         .separator()
                 } else {
                     menu.menu("Stress Test", Box::new(StressTestPlayground))
+                        .menu("Copy as Code", Box::new(CopyAsCode))
                         .separator()
                 };
                 let menu = menu
@@ -1008,6 +1034,7 @@ impl Render for ProjectPanel {
             .on_action(cx.listener(Self::handle_copy_path))
             .on_action(cx.listener(Self::handle_copy_relative_path))
             .on_action(cx.listener(Self::activate_stress_test_playground))
+            .on_action(cx.listener(Self::handle_copy_as_code))
             .child(
                 div()
                     .flex_none()
