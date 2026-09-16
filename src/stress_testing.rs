@@ -4,7 +4,7 @@ use crate::fs::request::RequestFileContent;
 use crate::helpers::render_method_tag;
 use crate::http_request::HttpRequest;
 use crate::icons::IconName;
-use crate::request_playground::RequestPlayground;
+use crate::playground::RequestPlayground;
 use crate::stress_engine::{RequestMetric, StressEngine, StressTestConfig, StressTestStats};
 use gpui_kit::base::dock::{Panel, PanelEvent};
 use gpui_kit::component::button::{Button, ButtonVariants};

@@ -651,9 +651,9 @@ impl DockShell {
     /// One-shot snapshot of sidebar + aux visibility. Prefer this over
     /// separate `is_panel_open` / `aux_visible` calls when mirroring shell
     /// state elsewhere (e.g. the footer), so the read set lives in one place.
-    pub fn visibility(&self, project_panel_id: &str, env_panel_id: &str) -> ShellVisibility {
+    pub fn visibility(&self, file_panel_id: &str, env_panel_id: &str) -> ShellVisibility {
         ShellVisibility {
-            left_open: self.is_panel_open(project_panel_id),
+            left_open: self.is_panel_open(file_panel_id),
             right_open: self.is_panel_open(env_panel_id),
             aux_visible: self.aux_visible(),
         }

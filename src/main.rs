@@ -2,11 +2,10 @@ mod actions;
 pub mod assets;
 mod auth;
 mod body;
-mod code;
+mod code_gen;
 mod curl;
 mod dock;
-mod env_panel;
-mod env_playground;
+mod env;
 mod footer;
 pub mod fs;
 mod headers;
@@ -16,9 +15,9 @@ mod http_request;
 mod http_response;
 mod icons;
 mod overlay;
-mod project_panel;
+mod playground;
+mod file_panel;
 mod query_params;
-mod request_playground;
 mod response_panel;
 mod settings_panel;
 mod settings_window;
@@ -39,26 +38,27 @@ use crate::dock::shell::{DockShell, DockShellEvent, FixedPanel, Side};
 use crate::dock::tabs::TabChromeRegistry;
 use crate::footer::{Footer, FooterEvent};
 
-use crate::project_panel::ProjectPanel;
+use crate::file_panel::FilePanel;
 use crate::response_panel::ResponsePanel;
 use crate::settings_panel::{AppSettings, SidebarDock};
 use crate::settings_window::SettingsWindow;
 use crate::tab_manager::TabManager;
 use crate::titlebar::{TitleBarEvent, TitleBarView};
-use crate::welcome::WelcomeScreen;
+use crate::welcome::welcome::WelcomeScreen;
+
 use gpui_kit::component::command::CommandState;
 use gpui_kit::component::{Theme, *};
 use gpui_kit::*;
 
 /// Stable ids for the two fixed sidebar panels. Kept as named constants so the
 /// shell is addressed by symbol rather than scattered string literals.
-const PROJECT_PANEL_ID: &str = "project-panel";
+const FILE_PANEL_ID: &str = "file-panel";
 const ENV_PANEL_ID: &str = "environment-panel";
 
 pub struct ApiClient {
-    project_panel: Entity<project_panel::ProjectPanel>,
+    file_panel: Entity<file_panel::FilePanel>,
     footer: Entity<Footer>,
-    env_panel: Entity<env_panel::EnvPanel>,
+    env_panel: Entity<env::EnvPanel>,
     shell: Entity<DockShell>,
     response: Entity<ResponsePanel>,
     tab_manager: Entity<TabManager>,
@@ -69,19 +69,19 @@ pub struct ApiClient {
 
 impl ApiClient {
     fn new(window: &mut Window, cx: &mut Context<Self>) -> Self {
-        let project_panel = cx.new(|cx| ProjectPanel::new(window, cx));
-        let env_panel = cx.new(|cx| env_panel::EnvPanel::new(window, cx));
+        let file_panel = cx.new(|cx| FilePanel::new(window, cx));
+        let env_panel = cx.new(|cx| env::EnvPanel::new(window, cx));
         let response = cx.new(|cx| ResponsePanel::new(window, cx));
 
         let workspace_palette = cx.new(|cx| CommandState::new(window, cx));
         let env_palette = cx.new(|cx| CommandState::new(window, cx));
 
         let mut registry = TabChromeRegistry::new();
-        registry.register::<crate::request_playground::RequestPlayground>("request");
-        registry.register::<crate::env_playground::EnvPlayground>("env");
+        registry.register::<crate::playground::RequestPlayground>("request");
+        registry.register::<crate::env::EnvPlayground>("env");
         registry.register::<crate::stress_testing::StressTesting>("stress");
-        registry.register::<crate::welcome::WelcomeScreen>("welcome");
-        registry.register::<crate::code::CodeScreen>("code");
+        registry.register::<crate::welcome::welcome::WelcomeScreen>("welcome");
+        registry.register::<crate::code_gen::CodeScreen>("code");
         let shell = cx.new(|cx| DockShell::new(window, cx, Rc::new(registry), None));
         let footer = cx.new(|cx| Footer::new(window, cx));
         let welcome = cx.new(|cx| WelcomeScreen::new(window, cx));
@@ -91,14 +91,15 @@ impl ApiClient {
         let tab_manager = cx.new(|_| {
             TabManager::new(
                 shell.clone(),
-                project_panel.clone(),
+                file_panel.clone(),
                 env_panel.clone(),
                 response.clone(),
                 welcome,
             )
         });
 
-        let titlebar = cx.new(|_| TitleBarView::new(workspace_palette, env_palette, env_panel.clone()));
+        let titlebar =
+            cx.new(|_| TitleBarView::new(workspace_palette, env_palette, env_panel.clone()));
 
         let toast_root = cx.new(|_| toast::ToastRoot::new());
         cx.set_global(toast::GlobalToastRoot(toast_root));
@@ -106,7 +107,7 @@ impl ApiClient {
         cx.set_global(overlay::GlobalOverlayRoot(overlay_root));
 
         let this = Self {
-            project_panel,
+            file_panel,
             footer,
             env_panel,
             shell,
@@ -119,18 +120,18 @@ impl ApiClient {
 
         // Fixed side panels follow the saved dock settings. Both start
         // closed, matching the old sidebar defaults.
-        let pp_dock = AppSettings::global(cx).panel.project_panel.sidebar_dock;
+        let fp_dock = AppSettings::global(cx).panel.file_panel.sidebar_dock;
         let ep_dock = AppSettings::global(cx).panel.env_panel.sidebar_dock;
         this.shell.update(cx, |shell, cx| {
             shell.set_panel(
-                match pp_dock {
+                match fp_dock {
                     SidebarDock::Left => Side::Left,
                     SidebarDock::Right => Side::Right,
                 },
                 FixedPanel::new(
-                    PROJECT_PANEL_ID,
-                    "Project",
-                    this.project_panel.clone().into(),
+                    FILE_PANEL_ID,
+                    "Files",
+                    this.file_panel.clone().into(),
                 ),
                 cx,
             );
@@ -142,7 +143,7 @@ impl ApiClient {
                 FixedPanel::new(ENV_PANEL_ID, "Environments", this.env_panel.clone().into()),
                 cx,
             );
-            shell.set_panel_open(PROJECT_PANEL_ID, false, cx);
+            shell.set_panel_open(FILE_PANEL_ID, false, cx);
             shell.set_panel_open(ENV_PANEL_ID, false, cx);
         });
 
@@ -218,10 +219,10 @@ impl ApiClient {
         let vis = self
             .shell
             .read(cx)
-            .visibility(PROJECT_PANEL_ID, ENV_PANEL_ID);
+            .visibility(FILE_PANEL_ID, ENV_PANEL_ID);
         let has_response = self.response.read(cx).has_response();
         self.footer.update(cx, |f, cx| {
-            f.set_project_panel_collapsed(!vis.left_open, cx);
+            f.set_file_panel_collapsed(!vis.left_open, cx);
             f.set_env_panel_collapsed(!vis.right_open, cx);
             f.set_response_collapsed(!vis.aux_visible, cx);
             f.set_show_toggle(has_response, cx);
@@ -229,10 +230,10 @@ impl ApiClient {
     }
 
     fn init_footer_state(&mut self, cx: &mut Context<Self>) {
-        let pp_dock = AppSettings::global(cx).panel.project_panel.sidebar_dock;
+        let fp_dock = AppSettings::global(cx).panel.file_panel.sidebar_dock;
         let ep_dock = AppSettings::global(cx).panel.env_panel.sidebar_dock;
         self.footer
-            .update(cx, |f, cx| f.set_project_panel_dock(pp_dock, cx));
+            .update(cx, |f, cx| f.set_file_panel_dock(fp_dock, cx));
         self.footer
             .update(cx, |f, cx| f.set_env_panel_dock(ep_dock, cx));
     }
@@ -248,16 +249,16 @@ impl ApiClient {
             .update(cx, |tabs, cx| tabs.reset_center_tabs(window, cx));
         self.env_panel.update(cx, |ep, cx| ep.refresh(cx));
 
-        let project_panel = self.project_panel.clone();
+        let file_panel = self.file_panel.clone();
         cx.spawn(async move |_, cx| {
             let tree_path = path.clone();
             let tree =
                 cx.background_executor()
                     .spawn(async move {
-                        ProjectPanel::read_dir_to_nodes(std::path::Path::new(&tree_path))
+                        FilePanel::read_dir_to_nodes(std::path::Path::new(&tree_path))
                     })
                     .await;
-            project_panel.update(cx, |pp, cx| {
+            file_panel.update(cx, |pp, cx| {
                 pp.set_tree(name, path, tree, cx);
             });
         })
@@ -284,9 +285,9 @@ impl ApiClient {
                 FooterEvent::ToggleResponse => {
                     this.response.update(cx, |panel, cx| panel.toggle(cx));
                 }
-                FooterEvent::ToggleProjectPanel => {
+                FooterEvent::ToggleFilePanel => {
                     this.shell.update(cx, |shell, cx| {
-                        shell.toggle_panel(PROJECT_PANEL_ID, cx);
+                        shell.toggle_panel(FILE_PANEL_ID, cx);
                     });
                 }
                 FooterEvent::ToggleEnvPanel => {
@@ -299,14 +300,14 @@ impl ApiClient {
         .detach();
     }
 
-    fn set_project_dock(&mut self, dock: SidebarDock, cx: &mut Context<Self>) {
-        AppSettings::global_mut(cx).panel.project_panel.sidebar_dock = dock;
+    fn set_file_dock(&mut self, dock: SidebarDock, cx: &mut Context<Self>) {
+        AppSettings::global_mut(cx).panel.file_panel.sidebar_dock = dock;
         AppSettings::global_mut(cx).save();
         self.footer
-            .update(cx, |f, cx| f.set_project_panel_dock(dock, cx));
+            .update(cx, |f, cx| f.set_file_panel_dock(dock, cx));
         self.shell.update(cx, |shell, cx| {
             shell.set_panel_side(
-                PROJECT_PANEL_ID,
+                FILE_PANEL_ID,
                 match dock {
                     SidebarDock::Left => Side::Left,
                     SidebarDock::Right => Side::Right,
@@ -347,7 +348,7 @@ impl ApiClient {
         _window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        self.set_project_dock(SidebarDock::Left, cx);
+        self.set_file_dock(SidebarDock::Left, cx);
     }
 
     fn handle_dock_sidebar_right(
@@ -356,7 +357,7 @@ impl ApiClient {
         _window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        self.set_project_dock(SidebarDock::Right, cx);
+        self.set_file_dock(SidebarDock::Right, cx);
     }
 
     fn handle_dock_env_panel_left(

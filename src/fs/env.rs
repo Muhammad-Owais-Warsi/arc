@@ -2,7 +2,7 @@ use std::collections::HashMap;
 use std::fs;
 use std::path::PathBuf;
 
-use crate::env_playground::Environment;
+use crate::env::Environment;
 
 fn workspace_path() -> PathBuf {
     dirs::config_dir()

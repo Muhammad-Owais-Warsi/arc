@@ -1,29 +1,10 @@
 use gpui_kit::Action;
 
+// Shared: handled by more than one view (playground + project panel).
 #[derive(Clone, PartialEq, Action)]
-pub struct CreateFile;
+pub struct CopyAsCode;
 
-#[derive(Clone, PartialEq, Action)]
-pub struct CreateFolder;
-
-#[derive(Clone, PartialEq, Action)]
-pub struct DeleteItem;
-
-#[derive(Clone, PartialEq, Action)]
-pub struct TrashItem;
-
-#[derive(Clone, PartialEq, Action)]
-pub struct StressTestPlayground;
-
-#[derive(Clone, PartialEq, Action)]
-pub struct RenameItem;
-
-#[derive(Clone, PartialEq, Action)]
-pub struct CopyPath;
-
-#[derive(Clone, PartialEq, Action)]
-pub struct CopyRelativePath;
-
+// App-global: handled by ApiClient, dispatched from footer/titlebar menus.
 #[derive(Clone, PartialEq, Action)]
 #[action(namespace = fs, no_json)]
 pub struct DockSidebarLeft;
@@ -51,15 +32,3 @@ pub struct CopySettings;
 
 #[derive(Clone, PartialEq, Action)]
 pub struct ThemeChange;
-
-#[derive(Clone, PartialEq, Action)]
-pub struct DeleteEnv;
-
-#[derive(Clone, PartialEq, Action)]
-pub struct CopyEnv;
-
-#[derive(Clone, PartialEq, Action)]
-pub struct CopyURL;
-
-#[derive(Clone, PartialEq, Action)]
-pub struct CopyAsCode;

@@ -1,20 +1,15 @@
-// use gpui::Window;
-use crate::actions::{
-    CopyAsCode, CopyPath, CopyRelativePath, CreateFile, CreateFolder, DeleteItem, RenameItem,
+use super::actions::{
+    CopyPath, CopyRelativePath, CreateFile, CreateFolder, DeleteItem, RenameItem,
     StressTestPlayground, TrashItem,
 };
+use crate::actions::CopyAsCode;
 use crate::fs;
-use crate::helpers::{next_id, render_method_tag};
+use crate::helpers::next_id;
 use gpui_kit::*;
 
-use gpui_kit::component::input::{Input, InputEvent, InputState};
-use gpui_kit::component::list::ListItem;
-use gpui_kit::component::menu::PopupMenu;
-use gpui_kit::component::tree::{TreeEntry, TreeEvent, TreeItem, TreeState, tree};
-use gpui_kit::component::{ActiveTheme, Icon, IconNamed, StyledExt, h_flex};
-use gpui_kit::prelude::FluentBuilder;
+use gpui_kit::component::input::{InputEvent, InputState};
+use gpui_kit::component::tree::{TreeEvent, TreeItem, TreeState};
 
-use crate::icons::IconName;
 use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 use walkdir::WalkDir;
@@ -25,7 +20,7 @@ pub struct DirTree {
 }
 
 #[derive(Clone, Debug)]
-pub enum ProjectPanelEvent {
+pub enum FilePanelEvent {
     FileActivated {
         node_id: usize,
         name: String,
@@ -89,18 +84,7 @@ enum PendingAction {
     },
 }
 
-#[derive(Clone)]
-struct TreeRenderDeps {
-    nodes: HashMap<usize, Node>,
-    root_id: Option<usize>,
-    panel: WeakEntity<ProjectPanel>,
-    focus: FocusHandle,
-    pending_new: Option<Entity<InputState>>,
-    pending_rename: Option<(usize, Entity<InputState>)>,
-    pending_error: Option<String>,
-}
-
-pub struct ProjectPanel {
+pub struct FilePanel {
     name: String,
     path: String,
     nodes: HashMap<usize, Node>,
@@ -114,9 +98,80 @@ pub struct ProjectPanel {
     expanded: HashSet<String>,
 }
 
-impl EventEmitter<ProjectPanelEvent> for ProjectPanel {}
+/// Owned clone of the bits `view.rs` needs to render a frame.
+pub struct PanelSnapshot {
+    pub workspace_name: String,
+    pub nodes: HashMap<usize, Node>,
+    pub root_id: Option<usize>,
+    pub focus: FocusHandle,
+    pub pending_new: Option<Entity<InputState>>,
+    pub pending_rename: Option<(usize, Entity<InputState>)>,
+    pub pending_error: Option<String>,
+}
 
-impl ProjectPanel {
+impl EventEmitter<FilePanelEvent> for FilePanel {}
+
+impl FilePanel {
+    pub fn snapshot(&self) -> PanelSnapshot {
+        let pending_new = match &self.pending_action {
+            Some(PendingAction::CreateFile { input, .. })
+            | Some(PendingAction::CreateFolder { input, .. }) => Some(input.clone()),
+            _ => None,
+        };
+        let pending_rename = match &self.pending_action {
+            Some(PendingAction::Rename { node_id, input }) => Some((*node_id, input.clone())),
+            _ => None,
+        };
+        PanelSnapshot {
+            workspace_name: self.name.clone(),
+            nodes: self.nodes.clone(),
+            root_id: self.root_id.first().copied(),
+            focus: self.focus.clone(),
+            pending_new,
+            pending_rename,
+            pending_error: self.pending_error.clone(),
+        }
+    }
+
+    pub fn tree_state(&self) -> Entity<TreeState> {
+        self.tree.clone()
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.nodes.is_empty()
+    }
+
+    pub fn focus(&self) -> FocusHandle {
+        self.focus.clone()
+    }
+
+    pub fn set_context_target(&mut self, node_id: usize) {
+        self.context_target = Some(node_id);
+    }
+
+    pub fn click_node(
+        &mut self,
+        node_id: usize,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        window.focus(&self.focus, cx);
+        self.active_node_id = Some(node_id);
+        if let Some(node) = self.nodes.get(&node_id) {
+            if node.is_file {
+                cx.emit(FilePanelEvent::FileActivated {
+                    node_id,
+                    name: node.name.clone(),
+                    path: node.path.clone(),
+                    method: node.method.clone(),
+                });
+            }
+        }
+        cx.notify();
+    }
+}
+
+impl FilePanel {
     pub fn new(window: &mut Window, cx: &mut Context<Self>) -> Self {
         let tree = cx.new(|cx| TreeState::new(cx));
         cx.subscribe_in(
@@ -312,7 +367,7 @@ impl ProjectPanel {
         let Some(node) = self.nodes.get(&node_id) else {
             return;
         };
-        cx.emit(ProjectPanelEvent::StressTestPlayground {
+        cx.emit(FilePanelEvent::StressTestPlayground {
             path: node.path.clone(),
             node_name: node.name.clone(),
         });
@@ -333,7 +388,7 @@ impl ProjectPanel {
         if !node.is_file {
             return;
         }
-        cx.emit(ProjectPanelEvent::CopyAsCode {
+        cx.emit(FilePanelEvent::CopyAsCode {
             node_id,
             path: node.path.clone(),
         });
@@ -450,7 +505,7 @@ impl ProjectPanel {
         }
         self.remove_node_from_tree(node_id);
         self.rebuild_tree(cx);
-        cx.emit(ProjectPanelEvent::FileDeleted {
+        cx.emit(FilePanelEvent::FileDeleted {
             node_id,
             path,
             is_file,
@@ -477,7 +532,7 @@ impl ProjectPanel {
         self.remove_node_from_tree(node_id);
         self.rebuild_tree(cx);
 
-        cx.emit(ProjectPanelEvent::FileTrashed {
+        cx.emit(FilePanelEvent::FileTrashed {
             node_id: node_id,
             path: path.clone(),
         });
@@ -686,7 +741,7 @@ impl ProjectPanel {
                         }
                         self.pending_error = None;
 
-                        cx.emit(ProjectPanelEvent::FileRenamed {
+                        cx.emit(FilePanelEvent::FileRenamed {
                             node_id,
                             new_name: display_name,
                             new_path,
@@ -800,251 +855,3 @@ impl ProjectPanel {
     }
 }
 
-impl Render for ProjectPanel {
-    fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
-        let ws_name = self.name.clone();
-        let nodes = self.nodes.clone();
-        let root_id = self.root_id.first().copied();
-        let panel = cx.weak_entity();
-        let focus = self.focus.clone();
-
-        let pending_new: Option<Entity<InputState>> = match &self.pending_action {
-            Some(PendingAction::CreateFile { input, .. })
-            | Some(PendingAction::CreateFolder { input, .. }) => Some(input.clone()),
-            _ => None,
-        };
-        let pending_rename: Option<(usize, Entity<InputState>)> = match &self.pending_action {
-            Some(PendingAction::Rename { node_id, input }) => Some((*node_id, input.clone())),
-            _ => None,
-        };
-        let pending_error = self.pending_error.clone();
-
-        let menu_nodes = nodes.clone();
-        let menu_panel = panel.clone();
-        let menu_focus = focus.clone();
-        let menu_roots = root_id;
-        let content = if self.nodes.is_empty() {
-            div()
-                .flex_1()
-                .flex()
-                .items_center()
-                .justify_center()
-                .text_color(cx.theme().muted_foreground)
-                .child("No workspace")
-                .into_any_element()
-        } else {
-            tree(
-                &self.tree,
-                move |ix, entry, selected, _window, cx| {
-                    let key = entry.item().id.clone();
-                    if key.as_ref() == "pending:new" {
-                        if let Some(input) = pending_new.clone() {
-                            let error = pending_error.clone();
-                            return ListItem::new(("pending-row", ix))
-                                .mx(px(4.))
-                                .rounded(px(6.))
-                                .child(
-                                    div()
-                                        .w_full()
-                                        .flex()
-                                        .flex_col()
-                                        .gap_1()
-                                        .child(Input::new(&input).appearance(false))
-                                        .when_some(error, |this, message| {
-                                            this.child(
-                                                div()
-                                                    .w_full()
-                                                    .border_1()
-                                                    .border_color(cx.theme().danger)
-                                                    .rounded(px(6.))
-                                                    .px_2()
-                                                    .py_1()
-                                                    .child(
-                                                        div()
-                                                            .text_sm()
-                                                            .text_color(cx.theme().danger)
-                                                            .child(message),
-                                                    ),
-                                            )
-                                        }),
-                                );
-                        }
-                    }
-                    let node_id: usize = key.parse().unwrap_or(usize::MAX);
-                    let Some(node) = nodes.get(&node_id).cloned() else {
-                        return ListItem::new(("missing-row", ix));
-                    };
-                    if let Some((rename_id, input)) = pending_rename.clone() {
-                        if rename_id == node_id {
-                            let error = pending_error.clone();
-                            return ListItem::new(("rename-row", ix))
-                                .selected(selected)
-                                .mx(px(4.))
-                                .rounded(px(6.))
-                                .child(
-                                    div()
-                                        .w_full()
-                                        .flex()
-                                        .flex_col()
-                                        .gap_1()
-                                        .child(Input::new(&input).appearance(false))
-                                        .when_some(error, |this, message| {
-                                            this.child(
-                                                div()
-                                                    .w_full()
-                                                    .border_1()
-                                                    .border_color(cx.theme().danger)
-                                                    .rounded(px(6.))
-                                                    .px_2()
-                                                    .py_1()
-                                                    .child(
-                                                        div()
-                                                            .text_sm()
-                                                            .text_color(cx.theme().danger)
-                                                            .child(message),
-                                                    ),
-                                            )
-                                        }),
-                                );
-                        }
-                    }
-                    let expanded = entry.is_expanded();
-                    let folder_icon = if node.is_file {
-                        None
-                    } else if expanded {
-                        Some(IconName::FolderOpen)
-                    } else {
-                        Some(IconName::Folder)
-                    };
-                    let chevron = if node.is_file {
-                        None
-                    } else if expanded {
-                        Some(IconName::ChevronDown)
-                    } else {
-                        Some(IconName::ChevronRight)
-                    };
-                    let muted = cx.theme().muted_foreground;
-                    // Zed-compact: 15px icons, small label, no extra padding.
-                    let icon_el = |name: IconName| {
-                        Icon::empty()
-                            .path(name.path())
-                            .size(px(15.))
-                            .into_any_element()
-                    };
-                    let (name, path, method, is_file) = (
-                        node.name.clone(),
-                        node.path.clone(),
-                        node.method.clone(),
-                        node.is_file,
-                    );
-                    let row_panel = panel.clone();
-                    ListItem::new(("file-row", ix))
-                        .selected(selected)
-                        .mx(px(4.))
-                        .rounded(px(6.))
-                        .child(
-                            h_flex()
-                                .w_full()
-                                .items_center()
-                                .gap_1()
-                                .pl(px(6. + entry.depth() as f32 * 14.))
-                                .children(folder_icon.map(|icon| div().flex_none().child(icon_el(icon))))
-                                .child(div().text_sm().child(name.clone()))
-                                .child(div().flex_1())
-                                .when(is_file, |t| {
-                                    t.child(render_method_tag(&method))
-                                })
-                                .children(chevron.map(|icon| {
-                                    div().flex_none().text_color(muted).child(
-                                        Icon::empty()
-                                            .path(icon.path())
-                                            .size(px(12.)),
-                                    )
-                                })),
-                        )
-                        .on_click(move |_, window, cx| {
-                            row_panel
-                                .update(cx, |p, cx| {
-                                    window.focus(&p.focus, cx);
-                                    p.active_node_id = Some(node_id);
-                                    if is_file {
-                                        cx.emit(ProjectPanelEvent::FileActivated {
-                                            node_id,
-                                            name: name.clone(),
-                                            path: path.clone(),
-                                            method: method.clone(),
-                                        });
-                                    }
-                                    cx.notify();
-                                })
-                                .ok();
-                        })
-                },
-            )
-            .context_menu(move |_ix, entry, menu, _window, cx| {
-                let node_id: usize = entry.item().id.parse().unwrap_or(usize::MAX);
-                menu_panel
-                    .update(cx, |p, _| {
-                        p.context_target = Some(node_id);
-                    })
-                    .ok();
-                let is_file = menu_nodes
-                    .get(&node_id)
-                    .map(|n| n.is_file)
-                    .unwrap_or(true);
-                let is_root = menu_roots.is_some_and(|id| id == node_id);
-                let menu = menu.min_w(px(200.)).action_context(menu_focus.clone());
-                let menu = if !is_file {
-                    menu.menu("Create File", Box::new(CreateFile))
-                        .menu("Create Folder", Box::new(CreateFolder))
-                        .separator()
-                } else {
-                    menu.menu("Stress Test", Box::new(StressTestPlayground))
-                        .menu("Copy as Code", Box::new(CopyAsCode))
-                        .separator()
-                };
-                let menu = menu
-                    .menu("Copy Path", Box::new(CopyPath))
-                    .menu("Copy Relative Path", Box::new(CopyRelativePath))
-                    .separator();
-                if !is_root {
-                    menu.menu("Rename", Box::new(RenameItem))
-                        .menu("Trash", Box::new(TrashItem))
-                        .menu("Delete", Box::new(DeleteItem))
-                } else {
-                    menu
-                }
-            })
-            .into_any_element()
-        };
-
-        div()
-            .id("project-panel")
-            .track_focus(&self.focus)
-            .h_full()
-            .w_full()
-            .v_flex()
-            .overflow_hidden()
-            .bg(cx.theme().tokens.sidebar)
-            .on_action(cx.listener(Self::handle_create_file))
-            .on_action(cx.listener(Self::handle_create_folder))
-            .on_action(cx.listener(Self::handle_rename_item))
-            .on_action(cx.listener(Self::handle_delete_item))
-            .on_action(cx.listener(Self::handle_trash_item))
-            .on_action(cx.listener(Self::handle_copy_path))
-            .on_action(cx.listener(Self::handle_copy_relative_path))
-            .on_action(cx.listener(Self::activate_stress_test_playground))
-            .on_action(cx.listener(Self::handle_copy_as_code))
-            .child(
-                div()
-                    .flex_none()
-                    .px_3()
-                    .py_2()
-                    .text_sm()
-                    .font_semibold()
-                    .child(ws_name),
-            )
-            .child(div().flex_1().min_h(px(0.)).px(px(2.)).child(content))
-            .into_element()
-    }
-}

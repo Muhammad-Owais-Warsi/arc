@@ -1,10 +1,7 @@
-use gpui_kit::component::ActiveTheme;
-use gpui_kit::component::input::InputContentType;
 use gpui_kit::component::{
     IndexPath,
-    input::{Input, InputEvent, InputState},
-    select::{Select, SelectEvent, SelectState},
-    v_flex,
+    input::{InputEvent, InputState},
+    select::{SelectEvent, SelectState},
 };
 use gpui_kit::*;
 use serde::{Deserialize, Serialize};
@@ -104,53 +101,24 @@ impl Auth {
         }
     }
 
-    fn basic_auth(&self, cx: &mut Context<Self>) -> impl IntoElement {
-        v_flex()
-            .gap(rems(0.5))
-            .child(
-                div()
-                    .child(
-                        div()
-                            .text_xs()
-                            .text_color(cx.theme().muted_foreground)
-                            .mb_1()
-                            .child("Username"),
-                    )
-                    .child(Input::new(&self.username)),
-            )
-            .child(
-                div()
-                    .child(
-                        div()
-                            .text_xs()
-                            .text_color(cx.theme().muted_foreground)
-                            .mb_1()
-                            .child("Password"),
-                    )
-                    .child(Input::new(&self.password)),
-            )
-            .into_any_element()
-    }
-
-    fn bearer_auth(&self, cx: &mut Context<Self>) -> impl IntoElement {
-        v_flex()
-            .gap(rems(0.5))
-            .child(
-                div()
-                    .child(
-                        div()
-                            .text_xs()
-                            .text_color(cx.theme().muted_foreground)
-                            .mb_1()
-                            .child("Token"),
-                    )
-                    .child(Input::new(&self.token)),
-            )
-            .into_any_element()
-    }
-
     pub fn auth_type(&self) -> AuthType {
         self.selected_auth_type.clone()
+    }
+
+    pub fn auth_type_select(&self) -> Entity<SelectState<Vec<String>>> {
+        self.auth_type.clone()
+    }
+
+    pub fn username_input(&self) -> Entity<InputState> {
+        self.username.clone()
+    }
+
+    pub fn password_input(&self) -> Entity<InputState> {
+        self.password.clone()
+    }
+
+    pub fn token_input(&self) -> Entity<InputState> {
+        self.token.clone()
     }
 
     pub fn credentials(&self, cx: &App) -> (AuthType, String, String, String) {
@@ -204,18 +172,5 @@ impl Auth {
             .update(cx, |s, cx| s.set_value(password, window, cx));
         self.token
             .update(cx, |s, cx| s.set_value(token, window, cx));
-    }
-}
-
-impl Render for Auth {
-    fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
-        v_flex()
-            .gap(px(8.))
-            .child(div().w(px(110.)).child(Select::new(&self.auth_type)))
-            .child(match self.selected_auth_type {
-                AuthType::Bearer => Self::bearer_auth(&self, cx).into_any_element(),
-                AuthType::Basic => Self::basic_auth(&self, cx).into_any_element(),
-                AuthType::None => div().into_any_element(),
-            })
     }
 }

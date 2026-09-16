@@ -1,7 +1,7 @@
 use gpui_kit::component::{
-    ActiveTheme, IndexPath, StyledExt,
-    input::{Editor, EditorState, InputEvent, TabSize},
-    select::{Select, SelectEvent, SelectState},
+    IndexPath,
+    input::{EditorState, InputEvent, TabSize},
+    select::SelectState,
 };
 use gpui_kit::*;
 
@@ -74,6 +74,7 @@ impl Body {
             &body_type_state,
             window,
             move |this: &mut Self, _, event, window, cx| {
+                use gpui_kit::component::select::SelectEvent;
                 if let SelectEvent::Confirm(Some(label)) = event {
                     if let Some(body_type) = RAW_BODY_TYPES.iter().find(|t| t.label == label) {
                         this.body.update(cx, |editor, cx| {
@@ -103,6 +104,14 @@ impl Body {
 
     pub fn value(&self, cx: &App) -> String {
         self.body.read(cx).value().to_string()
+    }
+
+    pub fn body_editor(&self) -> Entity<EditorState> {
+        self.body.clone()
+    }
+
+    pub fn body_type_select(&self) -> Entity<SelectState<Vec<String>>> {
+        self.body_type.clone()
     }
 
     pub fn body_type(&self, cx: &App) -> String {
@@ -141,31 +150,5 @@ impl Body {
             editor.set_highlighter(language, cx);
             editor.set_value(body_value, window, cx);
         });
-    }
-}
-
-impl Render for Body {
-    fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
-        div()
-            .size_full()
-            .v_flex()
-            .gap(px(4.))
-            .child(div().w(px(110.)).child(Select::new(&self.body_type)))
-            .child(
-                div()
-                    .flex_basis(DefiniteLength::Fraction(0.75))
-                    .min_h(px(0.))
-                    .border_1()
-                    .border_color(cx.theme().border)
-                    .rounded_md()
-                    .overflow_hidden()
-                    .child(
-                        Editor::new(&self.body)
-                            .size_full()
-                            .appearance(false)
-                            .bordered(false),
-                    ),
-            )
-            .into_any_element()
     }
 }

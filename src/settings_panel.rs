@@ -98,11 +98,11 @@ impl Default for FontSettings {
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(default)]
-pub struct ProjectPanelSettings {
+pub struct FilePanelSettings {
     pub sidebar_dock: SidebarDock,
 }
 
-impl Default for ProjectPanelSettings {
+impl Default for FilePanelSettings {
     fn default() -> Self {
         Self {
             sidebar_dock: SidebarDock::Left,
@@ -141,14 +141,15 @@ impl Default for RequestPlaygroundSettings {
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(default)]
 pub struct PanelSettings {
-    pub project_panel: ProjectPanelSettings,
+    #[serde(alias = "project_panel")]
+    pub file_panel: FilePanelSettings,
     pub env_panel: EnvPanelSettings,
 }
 
 impl Default for PanelSettings {
     fn default() -> Self {
         Self {
-            project_panel: ProjectPanelSettings::default(),
+            file_panel: FilePanelSettings::default(),
             env_panel: EnvPanelSettings::default(),
         }
     }
@@ -355,7 +356,7 @@ impl SettingsPanel {
             .resettable(true)
             .icon(Icon::new(IconName::PanelLeftOpen))
             .groups(vec![
-                SettingGroup::new().title("Project Panel").item(
+                SettingGroup::new().title("File Panel").item(
                     SettingItem::new(
                         "Dock Position",
                         SettingField::<SharedString>::dropdown(
@@ -364,7 +365,7 @@ impl SettingsPanel {
                                 ("right".into(), "Dock Right".into()),
                             ],
                             |cx: &App| {
-                                let dock = AppSettings::global(cx).panel.project_panel.sidebar_dock;
+                                let dock = AppSettings::global(cx).panel.file_panel.sidebar_dock;
                                 SharedString::from(if dock == SidebarDock::Right {
                                     "right"
                                 } else {
@@ -379,12 +380,12 @@ impl SettingsPanel {
                                 };
                                 match project_client.clone().and_then(|c| c.upgrade()) {
                                     Some(client) => client.update(cx, |c, cx| {
-                                        c.set_project_dock(dock, cx);
+                                        c.set_file_dock(dock, cx);
                                     }),
                                     None => {
                                         AppSettings::global_mut(cx)
                                             .panel
-                                            .project_panel
+                                            .file_panel
                                             .sidebar_dock = dock;
                                         AppSettings::global_mut(cx).save();
                                     }

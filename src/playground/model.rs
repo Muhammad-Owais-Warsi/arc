@@ -1,37 +1,25 @@
-use gpui_kit::IntoElement;
 use gpui_kit::base::dock::{Panel, PanelEvent};
-use gpui_kit::component::button::{Button, ButtonVariants};
-use gpui_kit::component::clipboard::Clipboard;
-use gpui_kit::component::input::Input;
-use gpui_kit::component::menu::ContextMenuExt;
-use gpui_kit::component::scroll::ScrollableElement;
-use gpui_kit::component::{ActiveTheme, Sizable, StyledExt, h_flex, v_flex};
 use gpui_kit::component::{
     IndexPath,
     input::{InputEvent, InputState},
-    select::{Select, SelectEvent, SelectState},
-    tab::{self, Tab, TabBar},
+    select::{SelectEvent, SelectState},
 };
-use gpui_kit::prelude::FluentBuilder;
 use gpui_kit::*;
 
-use crate::actions::{CopyAsCode, CopyURL};
+use super::actions::CopyURL;
+use crate::actions::CopyAsCode;
+use crate::auth::{Auth, AuthEvent};
+use crate::body::{Body, BodyEvent};
+use crate::curl::curl::CurlRequest;
 use crate::dock::tabs::Playground;
+use crate::fs;
 use crate::fs::request::{Auth as AuthContent, Body as BodyContent, KeyValue, RequestFileContent};
+use crate::headers::{Headers, HeadersEvent};
 use crate::helpers::render_method_tag;
-use crate::http_client::HttpClient;
-use crate::http_response::{AuthPayload, RequestStats, Response, ResponseBody, ResponseHeaders};
+use crate::query_params::{QueryParams, QueryParamsEvent};
+use crate::response_panel::ResponsePanel;
 use crate::settings_panel::AppSettings;
 use crate::toast::{ToastRoot, ToastVariant};
-use crate::{
-    auth::{Auth, AuthEvent, AuthType},
-    body::{Body, BodyEvent},
-    headers::{Headers, HeadersEvent},
-    icons::IconName,
-    query_params::{QueryParams, QueryParamsEvent},
-    response_panel::ResponsePanel,
-};
-use crate::{curl::CurlRequest, fs};
 
 pub struct RequestPlayground {
     path: Option<String>,
@@ -233,6 +221,55 @@ impl RequestPlayground {
         self.dirty
     }
 
+    pub fn is_sending(&self) -> bool {
+        self.pending.is_some()
+    }
+
+    pub fn selected_tab(&self) -> usize {
+        self.selected_config
+    }
+
+    pub fn select_tab(&mut self, ix: usize, cx: &mut Context<Self>) {
+        self.selected_config = ix;
+        cx.notify();
+    }
+
+    pub fn method_input(&self) -> Entity<SelectState<Vec<String>>> {
+        self.method.clone()
+    }
+
+    pub fn url_input(&self) -> Entity<InputState> {
+        self.url.clone()
+    }
+
+    pub fn auth_view(&self) -> Entity<Auth> {
+        self.auth.clone()
+    }
+
+    pub fn query_view(&self) -> Entity<QueryParams> {
+        self.query_params.clone()
+    }
+
+    pub fn headers_view(&self) -> Entity<Headers> {
+        self.headers.clone()
+    }
+
+    pub fn body_view(&self) -> Entity<Body> {
+        self.body.clone()
+    }
+
+    pub fn response_panel(&self) -> Entity<ResponsePanel> {
+        self.response_panel.clone()
+    }
+
+    pub fn set_pending(&mut self, handle: tokio::task::AbortHandle) {
+        self.pending = Some(handle);
+    }
+
+    pub fn clear_pending(&mut self) {
+        self.pending = None;
+    }
+
     pub fn method(&self, cx: &App) -> String {
         self.method
             .read(cx)
@@ -242,11 +279,10 @@ impl RequestPlayground {
     }
 
     pub fn set_method(&mut self, method: &str, window: &mut Window, cx: &mut Context<Self>) {
-        let methods: Vec<String> =
-            vec!["GET", "POST", "PUT", "PATCH", "DELETE", "HEAD", "OPTIONS"]
-                .into_iter()
-                .map(String::from)
-                .collect();
+        let methods: Vec<String> = vec!["GET", "POST", "PUT", "PATCH", "DELETE", "HEAD", "OPTIONS"]
+            .into_iter()
+            .map(String::from)
+            .collect();
         let row = methods.iter().position(|m| m == method).unwrap_or(0);
         self.method.update(cx, |state, cx| {
             state.set_selected_index(Some(IndexPath::default().row(row)), window, cx);
@@ -371,263 +407,25 @@ impl RequestPlayground {
         self.dirty = false;
     }
 
-    fn handle_copy_url(&mut self, _: &CopyURL, _window: &mut Window, cx: &mut Context<Self>) {
-        cx.write_to_clipboard(ClipboardItem::new_string(self.url.read(cx).value().into()));
-    }
-
-    fn handle_copy_as_code(
+    pub fn handle_copy_url(
         &mut self,
-        _: &CopyAsCode,
+        _: &CopyURL,
         _window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        cx.emit(RequestPlaygroundEvent::CopyAsCode);
+        cx.write_to_clipboard(ClipboardItem::new_string(self.url.read(cx).value().into()));
     }
 
-    pub fn send_request(&mut self, _window: &mut Window, cx: &mut Context<Self>) {
-        let url_str = self.url.read(cx).value().to_string();
-        let method_str = self.method(cx);
-        let query_params = self.query_params.read(cx).active_params(cx);
-        let headers = self.headers.read(cx).active_headers(cx);
-        let body = self.body.read(cx).value(cx);
-        let (auth_type, username, password, token) = self.auth.read(cx).credentials(cx);
-
-        let auth = match auth_type {
-            AuthType::None => AuthPayload::None,
-            AuthType::Basic => AuthPayload::Basic { username, password },
-            AuthType::Bearer => AuthPayload::Bearer { token },
-        };
-
-        let response_panel = self.response_panel.clone();
-
-        response_panel.update(cx, |panel, cx| panel.open(cx));
-        cx.emit(RequestPlaygroundEvent::ResponsePanelOpened);
-
-        let request = HttpClient::global()
-            .request(&method_str, &url_str)
-            .headers(headers)
-            .queries(query_params)
-            .body(&body)
-            .auth(auth);
-        let pending = HttpClient::global().send(&request);
-        self.pending = Some(pending.cancel_handle());
-        // cx.notify();
-
-        let rp = response_panel;
-        cx.spawn(async move |this, cx| {
-            let result = pending.wait().await;
-            let _ = this.update_in(cx, |_this, window, cx| {
-                match result {
-                    Ok(response) => {
-                        rp.update(cx, |p, cx| {
-                            p.set_response(response, window, cx);
-                        });
-                    }
-                    Err(err) => {
-                        rp.update(cx, |p, cx| {
-                            p.set_response(
-                                Response {
-                                    status_code: 0,
-                                    status_text: "Error".to_string(),
-                                    headers: ResponseHeaders {
-                                        headers: vec![],
-                                        response_size: 0,
-                                    },
-                                    body: ResponseBody {
-                                        body: format!("Error: {err}"),
-                                        response_size: 0,
-                                    },
-                                    cookies: vec![],
-                                    request: RequestStats {
-                                        header_size: 0,
-                                        body_size: 0,
-                                        size: 0,
-                                    },
-                                    response_size: 0,
-                                    duration: std::time::Duration::ZERO,
-                                },
-                                window,
-                                cx,
-                            );
-                        });
-                    }
-                }
-                _this.pending = None;
-                cx.notify();
-            });
-        })
-        .detach();
+    pub fn handle_copy_as_code(
+        &mut self,
+        _: &CopyAsCode,
+        _window: &mut Window,
+        _cx: &mut Context<Self>,
+    ) {
+        _cx.emit(RequestPlaygroundEvent::CopyAsCode);
     }
 
-    fn render_editor_bar(&self, cx: &mut Context<Self>) -> AnyElement {
-        h_flex()
-            .w_full()
-            .gap(rems(0.5))
-            .child(div().w(px(110.)).child(Select::new(&self.method)))
-            .child(
-                div().flex_1().child(
-                    Input::new(&self.url).suffix(
-                        h_flex().gap_1().items_center().child(
-                            div()
-                                .flex()
-                                .items_center()
-                                .child(
-                                    Clipboard::new("url-clip")
-                                        .tooltip("Copy")
-                                        .value(self.url.read(cx).value()),
-                                )
-                                .context_menu(move |menu, _, _| {
-                                    menu.menu("Copy URL", Box::new(CopyURL))
-                                        .menu("Copy as Code", Box::new(CopyAsCode))
-                                }),
-                        ),
-                    ),
-                ),
-            )
-            .child(
-                Button::new("save")
-                    .secondary()
-                    .label("Save")
-                    .when(self.dirty, |this| {
-                        this.child(div().size_2().rounded_full().bg(cx.theme().primary))
-                    })
-                    .on_click(cx.listener(|this: &mut Self, _, _window, cx| {
-                        this.save(cx);
-                    })),
-            )
-            .child(
-                Button::new("send")
-                    .when(self.pending.is_some(), |this| this.danger())
-                    .when(self.pending.is_none(), |this| this.primary())
-                    .icon(if self.pending.is_some() {
-                        IconName::Stop
-                    } else {
-                        IconName::Send
-                    })
-                    .label(if self.pending.is_some() {
-                        "Stop"
-                    } else {
-                        "Send"
-                    })
-                    .on_click(cx.listener(|this: &mut Self, _, window, cx| {
-                        if this.pending.is_some() {
-                            if let Some(abort) = this.pending.take() {
-                                abort.abort();
-                            }
-                        } else {
-                            this.send_request(window, cx);
-                        }
-                        cx.notify();
-                    })),
-            )
-            .into_any_element()
-    }
-
-    fn render_config_tabs(&self, cx: &mut Context<Self>) -> AnyElement {
-        div()
-            .w_full()
-            .border_b_1()
-            .border_color(cx.theme().border)
-            .child(
-                div().px(px(24.)).child(
-                    TabBar::new("request-tabs")
-                        .w_full()
-                        .with_variant(tab::TabVariant::Underline)
-                        .selected_index(self.selected_config)
-                        .child(Tab::new().label("Params"))
-                        .child(Tab::new().label("Authorization"))
-                        .child(Tab::new().label("Headers"))
-                        .child(Tab::new().label("Body"))
-                        .on_click(cx.listener(|this: &mut Self, idx: &usize, _window, cx| {
-                            this.selected_config = *idx;
-                            cx.notify();
-                        })),
-                ),
-            )
-            .into_any_element()
-    }
-
-    fn render_config_content(&self, _cx: &mut Context<Self>) -> AnyElement {
-        div()
-            .w_full()
-            .h_full()
-            .min_h(px(0.))
-            .child(
-                div()
-                    .w_full()
-                    .h_full()
-                    .min_h(px(0.))
-                    .when(self.selected_config != 0, |this| {
-                        this.absolute().top_0().left_0().right_0().hidden()
-                    })
-                    .child(self.query_params.clone()),
-            )
-            .child(
-                div()
-                    .w_full()
-                    .h_full()
-                    .min_h(px(0.))
-                    .when(self.selected_config != 1, |this| {
-                        this.absolute().top_0().left_0().right_0().hidden()
-                    })
-                    .child(self.auth.clone()),
-            )
-            .child(
-                div()
-                    .w_full()
-                    .h_full()
-                    .min_h(px(0.))
-                    .when(self.selected_config != 2, |this| {
-                        this.absolute().top_0().left_0().right_0().hidden()
-                    })
-                    .child(self.headers.clone()),
-            )
-            .child(
-                div()
-                    .w_full()
-                    .h_full()
-                    .min_h(px(0.))
-                    .when(self.selected_config != 3, |this| {
-                        this.absolute().top_0().left_0().right_0().hidden()
-                    })
-                    .child(self.body.clone()),
-            )
-            .into_any_element()
-    }
-}
-
-impl Render for RequestPlayground {
-    fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
-        // The response lives in the shell's bottom aux slot now; center tabs
-        // render the editor only.
-        div()
-            .on_action((cx.listener(Self::handle_copy_url)))
-            .on_action((cx.listener(Self::handle_copy_as_code)))
-            .size_full()
-            .min_h(px(0.))
-            .v_flex()
-            .gap(px(16.))
-            .child(
-                div()
-                    .flex_none()
-                    .v_flex()
-                    .px(px(24.))
-                    .pt(rems(1.0))
-                    .child(self.render_editor_bar(cx)),
-            )
-            .child(self.render_config_tabs(cx))
-            .child(
-                div()
-                    .flex_1()
-                    .overflow_y_scrollbar()
-                    .px(px(24.))
-                    .child(self.render_config_content(cx)),
-            )
-    }
-}
-
-impl Drop for RequestPlayground {
-    fn drop(&mut self) {
+    pub fn cancel_pending(&mut self) {
         if let Some(abort) = self.pending.take() {
             abort.abort();
         }

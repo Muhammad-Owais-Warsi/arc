@@ -4,28 +4,27 @@ use std::path::Path;
 use gpui_kit::base::dock::{DockLayout, DockPlacement, InsertTarget, NodeId, PanelId};
 use gpui_kit::*;
 
-use crate::code::CodeScreen;
+use crate::code_gen::CodeScreen;
 use crate::dock::shell::DockShell;
 use crate::dock::tabs::EmptyTab;
-use crate::env_panel::EnvPanel;
-use crate::env_playground::{EnvPlayground, EnvPlaygroundEvent};
+use crate::env::{EnvPanel, EnvPlayground, EnvPlaygroundEvent};
 use crate::fs;
 use crate::fs::request::RequestFileContent;
 use crate::helpers::next_id;
 use crate::http_request::HttpRequest;
-use crate::project_panel::ProjectPanel;
-use crate::request_playground::{RequestPlayground, RequestPlaygroundEvent};
+use crate::playground::{RequestPlayground, RequestPlaygroundEvent};
+use crate::file_panel::FilePanel;
 use crate::response_panel::ResponsePanel;
 use crate::settings_panel::AppSettings;
 use crate::stress_testing::StressTesting;
-use crate::welcome::WelcomeScreen;
+use crate::welcome::welcome::WelcomeScreen;
 
 // ---------------------------------------------------------------------------
 // TabManager: owns all center-tab state and logic.
 //
 // Follows Zed's Pane/Dock pattern: a real struct held as Entity<TabManager>
 // by ApiClient, with its own impl block. It holds shared Entity<T> handles to
-// shell, project_panel, env_panel, response, and welcome — the same objects
+// shell, file_panel, env_panel, response, and welcome — the same objects
 // ApiClient references — which is idiomatic GPUI (one underlying object,
 // multiple cheap handles), not duplication.
 //
@@ -53,7 +52,7 @@ struct CodeTabMeta {
 pub struct TabManager {
     // Shared handles — one underlying object, referenced from here and ApiClient.
     shell: Entity<DockShell>,
-    project_panel: Entity<ProjectPanel>,
+    file_panel: Entity<FilePanel>,
     env_panel: Entity<EnvPanel>,
     response: Entity<ResponsePanel>,
     welcome: Entity<WelcomeScreen>,
@@ -72,14 +71,14 @@ pub struct TabManager {
 impl TabManager {
     pub fn new(
         shell: Entity<DockShell>,
-        project_panel: Entity<ProjectPanel>,
+        file_panel: Entity<FilePanel>,
         env_panel: Entity<EnvPanel>,
         response: Entity<ResponsePanel>,
         welcome: Entity<WelcomeScreen>,
     ) -> Self {
         Self {
             shell,
-            project_panel,
+            file_panel,
             env_panel,
             response,
             welcome,
@@ -265,13 +264,13 @@ impl TabManager {
             },
         );
 
-        let project_panel = self.project_panel.clone();
+        let file_panel = self.file_panel.clone();
         cx.subscribe_in(
             &playground,
             window,
             move |_this: &mut Self, _, event, _window, cx| match event {
                 RequestPlaygroundEvent::MethodChanged(method) => {
-                    project_panel.update(cx, |pp, _| pp.set_node_method(node_id, method));
+                    file_panel.update(cx, |pp, _| pp.set_node_method(node_id, method));
                 }
                 RequestPlaygroundEvent::CopyAsCode => {
                     _this.open_code_tab(_window, node_id, cx);
@@ -354,7 +353,7 @@ impl TabManager {
             }
         }
         let method = meta.view.read(cx).stored_method(cx);
-        self.project_panel
+        self.file_panel
             .update(cx, |pp, _| pp.set_node_method(node_id, &method));
         self.drop_nav_panel(meta.panel);
         self.remove_center_panel(meta.view, window, cx);
@@ -436,7 +435,8 @@ impl TabManager {
         let view = cx.new(|cx| CodeScreen::new_with_request(req, window, cx));
         let pid = self.add_center_panel(view.clone(), None, window, cx);
 
-        self.code_tabs.insert(node_id, CodeTabMeta { panel: pid, view });
+        self.code_tabs
+            .insert(node_id, CodeTabMeta { panel: pid, view });
 
         self.nav_push(pid);
         self.activate_dock_panel(pid, window, cx);
@@ -556,7 +556,7 @@ impl TabManager {
                     }
                 }
                 let method = meta.view.read(cx).stored_method(cx);
-                self.project_panel
+                self.file_panel
                     .update(cx, |pp, _| pp.set_node_method(node_id, &method));
             }
         }
@@ -595,18 +595,18 @@ impl TabManager {
 
     /// Subscribe to panel/dock events that drive tab lifecycle.
     pub fn subscribe_dock_events(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        let project_panel = self.project_panel.clone();
+        let file_panel = self.file_panel.clone();
         cx.subscribe_in(
-            &project_panel,
+            &file_panel,
             window,
             |this: &mut Self, _, event, window, cx| match event {
-                crate::project_panel::ProjectPanelEvent::FileActivated {
+                crate::file_panel::FilePanelEvent::FileActivated {
                     node_id,
                     name,
                     path,
                     method,
                 } => {
-                    this.project_panel.update(cx, |pp, cx| {
+                    this.file_panel.update(cx, |pp, cx| {
                         pp.set_active_node(Some(*node_id), cx);
                     });
                     this.open_request_file(
@@ -618,24 +618,24 @@ impl TabManager {
                         cx,
                     );
                 }
-                crate::project_panel::ProjectPanelEvent::FileRenamed {
+                crate::file_panel::FilePanelEvent::FileRenamed {
                     node_id,
                     new_name,
                     new_path,
                 } => {
                     this.rename_request_tab(*node_id, new_name.clone(), new_path.clone(), cx);
                 }
-                crate::project_panel::ProjectPanelEvent::FileDeleted { node_id, .. }
-                | crate::project_panel::ProjectPanelEvent::FileTrashed { node_id, .. } => {
+                crate::file_panel::FilePanelEvent::FileDeleted { node_id, .. }
+                | crate::file_panel::FilePanelEvent::FileTrashed { node_id, .. } => {
                     this.close_request(*node_id, window, cx);
                 }
-                crate::project_panel::ProjectPanelEvent::StressTestPlayground {
+                crate::file_panel::FilePanelEvent::StressTestPlayground {
                     path,
                     node_name,
                 } => {
                     this.add_stress_test_tab(path.clone(), node_name.clone(), window, cx);
                 }
-                crate::project_panel::ProjectPanelEvent::CopyAsCode { node_id, path } => {
+                crate::file_panel::FilePanelEvent::CopyAsCode { node_id, path } => {
                     let content: RequestFileContent =
                         serde_json::from_value(fs::request::read(Path::new(path)))
                             .unwrap_or_default();
@@ -651,10 +651,10 @@ impl TabManager {
             &env_panel,
             window,
             |this: &mut Self, _, event, window, cx| match event {
-                crate::env_panel::EnvPanelEvent::EnvActivated { name } => {
+                crate::env::EnvPanelEvent::EnvActivated { name } => {
                     this.open_env_tab(name.clone(), window, cx);
                 }
-                crate::env_panel::EnvPanelEvent::EnvDeleted { name } => {
+                crate::env::EnvPanelEvent::EnvDeleted { name } => {
                     this.close_env_tab_by_name(name, window, cx);
                 }
             },
