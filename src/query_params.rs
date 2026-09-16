@@ -15,9 +15,9 @@ impl EventEmitter<QueryParamsEvent> for QueryParams {}
 
 #[derive(Clone)]
 pub struct Param {
-    pub key: Entity<InputState>,
-    pub value: Entity<InputState>,
-    pub active: bool,
+    key: Entity<InputState>,
+    value: Entity<InputState>,
+    active: bool,
 }
 
 pub struct QueryParams {

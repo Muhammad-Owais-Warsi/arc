@@ -1,12 +1,12 @@
-use crate::dock::tabs::CenterTab;
+use crate::dock::tabs::Playground;
 use crate::fs;
 use crate::fs::request::RequestFileContent;
 use crate::helpers::render_method_tag;
 use crate::http_request::HttpRequest;
 use crate::icons::IconName;
 use crate::request_playground::RequestPlayground;
-use gpui_kit::base::dock::{Panel, PanelEvent};
 use crate::stress_engine::{RequestMetric, StressEngine, StressTestConfig, StressTestStats};
+use gpui_kit::base::dock::{Panel, PanelEvent};
 use gpui_kit::component::button::{Button, ButtonVariants};
 use gpui_kit::component::chart::AreaChart;
 use gpui_kit::component::input::{Input, InputState, NumberInput};
@@ -448,16 +448,12 @@ impl Focusable for StressTesting {
     }
 }
 
-impl CenterTab for StressTesting {
+impl Playground for StressTesting {
     fn tab_label(&self, _cx: &App) -> SharedString {
         self.tab_name.clone().into()
     }
 
-    fn tab_prefix(
-        &mut self,
-        _window: &mut Window,
-        _cx: &mut Context<Self>,
-    ) -> Option<AnyElement> {
+    fn tab_prefix(&mut self, _window: &mut Window, _cx: &mut Context<Self>) -> Option<AnyElement> {
         Some(render_method_tag("STRESS TEST").into_any_element())
     }
 }

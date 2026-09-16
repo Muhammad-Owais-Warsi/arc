@@ -9,16 +9,7 @@ use gpui_kit::*;
 
 use crate::dock::skin::TabChrome;
 
-// ---------------------------------------------------------------------------
-// CenterTab: the contract every center-tab view follows.
-//
-// Mirrors the original app's `Playground`/`PlaygroundHandle` pair: behavior
-// lives on the view, a clone-box handle erases the type for managers, and
-// any component implementing this opens as a tab with full chrome and
-// close semantics and zero skin changes.
-// ---------------------------------------------------------------------------
-
-pub trait CenterTab: Panel {
+pub trait Playground: Panel {
     fn tab_label(&self, cx: &App) -> SharedString;
 
     fn tab_prefix(&mut self, _window: &mut Window, _cx: &mut Context<Self>) -> Option<AnyElement> {
@@ -43,16 +34,16 @@ pub trait CenterTab: Panel {
     }
 }
 
-pub trait CenterTabHandle {
+pub trait PlaygroundHandle {
     fn tab_label(&self, cx: &App) -> SharedString;
     fn tab_chrome(&self, window: &mut Window, cx: &mut App) -> TabChrome;
     fn panel_id(&self, cx: &App) -> PanelId;
     fn view(&self) -> AnyView;
     fn can_close(&self, cx: &App) -> bool;
-    fn clone_box(&self) -> Box<dyn CenterTabHandle>;
+    fn clone_box(&self) -> Box<dyn PlaygroundHandle>;
 }
 
-impl<T: CenterTab> CenterTabHandle for Entity<T> {
+impl<T: Playground> PlaygroundHandle for Entity<T> {
     fn tab_label(&self, cx: &App) -> SharedString {
         self.read(cx).tab_label(cx)
     }
@@ -73,7 +64,7 @@ impl<T: CenterTab> CenterTabHandle for Entity<T> {
         self.read(cx).can_close(cx)
     }
 
-    fn clone_box(&self) -> Box<dyn CenterTabHandle> {
+    fn clone_box(&self) -> Box<dyn PlaygroundHandle> {
         Box::new(self.clone())
     }
 }
@@ -135,7 +126,7 @@ impl TabChromeRegistry {
         *self.on_closed.borrow_mut() = hook;
     }
 
-    pub fn register<T: CenterTab>(&mut self, name: &'static str) {
+    pub fn register<T: Playground>(&mut self, name: &'static str) {
         let f: ChromeFn = Rc::new(|panel, window, cx| {
             panel
                 .as_any()
@@ -268,10 +259,8 @@ impl Focusable for EmptyTab {
 
 impl Render for EmptyTab {
     fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
-        // The empty state lives HERE in the playground content, never in
-        // the tab strip: with zero real tabs active falls onto this panel
-        // and the content shows the message while the strip stays clean.
         div()
+            .bg(cx.theme().background)
             .size_full()
             .flex()
             .flex_col()

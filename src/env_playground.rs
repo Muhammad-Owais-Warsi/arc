@@ -1,4 +1,4 @@
-use crate::dock::tabs::CenterTab;
+use crate::dock::tabs::Playground;
 use crate::fs;
 use crate::fs::request::KeyValue;
 use crate::helpers::render_method_tag;
@@ -21,10 +21,10 @@ pub enum EnvPlaygroundEvent {
 impl EventEmitter<EnvPlaygroundEvent> for EnvPlayground {}
 
 #[derive(Clone)]
-pub struct EnvRow {
-    pub key: Entity<InputState>,
-    pub value: Entity<InputState>,
-    pub active: bool,
+struct EnvRow {
+    key: Entity<InputState>,
+    value: Entity<InputState>,
+    active: bool,
 }
 
 #[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
@@ -191,16 +191,12 @@ impl Focusable for EnvPlayground {
     }
 }
 
-impl CenterTab for EnvPlayground {
+impl Playground for EnvPlayground {
     fn tab_label(&self, cx: &App) -> SharedString {
         self.name(cx).into()
     }
 
-    fn tab_prefix(
-        &mut self,
-        _window: &mut Window,
-        _cx: &mut Context<Self>,
-    ) -> Option<AnyElement> {
+    fn tab_prefix(&mut self, _window: &mut Window, _cx: &mut Context<Self>) -> Option<AnyElement> {
         Some(render_method_tag("ENV").into_any_element())
     }
 }

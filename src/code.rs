@@ -1,4 +1,4 @@
-use crate::dock::tabs::CenterTab;
+use crate::dock::tabs::Playground;
 use crate::helpers::render_method_tag;
 use crate::http_request::HttpRequest;
 use crate::http_response::AuthPayload;
@@ -64,11 +64,7 @@ impl CodeScreen {
         return Self::new_with_request(req, window, cx);
     }
 
-    pub fn new_with_request(
-        req: HttpRequest,
-        window: &mut Window,
-        cx: &mut Context<Self>,
-    ) -> Self {
+    pub fn new_with_request(req: HttpRequest, window: &mut Window, cx: &mut Context<Self>) -> Self {
         let codes = Self::generate_all(&req);
 
         let items: Vec<String> = CODE_LANGS.iter().map(|l| l.label.to_string()).collect();
@@ -412,7 +408,7 @@ impl Focusable for CodeScreen {
     }
 }
 
-impl CenterTab for CodeScreen {
+impl Playground for CodeScreen {
     fn tab_label(&self, _cx: &App) -> SharedString {
         "Code".into()
     }

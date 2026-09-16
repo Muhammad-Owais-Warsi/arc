@@ -1,4 +1,4 @@
-use crate::dock::tabs::CenterTab;
+use crate::dock::tabs::Playground;
 use crate::helpers::render_method_tag;
 use gpui_kit::base::dock::{Panel, PanelEvent};
 use gpui_kit::component::{ActiveTheme, StyledExt};
@@ -35,7 +35,7 @@ impl Focusable for WelcomeScreen {
     }
 }
 
-impl CenterTab for WelcomeScreen {
+impl Playground for WelcomeScreen {
     fn tab_label(&self, _cx: &App) -> SharedString {
         "Welcome".into()
     }

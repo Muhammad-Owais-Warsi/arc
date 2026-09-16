@@ -2,7 +2,6 @@ use std::collections::HashMap;
 use std::path::Path;
 
 use gpui_kit::base::dock::{DockLayout, DockPlacement, InsertTarget, NodeId, PanelId};
-use gpui_kit::component::IndexPath;
 use gpui_kit::*;
 
 use crate::code::CodeScreen;
@@ -244,15 +243,8 @@ impl TabManager {
 
         let playground = cx.new(|cx| RequestPlayground::new(window, cx));
         if method != "GET" {
-            let methods: Vec<String> = ["GET", "POST", "PUT", "PATCH", "DELETE", "HEAD", "OPTIONS"]
-                .iter()
-                .map(|s| s.to_string())
-                .collect();
-            let row = methods.iter().position(|m| m == &method).unwrap_or(0);
             playground.update(cx, |pg, cx| {
-                pg.method_entity().update(cx, |state, cx| {
-                    state.set_selected_index(Some(IndexPath::default().row(row)), window, cx);
-                });
+                pg.set_method(&method, window, cx);
             });
         }
         playground.update(cx, |pg, cx| {

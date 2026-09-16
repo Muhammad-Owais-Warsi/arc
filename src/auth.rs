@@ -153,15 +153,22 @@ impl Auth {
         self.selected_auth_type.clone()
     }
 
-    pub fn basic_auth_values(&self, cx: &App) -> (String, String) {
-        let username = self.username.read(cx).value();
-        let password = self.password.read(cx).value();
+    pub fn credentials(&self, cx: &App) -> (AuthType, String, String, String) {
+        (
+            self.selected_auth_type.clone(),
+            self.username.read(cx).value().to_string(),
+            self.password.read(cx).value().to_string(),
+            self.token.read(cx).value().to_string(),
+        )
+    }
 
-        (username.to_string(), password.to_string())
+    pub fn basic_auth_values(&self, cx: &App) -> (String, String) {
+        let (_, username, password, _) = self.credentials(cx);
+        (username, password)
     }
 
     pub fn bearer_auth_value(&self, cx: &App) -> String {
-        self.token.read(cx).value().to_string()
+        self.credentials(cx).3
     }
 
     pub fn load_from_json(

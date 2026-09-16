@@ -17,7 +17,7 @@ pub enum EnvPanelEvent {
 impl EventEmitter<EnvPanelEvent> for EnvPanel {}
 
 pub struct EnvPanel {
-    pub envs: Vec<String>,
+    envs: Vec<String>,
     context_target: Option<String>,
     focus_handle: FocusHandle,
     tree: Entity<TreeState>,
@@ -44,6 +44,10 @@ impl EnvPanel {
         let content = fs::env::read_environments();
         let envs: Vec<Environment> = serde_json::from_str(&content).unwrap_or_default();
         envs.into_iter().map(|e| e.name).collect()
+    }
+
+    pub fn env_names(&self, _cx: &App) -> Vec<String> {
+        self.envs.clone()
     }
 
     pub fn refresh(&mut self, cx: &mut Context<Self>) {

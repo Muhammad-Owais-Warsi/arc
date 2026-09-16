@@ -39,12 +39,12 @@ use crate::dock::shell::{DockShell, DockShellEvent, FixedPanel, Side};
 use crate::dock::tabs::TabChromeRegistry;
 use crate::footer::{Footer, FooterEvent};
 
-use crate::project_panel::{DirTree, ProjectPanel};
+use crate::project_panel::ProjectPanel;
 use crate::response_panel::ResponsePanel;
 use crate::settings_panel::{AppSettings, SidebarDock};
 use crate::settings_window::SettingsWindow;
 use crate::tab_manager::TabManager;
-use crate::titlebar::TitleBarView;
+use crate::titlebar::{TitleBarEvent, TitleBarView};
 use crate::welcome::WelcomeScreen;
 use gpui_kit::component::command::CommandState;
 use gpui_kit::component::{Theme, *};
@@ -58,14 +58,12 @@ const ENV_PANEL_ID: &str = "environment-panel";
 pub struct ApiClient {
     project_panel: Entity<project_panel::ProjectPanel>,
     footer: Entity<Footer>,
-    pub(crate) env_panel: Entity<env_panel::EnvPanel>,
+    env_panel: Entity<env_panel::EnvPanel>,
     shell: Entity<DockShell>,
     response: Entity<ResponsePanel>,
     tab_manager: Entity<TabManager>,
     titlebar: Entity<TitleBarView>,
-    pub(crate) workspaces: Vec<(String, String)>,
-    pub(crate) selected_workspace: Option<usize>,
-    pub(crate) settings_window: Option<(WeakEntity<SettingsWindow>, AnyWindowHandle)>,
+    settings_window: Option<(WeakEntity<SettingsWindow>, AnyWindowHandle)>,
     theme: Entity<CommandState>,
 }
 
@@ -100,7 +98,7 @@ impl ApiClient {
             )
         });
 
-        let titlebar = cx.new(|_| TitleBarView::new(workspace_palette, env_palette));
+        let titlebar = cx.new(|_| TitleBarView::new(workspace_palette, env_palette, env_panel.clone()));
 
         let toast_root = cx.new(|_| toast::ToastRoot::new());
         cx.set_global(toast::GlobalToastRoot(toast_root));
@@ -115,8 +113,6 @@ impl ApiClient {
             response,
             tab_manager,
             titlebar,
-            workspaces: Vec::new(),
-            selected_workspace: None,
             settings_window: None,
             theme: theme_switcher,
         };
@@ -174,14 +170,29 @@ impl ApiClient {
     }
 
     fn init(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        // Wire the ApiClient weak handle into TitleBarView now that the entity exists.
-        let weak = cx.weak_entity();
-        self.titlebar.update(cx, |tb, _| tb.set_client(weak));
         self.tab_manager.update(cx, |tabs, cx| {
             tabs.seed_empty_center(window, cx);
             tabs.install_close_hook(cx);
             tabs.subscribe_dock_events(window, cx);
         });
+        cx.subscribe_in(
+            &self.titlebar,
+            window,
+            |this: &mut Self, _, event: &TitleBarEvent, window, cx| match event {
+                TitleBarEvent::WorkspaceSwitched { name, path } => {
+                    this.on_workspace_switched(name.clone(), path.clone(), window, cx);
+                }
+                TitleBarEvent::MainWindowClosing => {
+                    if let Some((_, settings_handle)) = this.settings_window.clone() {
+                        cx.update_window(settings_handle, |_root, window, _cx| {
+                            window.remove_window();
+                        })
+                        .ok();
+                    }
+                }
+            },
+        )
+        .detach();
         self.sync_footer_from_shell(cx);
         // Mirror response state into the footer whenever the response changes.
         cx.observe(&self.response, |this, _, cx| {
@@ -226,20 +237,13 @@ impl ApiClient {
             .update(cx, |f, cx| f.set_env_panel_dock(ep_dock, cx));
     }
 
-    pub(crate) fn switch_workspace_to(
+    fn on_workspace_switched(
         &mut self,
-        ix: usize,
+        name: String,
+        path: String,
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        let Some((name, path)) = self.workspaces.get(ix).cloned() else {
-            return;
-        };
-        self.selected_workspace = Some(ix);
-        fs::workspace::save(&name, &path);
-        self.titlebar.update(cx, |tb, cx| {
-            tb.sync_workspace_selection(ix, window, cx);
-        });
         self.tab_manager
             .update(cx, |tabs, cx| tabs.reset_center_tabs(window, cx));
         self.env_panel.update(cx, |ep, cx| ep.refresh(cx));
@@ -261,49 +265,13 @@ impl ApiClient {
         cx.notify();
     }
 
-    /// Add a new workspace by name, create its directory, and switch to it.
-    pub(crate) fn add_workspace(
-        &mut self,
-        name: String,
-        path: String,
-        window: &mut Window,
-        cx: &mut Context<Self>,
-    ) {
-        if self.workspaces.iter().any(|(n, _)| n == &name) {
-            return;
-        }
-        let ix = self.workspaces.len();
-        self.workspaces.push((name.clone(), path.clone()));
-        self.project_panel.update(cx, |pp, cx| {
-            pp.set_tree(
-                name,
-                path,
-                DirTree {
-                    root_ids: Vec::new(),
-                    nodes: std::collections::HashMap::new(),
-                },
-                cx,
-            );
-        });
-        self.switch_workspace_to(ix, window, cx);
-    }
-
     fn start_walkdir(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        self.workspaces = ProjectPanel::list_workspace_dirs()
-            .into_iter()
-            .map(|(name, path)| (name, path.to_string_lossy().to_string()))
-            .collect();
-        self.selected_workspace = None;
-
-        if let Some((name, path)) = fs::workspace::read() {
-            if let Some(ix) = self
-                .workspaces
-                .iter()
-                .position(|(n, p)| *n == name && *p == path)
-            {
-                self.switch_workspace_to(ix, window, cx);
-                return;
-            }
+        let restored = self.titlebar.update(cx, |tb, cx| {
+            tb.load_workspaces(cx);
+            tb.restore_saved_workspace(window, cx)
+        });
+        if restored {
+            return;
         }
 
         self.tab_manager

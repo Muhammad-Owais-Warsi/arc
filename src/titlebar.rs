@@ -6,15 +6,24 @@ use gpui_kit::component::*;
 use gpui_kit::prelude::FluentBuilder;
 use gpui_kit::*;
 
-use crate::ApiClient;
 use crate::actions;
+use crate::env_panel::EnvPanel;
 use crate::env_playground::Environment;
 use crate::fs;
 use crate::icons::IconName;
+use crate::project_panel::ProjectPanel;
+
+pub enum TitleBarEvent {
+    WorkspaceSwitched { name: String, path: String },
+    MainWindowClosing,
+}
+
+impl EventEmitter<TitleBarEvent> for TitleBarView {}
 
 pub struct TitleBarView {
-    client: WeakEntity<ApiClient>,
-    // Palettes owned here: only the titlebar renders and resets them.
+    workspaces: Vec<(String, String)>,
+    selected_workspace: Option<usize>,
+    env_panel: Entity<EnvPanel>,
     workspace_palette: Entity<CommandState>,
     env_palette: Entity<CommandState>,
     workspace_palette_open: bool,
@@ -22,9 +31,15 @@ pub struct TitleBarView {
 }
 
 impl TitleBarView {
-    pub fn new(workspace_palette: Entity<CommandState>, env_palette: Entity<CommandState>) -> Self {
+    pub fn new(
+        workspace_palette: Entity<CommandState>,
+        env_palette: Entity<CommandState>,
+        env_panel: Entity<EnvPanel>,
+    ) -> Self {
         Self {
-            client: WeakEntity::new_invalid(),
+            workspaces: Vec::new(),
+            selected_workspace: None,
+            env_panel,
             workspace_palette,
             env_palette,
             workspace_palette_open: false,
@@ -32,47 +47,80 @@ impl TitleBarView {
         }
     }
 
-    /// Wire in the ApiClient handle after the entity has been created.
-    pub fn set_client(&mut self, client: WeakEntity<ApiClient>) {
-        self.client = client;
+    pub fn load_workspaces(&mut self, cx: &mut Context<Self>) {
+        self.workspaces = ProjectPanel::list_workspace_dirs()
+            .into_iter()
+            .map(|(name, path)| (name, path.to_string_lossy().to_string()))
+            .collect();
+        self.selected_workspace = None;
+        cx.notify();
     }
 
-    /// Called by ApiClient when a workspace is switched so the palette
-    /// reflects the newly selected item.
-    pub fn sync_workspace_selection(
+    pub fn switch_workspace_to(
         &mut self,
         ix: usize,
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
+        let Some((name, path)) = self.workspaces.get(ix).cloned() else {
+            return;
+        };
+        self.selected_workspace = Some(ix);
+        fs::workspace::save(&name, &path);
         self.workspace_palette.update(cx, |state, cx| {
             state.set_selected_index(Some(IndexPath::new(ix)), window, cx);
         });
+        cx.emit(TitleBarEvent::WorkspaceSwitched { name, path });
+        cx.notify();
+    }
+
+    pub fn add_workspace(
+        &mut self,
+        name: String,
+        path: String,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        if self.workspaces.iter().any(|(n, _)| n == &name) {
+            return;
+        }
+        let ix = self.workspaces.len();
+        self.workspaces.push((name, path));
+        self.switch_workspace_to(ix, window, cx);
+    }
+
+    pub fn restore_saved_workspace(
+        &mut self,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> bool {
+        if let Some((name, path)) = fs::workspace::read() {
+            if let Some(ix) = self
+                .workspaces
+                .iter()
+                .position(|(n, p)| *n == name && *p == path)
+            {
+                self.switch_workspace_to(ix, window, cx);
+                return true;
+            }
+        }
+        false
+    }
+
+    fn workspace_name(&self) -> String {
+        self.selected_workspace
+            .and_then(|ix| self.workspaces.get(ix))
+            .map(|(name, _)| name.clone())
+            .unwrap_or_else(|| "open workspace".to_string())
     }
 }
 
 impl Render for TitleBarView {
     fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
-        let Some(client_entity) = self.client.upgrade() else {
-            return div().into_any_element();
-        };
-
-        // Read ApiClient state that only it owns.
-        let (settings_window, workspace_name, env_panel, selected_workspace, workspaces) = {
-            let c = client_entity.read(cx);
-            let workspace_name = c
-                .selected_workspace
-                .and_then(|ix| c.workspaces.get(ix))
-                .map(|(name, _)| name.clone())
-                .unwrap_or_else(|| "open workspace".to_string());
-            (
-                c.settings_window.clone(),
-                workspace_name,
-                c.env_panel.clone(),
-                c.selected_workspace,
-                c.workspaces.clone(),
-            )
-        };
+        let workspace_name = self.workspace_name();
+        let env_panel = self.env_panel.clone();
+        let selected_workspace = self.selected_workspace;
+        let workspaces = self.workspaces.clone();
 
         // Palette handles live here — read directly from self.
         let workspace_palette = self.workspace_palette.clone();
@@ -80,17 +128,16 @@ impl Render for TitleBarView {
 
         let active_env = fs::env::read_active();
         let this = cx.entity(); // Entity<TitleBarView> — for popover-open mutations
-        let client = self.client.clone(); // WeakEntity<ApiClient> — for workspace mutations
 
         TitleBar::new()
             .h(px(32.))
             .bg(cx.theme().title_bar)
-            .on_close_window(move |_, _, cx| {
-                if let Some((_, settings_handle)) = settings_window.clone() {
-                    cx.update_window(settings_handle, |_root, window, _cx| {
-                        window.remove_window();
-                    })
-                    .ok();
+            .on_close_window({
+                let this = this.clone();
+                move |_, _, cx| {
+                    this.update(cx, |_, cx| {
+                        cx.emit(TitleBarEvent::MainWindowClosing);
+                    });
                 }
             })
             .child(
@@ -146,7 +193,6 @@ impl Render for TitleBarView {
                             )
                             .content({
                                 let this = this.clone();
-                                let client = client.clone();
                                 let palette = palette.clone();
                                 move |_, _, _cx| {
                                     let items: Vec<CommandItem> = workspaces
@@ -167,7 +213,6 @@ impl Render for TitleBarView {
                                         .separator()
                                         .footer({
                                             let this = this.clone();
-                                            let client = client.clone();
                                             let palette = palette.clone();
                                             move |_, _window, _cx| {
                                                 Button::new("add-workspace")
@@ -178,7 +223,6 @@ impl Render for TitleBarView {
                                                     .justify_start()
                                                     .on_click({
                                                         let this = this.clone();
-                                                        let client = client.clone();
                                                         let palette = palette.clone();
                                                         move |_, window, cx| {
                                                             let name = palette
@@ -195,14 +239,10 @@ impl Render for TitleBarView {
                                                                 Ok(p) => p,
                                                                 Err(_) => return,
                                                             };
-                                                            client
-                                                                .update(cx, |c, cx| {
-                                                                    c.add_workspace(
-                                                                        name, path, window, cx,
-                                                                    );
-                                                                })
-                                                                .ok();
                                                             this.update(cx, |t, cx| {
+                                                                t.add_workspace(
+                                                                    name, path, window, cx,
+                                                                );
                                                                 t.workspace_palette_open = false;
                                                                 cx.notify();
                                                             });
@@ -213,16 +253,11 @@ impl Render for TitleBarView {
                                         })
                                         .on_confirm({
                                             let this = this.clone();
-                                            let client = client.clone();
                                             move |index, window, cx| {
-                                                client
-                                                    .update(cx, |c, cx| {
-                                                        c.switch_workspace_to(
-                                                            index.row, window, cx,
-                                                        );
-                                                    })
-                                                    .ok();
                                                 this.update(cx, |t, cx| {
+                                                    t.switch_workspace_to(
+                                                        index.row, window, cx,
+                                                    );
                                                     t.workspace_palette_open = false;
                                                     cx.notify();
                                                 });
@@ -253,18 +288,18 @@ impl Render for TitleBarView {
                                     }
                                 })
                                 .trigger(
-                                Button::new("env-trigger")
-                                    .ghost()
-                                    .small()
-                                    .label(if active_env.is_empty() {
-                                        "no env".into()
-                                    } else {
-                                        active_env.clone()
-                                    })
-                                    .tooltip("Switch Environment"),
+                                    Button::new("env-trigger")
+                                        .ghost()
+                                        .small()
+                                        .label(if active_env.is_empty() {
+                                            "no env".into()
+                                        } else {
+                                            active_env.clone()
+                                        })
+                                        .tooltip("Switch Environment"),
                                 )
                                 .content(move |_, _, cx| {
-                                    let envs = ep.read(cx).envs.clone();
+                                    let envs = ep.read(cx).env_names(cx);
                                     let active = active_env.clone();
                                     let items: Vec<CommandItem> = envs
                                         .iter()
@@ -336,7 +371,7 @@ impl Render for TitleBarView {
                                             let this = this.clone();
                                             let ep = ep.clone();
                                             move |index, _window, cx| {
-                                                let envs = ep.read(cx).envs.clone();
+                                                let envs = ep.read(cx).env_names(cx);
                                                 if let Some(name) = envs.get(index.row) {
                                                     let name = name.clone();
                                                     fs::env::save_active(&name);

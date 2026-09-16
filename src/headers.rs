@@ -16,9 +16,9 @@ impl EventEmitter<HeadersEvent> for Headers {}
 
 #[derive(Clone)]
 pub struct Header {
-    pub key: Entity<InputState>,
-    pub value: Entity<InputState>,
-    pub active: bool,
+    key: Entity<InputState>,
+    value: Entity<InputState>,
+    active: bool,
 }
 
 pub struct Headers {

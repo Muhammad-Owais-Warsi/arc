@@ -16,7 +16,7 @@ use gpui_kit::prelude::FluentBuilder;
 use gpui_kit::*;
 
 use crate::actions::{CopyAsCode, CopyURL};
-use crate::dock::tabs::CenterTab;
+use crate::dock::tabs::Playground;
 use crate::fs::request::{Auth as AuthContent, Body as BodyContent, KeyValue, RequestFileContent};
 use crate::helpers::render_method_tag;
 use crate::http_client::HttpClient;
@@ -76,7 +76,7 @@ impl Focusable for RequestPlayground {
     }
 }
 
-impl CenterTab for RequestPlayground {
+impl Playground for RequestPlayground {
     fn tab_label(&self, _cx: &App) -> SharedString {
         self.tab_name.clone().into()
     }
@@ -241,8 +241,16 @@ impl RequestPlayground {
             .unwrap_or_else(|| "GET".to_string())
     }
 
-    pub fn method_entity(&self) -> Entity<SelectState<Vec<String>>> {
-        self.method.clone()
+    pub fn set_method(&mut self, method: &str, window: &mut Window, cx: &mut Context<Self>) {
+        let methods: Vec<String> =
+            vec!["GET", "POST", "PUT", "PATCH", "DELETE", "HEAD", "OPTIONS"]
+                .into_iter()
+                .map(String::from)
+                .collect();
+        let row = methods.iter().position(|m| m == method).unwrap_or(0);
+        self.method.update(cx, |state, cx| {
+            state.set_selected_index(Some(IndexPath::default().row(row)), window, cx);
+        });
     }
 
     fn evaluate_dirty(&mut self, cx: &mut Context<Self>) {
@@ -252,6 +260,7 @@ impl RequestPlayground {
     }
 
     pub fn current_content(&self, cx: &App) -> RequestFileContent {
+        let (auth_type, username, password, token) = self.auth.read(cx).credentials(cx);
         RequestFileContent {
             name: self.snapshot.name.clone(),
             url: self.url.read(cx).value().to_string(),
@@ -271,10 +280,10 @@ impl RequestPlayground {
                 .map(|(key, value, active)| KeyValue { key, value, active })
                 .collect(),
             auth: AuthContent {
-                auth_type: self.auth.read(cx).auth_type(),
-                username: self.auth.read(cx).basic_auth_values(cx).0,
-                password: self.auth.read(cx).basic_auth_values(cx).1,
-                token: self.auth.read(cx).bearer_auth_value(cx),
+                auth_type,
+                username,
+                password,
+                token,
             },
             body: BodyContent {
                 body_type: self.body.read(cx).body_type(cx),
@@ -348,16 +357,7 @@ impl RequestPlayground {
             self.url.update(cx, |s, cx| s.set_value(url, window, cx));
         }
         if let Some(method) = content.get("method").and_then(|v| v.as_str()) {
-            let methods: Vec<String> =
-                vec!["GET", "POST", "PUT", "PATCH", "DELETE", "HEAD", "OPTIONS"]
-                    .into_iter()
-                    .map(String::from)
-                    .collect();
-            let row = methods.iter().position(|m| *m == method).unwrap_or(0);
-
-            self.method.update(cx, |state, cx| {
-                state.set_selected_index(Some(IndexPath::default().row(row)), window, cx);
-            });
+            self.set_method(method, window, cx);
         }
         self.query_params
             .update(cx, |qp, cx| qp.load_from_json(content, window, cx));
@@ -386,28 +386,16 @@ impl RequestPlayground {
 
     pub fn send_request(&mut self, _window: &mut Window, cx: &mut Context<Self>) {
         let url_str = self.url.read(cx).value().to_string();
-        let method_str = self
-            .method
-            .read(cx)
-            .selected_value()
-            .cloned()
-            .unwrap_or_else(|| "GET".to_string());
+        let method_str = self.method(cx);
         let query_params = self.query_params.read(cx).active_params(cx);
         let headers = self.headers.read(cx).active_headers(cx);
         let body = self.body.read(cx).value(cx);
+        let (auth_type, username, password, token) = self.auth.read(cx).credentials(cx);
 
-        let auth = match self.auth.read(cx).auth_type() {
+        let auth = match auth_type {
             AuthType::None => AuthPayload::None,
-            AuthType::Basic => {
-                let (u, p) = self.auth.read(cx).basic_auth_values(cx);
-                AuthPayload::Basic {
-                    username: u,
-                    password: p,
-                }
-            }
-            AuthType::Bearer => AuthPayload::Bearer {
-                token: self.auth.read(cx).bearer_auth_value(cx),
-            },
+            AuthType::Basic => AuthPayload::Basic { username, password },
+            AuthType::Bearer => AuthPayload::Bearer { token },
         };
 
         let response_panel = self.response_panel.clone();
