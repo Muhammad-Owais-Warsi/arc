@@ -16,7 +16,7 @@ use crate::playground::{RequestPlayground, RequestPlaygroundEvent};
 use crate::file_panel::FilePanel;
 use crate::response_panel::ResponsePanel;
 use crate::settings_panel::AppSettings;
-use crate::stress_testing::StressTesting;
+use crate::stress::StressTesting;
 use crate::welcome::welcome::WelcomeScreen;
 
 // ---------------------------------------------------------------------------

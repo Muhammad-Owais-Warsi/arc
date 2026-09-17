@@ -21,8 +21,7 @@ mod query_params;
 mod response_panel;
 mod settings_panel;
 mod settings_window;
-mod stress_engine;
-mod stress_testing;
+mod stress;
 mod tab_manager;
 mod titlebar;
 mod toast;
@@ -79,7 +78,7 @@ impl ApiClient {
         let mut registry = TabChromeRegistry::new();
         registry.register::<crate::playground::RequestPlayground>("request");
         registry.register::<crate::env::EnvPlayground>("env");
-        registry.register::<crate::stress_testing::StressTesting>("stress");
+        registry.register::<crate::stress::StressTesting>("stress");
         registry.register::<crate::welcome::welcome::WelcomeScreen>("welcome");
         registry.register::<crate::code_gen::CodeScreen>("code");
         let shell = cx.new(|cx| DockShell::new(window, cx, Rc::new(registry), None));
