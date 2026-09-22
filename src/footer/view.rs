@@ -9,7 +9,7 @@ use gpui_kit::*;
 use super::model::{Footer, FooterEvent};
 use crate::actions::{DockEnvPanelLeft, DockEnvPanelRight, DockSidebarLeft, DockSidebarRight};
 use crate::ui::IconName;
-use crate::settings_panel::SidebarDock;
+use crate::settings::SidebarDock;
 
 impl Footer {
     fn render_file_panel_toggle_button(&self, cx: &mut Context<Self>) -> impl IntoElement {

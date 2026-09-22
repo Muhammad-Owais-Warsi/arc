@@ -18,7 +18,7 @@ use crate::headers::{Headers, HeadersEvent};
 use crate::ui::method_tag;
 use crate::query_params::{QueryParams, QueryParamsEvent};
 use crate::response::ResponsePanel;
-use crate::settings_panel::AppSettings;
+use crate::settings::AppSettings;
 use crate::toast::{ToastRoot, ToastVariant};
 
 pub struct RequestPlayground {

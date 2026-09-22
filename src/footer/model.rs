@@ -1,6 +1,6 @@
 use gpui_kit::*;
 
-use crate::settings_panel::SidebarDock;
+use crate::settings::SidebarDock;
 
 pub struct Footer {
     show_toggle: bool,

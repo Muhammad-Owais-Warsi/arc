@@ -8,7 +8,7 @@ use gpui_kit::*;
 
 use super::shell::{OverlayPosition, OverlayRequest, OverlayRoot};
 use crate::theme::{get_active_theme, get_theme_config, get_themes};
-use crate::settings_panel::AppSettings;
+use crate::settings::AppSettings;
 
 pub fn preview_theme(name: &str, window: &mut Window, cx: &mut App) {
     let name = SharedString::from(name);

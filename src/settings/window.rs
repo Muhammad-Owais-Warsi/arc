@@ -2,7 +2,7 @@ use gpui_kit::component::{ActiveTheme as _, StyledExt as _, TitleBar};
 use gpui_kit::*;
 
 use crate::ApiClient;
-use crate::settings_panel::SettingsPanel;
+use super::panel::SettingsPanel;
 
 pub struct SettingsWindow {
     settings_panel: Entity<SettingsPanel>,

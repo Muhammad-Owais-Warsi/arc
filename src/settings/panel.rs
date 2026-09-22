@@ -1,11 +1,11 @@
+use super::model::{AppSettings, SidebarDock};
 use crate::{
     ApiClient,
-    fs,
     theme::{get_active_theme, get_theme_config, get_themes},
     ui::IconName,
 };
 use gpui_kit::component::{
-    Icon, IndexPath, Side, Sizable, Size, Theme,
+    Icon, IndexPath, Sizable, Size, Theme,
     combobox::{Combobox, ComboboxEvent, ComboboxState},
     group_box::GroupBoxVariant,
     searchable_list::{SearchableListItem, SearchableVec},
@@ -14,30 +14,30 @@ use gpui_kit::component::{
 };
 use gpui_kit::*;
 use gpui_kit::{
-    App, AppContext, Context, Entity, Global, IntoElement, ParentElement as _, Render,
-    SharedString, Styled, Window, px,
+    App, AppContext, Context, Entity, IntoElement, ParentElement as _, Render, SharedString,
+    Styled, Window, px,
 };
-use serde::{Deserialize, Serialize};
 
 #[derive(Clone)]
 struct FontItem {
     family: String,
 }
 
-fn font_display_name(family: &str) -> SharedString {
-    match family {
-        "Lilex" => "ZedMono",
-        "IBMPlexSans" => "ZedSans",
-        other => other,
+impl FontItem {
+    fn display_name(&self) -> SharedString {
+        match self.family.as_str() {
+            "Lilex" => "ZedMono".into(),
+            "IBMPlexSans" => "ZedSans".into(),
+            other => other.into(),
+        }
     }
-    .into()
 }
 
 impl SearchableListItem for FontItem {
     type Value = String;
 
     fn title(&self) -> SharedString {
-        font_display_name(&self.family)
+        self.display_name()
     }
 
     fn value(&self) -> &Self::Value {
@@ -46,171 +46,6 @@ impl SearchableListItem for FontItem {
 }
 
 type FontSelect = ComboboxState<SearchableVec<FontItem>>;
-
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "lowercase")]
-pub enum SidebarDock {
-    #[default]
-    Left,
-    Right,
-}
-
-impl SidebarDock {
-    pub fn to_side(self) -> Side {
-        match self {
-            Self::Left => Side::Left,
-            Self::Right => Side::Right,
-        }
-    }
-}
-
-#[derive(Clone, Debug, Serialize, Deserialize)]
-#[serde(default)]
-pub struct ThemeSettings {
-    pub name: String,
-    pub mode: String,
-}
-
-impl Default for ThemeSettings {
-    fn default() -> Self {
-        Self {
-            name: "One Dark".into(),
-            mode: "dark".into(),
-        }
-    }
-}
-
-#[derive(Clone, Debug, Serialize, Deserialize)]
-#[serde(default)]
-pub struct FontSettings {
-    pub family: String,
-    pub size: f32,
-}
-
-impl Default for FontSettings {
-    fn default() -> Self {
-        Self {
-            family: "Lilex".into(),
-            size: 16.0,
-        }
-    }
-}
-
-#[derive(Clone, Debug, Serialize, Deserialize)]
-#[serde(default)]
-pub struct FilePanelSettings {
-    pub sidebar_dock: SidebarDock,
-}
-
-impl Default for FilePanelSettings {
-    fn default() -> Self {
-        Self {
-            sidebar_dock: SidebarDock::Left,
-        }
-    }
-}
-
-#[derive(Clone, Debug, Serialize, Deserialize)]
-#[serde(default)]
-pub struct EnvPanelSettings {
-    pub sidebar_dock: SidebarDock,
-}
-
-impl Default for EnvPanelSettings {
-    fn default() -> Self {
-        Self {
-            sidebar_dock: SidebarDock::Right,
-        }
-    }
-}
-
-#[derive(Clone, Debug, Serialize, Deserialize)]
-#[serde(default)]
-pub struct RequestPlaygroundSettings {
-    pub save_on_close: bool,
-}
-
-impl Default for RequestPlaygroundSettings {
-    fn default() -> Self {
-        Self {
-            save_on_close: false,
-        }
-    }
-}
-
-#[derive(Clone, Debug, Serialize, Deserialize)]
-#[serde(default)]
-pub struct PanelSettings {
-    #[serde(alias = "project_panel")]
-    pub file_panel: FilePanelSettings,
-    pub env_panel: EnvPanelSettings,
-}
-
-impl Default for PanelSettings {
-    fn default() -> Self {
-        Self {
-            file_panel: FilePanelSettings::default(),
-            env_panel: EnvPanelSettings::default(),
-        }
-    }
-}
-
-#[derive(Clone, Debug, Serialize, Deserialize)]
-#[serde(default)]
-pub struct PlaygroundSettings {
-    pub request_playground: RequestPlaygroundSettings,
-}
-
-impl Default for PlaygroundSettings {
-    fn default() -> Self {
-        Self {
-            request_playground: RequestPlaygroundSettings::default(),
-        }
-    }
-}
-
-#[derive(Clone, Debug, Serialize, Deserialize)]
-#[serde(default)]
-pub struct AppSettings {
-    pub theme: ThemeSettings,
-    pub font: FontSettings,
-    pub panel: PanelSettings,
-    pub playground: PlaygroundSettings,
-}
-
-impl Default for AppSettings {
-    fn default() -> Self {
-        Self {
-            theme: ThemeSettings::default(),
-            font: FontSettings::default(),
-            panel: PanelSettings::default(),
-            playground: PlaygroundSettings::default(),
-        }
-    }
-}
-
-impl Global for AppSettings {}
-
-impl AppSettings {
-    pub fn global(cx: &App) -> &AppSettings {
-        cx.global::<AppSettings>()
-    }
-
-    pub fn global_mut(cx: &mut App) -> &mut AppSettings {
-        cx.global_mut::<AppSettings>()
-    }
-
-    pub fn get() -> Self {
-        let content = fs::settings::read();
-        serde_json::from_str(content.as_str()).unwrap_or_default()
-    }
-
-    pub fn save(&self) {
-        if let Ok(content) = serde_json::to_string_pretty(self) {
-            let _ = fs::settings::write(&content);
-        }
-    }
-}
 
 pub struct SettingsPanel {
     font_state: Option<Entity<FontSelect>>,
@@ -383,10 +218,8 @@ impl SettingsPanel {
                                         c.set_file_dock(dock, cx);
                                     }),
                                     None => {
-                                        AppSettings::global_mut(cx)
-                                            .panel
-                                            .file_panel
-                                            .sidebar_dock = dock;
+                                        AppSettings::global_mut(cx).panel.file_panel.sidebar_dock =
+                                            dock;
                                         AppSettings::global_mut(cx).save();
                                     }
                                 }
@@ -423,10 +256,8 @@ impl SettingsPanel {
                                         c.set_env_dock(dock, cx);
                                     }),
                                     None => {
-                                        AppSettings::global_mut(cx)
-                                            .panel
-                                            .env_panel
-                                            .sidebar_dock = dock;
+                                        AppSettings::global_mut(cx).panel.env_panel.sidebar_dock =
+                                            dock;
                                         AppSettings::global_mut(cx).save();
                                     }
                                 }

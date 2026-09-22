@@ -15,7 +15,7 @@ use crate::http::HttpRequest;
 use crate::playground::{RequestPlayground, RequestPlaygroundEvent};
 use crate::file_panel::FilePanel;
 use crate::response::ResponsePanel;
-use crate::settings_panel::AppSettings;
+use crate::settings::AppSettings;
 use crate::stress::StressTesting;
 use crate::welcome::welcome::WelcomeScreen;
 
