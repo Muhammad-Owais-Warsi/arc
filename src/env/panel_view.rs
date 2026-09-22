@@ -5,7 +5,7 @@ use gpui_kit::*;
 
 use super::actions::{CopyEnv, DeleteEnv};
 use super::panel_model::{EnvPanel, EnvPanelEvent};
-use crate::icons::IconName;
+use crate::ui::IconName;
 
 impl Render for EnvPanel {
     fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {

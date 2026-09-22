@@ -6,7 +6,7 @@ use gpui_kit::component::table::{Table, TableBody, TableCell, TableHead, TableHe
 use gpui_kit::component::{h_flex, v_flex};
 use gpui_kit::*;
 
-use crate::icons::IconName;
+use crate::ui::IconName;
 
 use super::model::Headers;
 

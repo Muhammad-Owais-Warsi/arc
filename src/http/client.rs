@@ -2,11 +2,9 @@ use reqwest::header::{HeaderMap, HeaderName, HeaderValue};
 use std::sync::OnceLock;
 use tokio::sync::oneshot;
 
-use crate::{
-    fs::env::interpolate,
-    http_request::HttpRequest,
-    http_response::{AuthPayload, RequestStats, Response, ResponseBody, ResponseHeaders},
-};
+use super::request::HttpRequest;
+use super::response::{AuthPayload, RequestStats, Response, ResponseBody, ResponseHeaders};
+use crate::fs::env::interpolate;
 static RUNTIME: OnceLock<tokio::runtime::Runtime> = OnceLock::new();
 static CLIENT: OnceLock<HttpClient> = OnceLock::new();
 

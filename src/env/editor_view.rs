@@ -8,7 +8,7 @@ use gpui_kit::prelude::FluentBuilder;
 use gpui_kit::*;
 
 use super::editor_model::EnvPlayground;
-use crate::icons::IconName;
+use crate::ui::IconName;
 
 impl Render for EnvPlayground {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {

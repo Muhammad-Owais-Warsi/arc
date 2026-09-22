@@ -1,5 +1,5 @@
 use crate::dock::tabs::Playground;
-use crate::helpers::render_method_tag;
+use crate::ui::method_tag;
 use gpui_kit::base::dock::{Panel, PanelEvent};
 use gpui_kit::component::{ActiveTheme, StyledExt};
 use gpui_kit::img;
@@ -41,7 +41,7 @@ impl Playground for WelcomeScreen {
     }
 
     fn tab_prefix(&mut self, _window: &mut Window, _cx: &mut Context<Self>) -> Option<AnyElement> {
-        Some(render_method_tag("WELCOME").into_any_element())
+        Some(method_tag("WELCOME").into_any_element())
     }
 }
 

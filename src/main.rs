@@ -6,25 +6,24 @@ mod code_gen;
 mod curl;
 mod dock;
 mod env;
+mod file_panel;
 mod footer;
 pub mod fs;
 mod headers;
-mod helpers;
-mod http_client;
-mod http_request;
-mod http_response;
-mod icons;
+mod http;
+mod id;
 mod overlay;
 mod playground;
-mod file_panel;
 mod query_params;
-mod response_panel;
+mod response;
 mod settings_panel;
 mod settings_window;
 mod stress;
 mod tab_manager;
+mod theme;
 mod titlebar;
 mod toast;
+mod ui;
 mod welcome;
 use std::rc::Rc;
 
@@ -38,7 +37,7 @@ use crate::dock::tabs::TabChromeRegistry;
 use crate::footer::{Footer, FooterEvent};
 
 use crate::file_panel::FilePanel;
-use crate::response_panel::ResponsePanel;
+use crate::response::ResponsePanel;
 use crate::settings_panel::{AppSettings, SidebarDock};
 use crate::settings_window::SettingsWindow;
 use crate::tab_manager::TabManager;
@@ -127,11 +126,7 @@ impl ApiClient {
                     SidebarDock::Left => Side::Left,
                     SidebarDock::Right => Side::Right,
                 },
-                FixedPanel::new(
-                    FILE_PANEL_ID,
-                    "Files",
-                    this.file_panel.clone().into(),
-                ),
+                FixedPanel::new(FILE_PANEL_ID, "Files", this.file_panel.clone().into()),
                 cx,
             );
             shell.set_panel(
@@ -215,10 +210,7 @@ impl ApiClient {
     }
 
     fn sync_footer_from_shell(&mut self, cx: &mut Context<Self>) {
-        let vis = self
-            .shell
-            .read(cx)
-            .visibility(FILE_PANEL_ID, ENV_PANEL_ID);
+        let vis = self.shell.read(cx).visibility(FILE_PANEL_ID, ENV_PANEL_ID);
         let has_response = self.response.read(cx).has_response();
         self.footer.update(cx, |f, cx| {
             f.set_file_panel_collapsed(!vis.left_open, cx);
@@ -251,12 +243,12 @@ impl ApiClient {
         let file_panel = self.file_panel.clone();
         cx.spawn(async move |_, cx| {
             let tree_path = path.clone();
-            let tree =
-                cx.background_executor()
-                    .spawn(async move {
-                        FilePanel::read_dir_to_nodes(std::path::Path::new(&tree_path))
-                    })
-                    .await;
+            let tree = cx
+                .background_executor()
+                .spawn(
+                    async move { FilePanel::read_dir_to_nodes(std::path::Path::new(&tree_path)) },
+                )
+                .await;
             file_panel.update(cx, |pp, cx| {
                 pp.set_tree(name, path, tree, cx);
             });

@@ -6,19 +6,19 @@ use gpui_kit::prelude::FluentBuilder;
 use gpui_kit::*;
 
 use super::model::{DataPoint, StressTesting};
-use crate::helpers::render_method_tag;
-use crate::icons::IconName;
-
-fn format_duration(duration: std::time::Duration) -> String {
-    let total_secs = duration.as_secs_f64();
-    if total_secs >= 60.0 {
-        format!("{}m {:02.0}s", total_secs as u64 / 60, total_secs % 60.0)
-    } else {
-        format!("{:.1}s", total_secs)
-    }
-}
+use crate::ui::method_tag;
+use crate::ui::IconName;
 
 impl StressTesting {
+    fn format_duration(duration: std::time::Duration) -> String {
+        let total_secs = duration.as_secs_f64();
+        if total_secs >= 60.0 {
+            format!("{}m {:02.0}s", total_secs as u64 / 60, total_secs % 60.0)
+        } else {
+            format!("{:.1}s", total_secs)
+        }
+    }
+
     fn config_bar(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let config = self.run_config(cx);
         let is_running = self.is_running();
@@ -41,7 +41,7 @@ impl StressTesting {
                             Input::new(&self.url_display())
                                 .disabled(true)
                                 .w_full()
-                                .prefix(render_method_tag(&config.method)),
+                                .prefix(method_tag(&config.method)),
                         ),
                     )
                     .child(
@@ -108,7 +108,7 @@ impl StressTesting {
                                 div()
                                     .text_sm()
                                     .font_semibold()
-                                    .child(format_duration(self.elapsed())),
+                                    .child(Self::format_duration(self.elapsed())),
                             ),
                     ),
             )

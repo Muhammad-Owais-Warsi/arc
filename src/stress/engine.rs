@@ -1,5 +1,5 @@
-use crate::http_client::HttpClient;
-use crate::http_request::HttpRequest;
+use crate::http::HttpClient;
+use crate::http::HttpRequest;
 use std::sync::Arc;
 use std::time::Instant;
 use tokio::sync::mpsc;

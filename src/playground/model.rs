@@ -15,9 +15,9 @@ use crate::dock::tabs::Playground;
 use crate::fs;
 use crate::fs::request::{Auth as AuthContent, Body as BodyContent, KeyValue, RequestFileContent};
 use crate::headers::{Headers, HeadersEvent};
-use crate::helpers::render_method_tag;
+use crate::ui::method_tag;
 use crate::query_params::{QueryParams, QueryParamsEvent};
-use crate::response_panel::ResponsePanel;
+use crate::response::ResponsePanel;
 use crate::settings_panel::AppSettings;
 use crate::toast::{ToastRoot, ToastVariant};
 
@@ -70,7 +70,7 @@ impl Playground for RequestPlayground {
     }
 
     fn tab_prefix(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> Option<AnyElement> {
-        Some(render_method_tag(&self.method(cx)).into_any_element())
+        Some(method_tag(&self.method(cx)).into_any_element())
     }
 }
 

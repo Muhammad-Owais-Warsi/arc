@@ -1,5 +1,5 @@
 use gpui_kit::component::button::{Button, ButtonVariants};
-use gpui_kit::component::input::{Editor, EditorState, TabSize};
+use gpui_kit::component::input::Editor;
 use gpui_kit::component::popover::Popover;
 use gpui_kit::component::scroll::ScrollableElement;
 use gpui_kit::component::spinner::Spinner;
@@ -9,122 +9,12 @@ use gpui_kit::component::{ActiveTheme, ColorName, Icon, Sizable, StyledExt, h_fl
 use gpui_kit::prelude::FluentBuilder;
 use gpui_kit::*;
 
-use crate::helpers::format_size;
-use crate::icons::IconName;
+use super::model::ResponsePanel;
 
-use crate::http_response::Response;
-
-const ASYNC_PRETTY_THRESHOLD: usize = 200_000;
-const MAX_PRETTY_BYTES: usize = 1_500_000;
-
-fn pretty_print_body(raw: String) -> String {
-    serde_json::from_str::<serde_json::Value>(&raw)
-        .ok()
-        .and_then(|json| serde_json::to_string_pretty(&json).ok())
-        .unwrap_or(raw)
-}
-
-#[derive(Clone)]
-pub struct ResponsePanel {
-    show: bool,
-    selected_config: usize,
-    body: Entity<EditorState>,
-    data: Option<Response>,
-    formatting: bool,
-    format_id: u64,
-}
+use crate::http::Response;
+use crate::ui::IconName;
 
 impl ResponsePanel {
-    pub fn new(window: &mut Window, cx: &mut Context<Self>) -> Self {
-        let body = cx.new(|cx| {
-            EditorState::new(window, cx)
-                .language("json")
-                .folding(true)
-                .line_number(true)
-                .tab_size(TabSize {
-                    tab_size: 10,
-                    hard_tabs: false,
-                })
-                .default_value("")
-        });
-
-        Self {
-            show: false,
-            selected_config: 0,
-            body,
-            data: None,
-            formatting: false,
-            format_id: 0,
-        }
-    }
-
-    pub fn is_shown(&self) -> bool {
-        self.show
-    }
-
-    pub fn has_response(&self) -> bool {
-        self.data.is_some()
-    }
-
-    pub fn toggle(&mut self, cx: &mut Context<Self>) {
-        self.show = !self.show;
-        cx.notify();
-    }
-
-    pub fn open(&mut self, cx: &mut Context<Self>) {
-        if self.show {
-            return;
-        }
-        self.show = true;
-        cx.notify();
-    }
-
-    pub fn set_response(
-        &mut self,
-        response: Response,
-        window: &mut Window,
-        cx: &mut Context<Self>,
-    ) {
-        let raw = response.body.body.clone();
-        let looks_json = matches!(raw.trim_start().chars().next(), Some('{') | Some('['));
-        if raw.len() < ASYNC_PRETTY_THRESHOLD || !looks_json || raw.len() >= MAX_PRETTY_BYTES {
-            let body_text = if looks_json && raw.len() < MAX_PRETTY_BYTES {
-                pretty_print_body(raw)
-            } else {
-                raw
-            };
-            self.body
-                .update(cx, |state, cx| state.set_value(body_text, window, cx));
-            self.data = Some(response);
-            self.show = true;
-            self.formatting = false;
-            cx.notify();
-            return;
-        }
-        self.format_id += 1;
-        let my_id = self.format_id;
-        self.data = Some(response);
-        self.formatting = true;
-        self.show = true;
-        cx.notify();
-        cx.spawn(async move |this, cx| {
-            let pretty = cx
-                .background_executor()
-                .spawn(async move { pretty_print_body(raw) })
-                .await;
-            let _ = this.update_in(cx, |this, window, cx| {
-                if this.format_id != my_id {
-                    return;
-                }
-                this.formatting = false;
-                this.body
-                    .update(cx, |state, cx| state.set_value(pretty, window, cx));
-                cx.notify();
-            });
-        })
-        .detach();
-    }
-
     fn render_status_tag(data: &Response) -> impl IntoElement {
         let color = match data.status_code {
             200..=299 => ColorName::Green,
@@ -144,24 +34,14 @@ impl ResponsePanel {
         )
     }
 
-    fn render_duration(data: &Response) -> impl IntoElement {
-        let ms = data.duration.as_secs_f64() * 1000.0;
-
-        Button::new("time-duration")
-            .label(format!("{:.2} ms", ms))
-            .ghost()
-            .xsmall()
-        // .tooltip("duration")
-    }
-
     fn render_size(data: &Response) -> impl IntoElement {
-        let req_hdr = format_size(data.request.header_size);
-        let req_body = format_size(data.request.body_size);
-        let req_total = format_size(data.request.size);
+        let req_hdr = Self::format_size(data.request.header_size);
+        let req_body = Self::format_size(data.request.body_size);
+        let req_total = Self::format_size(data.request.size);
 
-        let res_hdr = format_size(data.headers.response_size);
-        let res_body = format_size(data.body.response_size);
-        let res_total = format_size(data.response_size);
+        let res_hdr = Self::format_size(data.headers.response_size);
+        let res_body = Self::format_size(data.body.response_size);
+        let res_total = Self::format_size(data.response_size);
 
         Popover::new("response-size-popover")
             .anchor(Anchor::BottomLeft)
@@ -203,7 +83,6 @@ impl ResponsePanel {
                                     .child(
                                         Icon::new(IconName::ArrowUp)
                                             .small()
-                                            // .bg(cx.theme().background)
                                             .text_color(theme.danger),
                                     )
                                     .child(div().text_sm().font_semibold().child("Request")),
@@ -224,7 +103,6 @@ impl ResponsePanel {
                                     .child(
                                         Icon::new(IconName::ArrowDown)
                                             .small()
-                                            // .bg(cx.theme().background)
                                             .text_color(theme.success),
                                     )
                                     .child(div().text_sm().font_semibold().child("Response")),
@@ -236,10 +114,16 @@ impl ResponsePanel {
             })
     }
 
-    fn render_headers_table(headers: &[(String, String)], cx: &App) -> impl IntoElement {
-        use gpui_kit::component::StyledExt;
-        use gpui_kit::component::scroll::ScrollableElement;
+    fn render_duration(data: &Response) -> impl IntoElement {
+        let ms = data.duration.as_secs_f64() * 1000.0;
 
+        Button::new("time-duration")
+            .label(format!("{:.2} ms", ms))
+            .ghost()
+            .xsmall()
+    }
+
+    fn render_headers_table(headers: &[(String, String)], cx: &App) -> impl IntoElement {
         let theme = cx.theme();
 
         div()
@@ -322,9 +206,6 @@ impl ResponsePanel {
     }
 
     fn render_cookies_table(cookies: &[(String, String)], cx: &App) -> impl IntoElement {
-        use gpui_kit::component::StyledExt;
-        use gpui_kit::component::scroll::ScrollableElement;
-
         let theme = cx.theme();
 
         div()
@@ -428,7 +309,7 @@ impl Render for ResponsePanel {
                     .border_b_1()
                     .border_color(cx.theme().border)
                     .child(div().text_sm().font_semibold().child("Response"))
-                    .child(self.data.as_ref().map_or_else(
+                    .child(self.response_data().map_or_else(
                         || div().into_any_element(),
                         |data| {
                             h_flex()
@@ -448,10 +329,9 @@ impl Render for ResponsePanel {
                     .px(px(24.))
                     .bg(cx.theme().tokens.tab_bar)
                     .with_variant(tab::TabVariant::Underline)
-                    .selected_index(self.selected_config)
+                    .selected_index(self.selected_tab())
                     .on_click(cx.listener(|this: &mut Self, idx: &usize, _window, cx| {
-                        this.selected_config = *idx;
-                        cx.notify();
+                        this.select_tab(*idx, cx);
                     }))
                     .child(Tab::new().label("Body"))
                     .child(Tab::new().label("Headers"))
@@ -479,8 +359,8 @@ impl Render for ResponsePanel {
                             .bottom_0()
                             .overflow_hidden()
                             .px(px(24.))
-                            .when(self.selected_config != 0, |this| this.hidden())
-                            .child(if self.formatting {
+                            .when(self.selected_tab() != 0, |this| this.hidden())
+                            .child(if self.is_formatting() {
                                 div()
                                     .size_full()
                                     .flex()
@@ -498,7 +378,7 @@ impl Render for ResponsePanel {
                                     )
                                     .into_any_element()
                             } else {
-                                Editor::new(&self.body)
+                                Editor::new(&self.body_editor())
                                     .w_full()
                                     .h_full()
                                     .appearance(false)
@@ -509,8 +389,7 @@ impl Render for ResponsePanel {
                     // Headers tab
                     .child({
                         let headers = self
-                            .data
-                            .as_ref()
+                            .response_data()
                             .map(|d| d.headers.headers.as_slice())
                             .unwrap_or(&[]);
                         div()
@@ -521,14 +400,13 @@ impl Render for ResponsePanel {
                             .bottom_0()
                             .overflow_y_scrollbar()
                             .px(px(24.))
-                            .when(self.selected_config != 1, |this| this.hidden())
+                            .when(self.selected_tab() != 1, |this| this.hidden())
                             .child(Self::render_headers_table(headers, cx))
                     })
                     // Cookies tab
                     .child({
                         let cookies = self
-                            .data
-                            .as_ref()
+                            .response_data()
                             .map(|d| d.cookies.as_slice())
                             .unwrap_or(&[]);
                         div()
@@ -539,7 +417,7 @@ impl Render for ResponsePanel {
                             .bottom_0()
                             .overflow_y_scrollbar()
                             .px(px(24.))
-                            .when(self.selected_config != 2, |this| this.hidden())
+                            .when(self.selected_tab() != 2, |this| this.hidden())
                             .child(Self::render_cookies_table(cookies, cx))
                     }),
             )

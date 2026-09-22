@@ -13,7 +13,7 @@ use gpui_kit::*;
 
 use super::actions::CopyURL;
 use crate::actions::CopyAsCode;
-use crate::icons::IconName;
+use crate::ui::IconName;
 
 use super::model::RequestPlayground;
 

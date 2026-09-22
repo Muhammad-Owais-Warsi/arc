@@ -4,7 +4,7 @@ use super::actions::{
 };
 use crate::actions::CopyAsCode;
 use crate::fs;
-use crate::helpers::next_id;
+use crate::id::next_id;
 use gpui_kit::*;
 
 use gpui_kit::component::input::{InputEvent, InputState};

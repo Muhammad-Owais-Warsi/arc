@@ -1,10 +1,8 @@
 use gpui_kit::*;
 
 use crate::auth::AuthType;
-use crate::http_client::HttpClient;
-use crate::http_response::{
-    AuthPayload, RequestStats, Response, ResponseBody, ResponseHeaders,
-};
+use crate::http::HttpClient;
+use crate::http::{AuthPayload, RequestStats, Response, ResponseBody, ResponseHeaders};
 
 use super::model::{RequestPlayground, RequestPlaygroundEvent};
 

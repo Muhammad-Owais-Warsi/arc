@@ -1,7 +1,7 @@
 use crate::dock::tabs::Playground;
 use crate::fs;
 use crate::fs::request::KeyValue;
-use crate::helpers::render_method_tag;
+use crate::ui::method_tag;
 use gpui_kit::base::dock::{Panel, PanelEvent};
 use gpui_kit::component::input::{InputEvent, InputState};
 use gpui_kit::*;
@@ -268,7 +268,7 @@ impl Playground for EnvPlayground {
     }
 
     fn tab_prefix(&mut self, _window: &mut Window, _cx: &mut Context<Self>) -> Option<AnyElement> {
-        Some(render_method_tag("ENV").into_any_element())
+        Some(method_tag("ENV").into_any_element())
     }
 }
 

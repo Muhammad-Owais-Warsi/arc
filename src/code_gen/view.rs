@@ -8,7 +8,7 @@ use gpui_kit::component::{
 use gpui_kit::*;
 
 use super::model::CodeScreen;
-use crate::icons::IconName;
+use crate::ui::IconName;
 
 impl Render for CodeScreen {
     fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {

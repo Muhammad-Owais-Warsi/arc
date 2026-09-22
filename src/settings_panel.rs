@@ -1,8 +1,8 @@
 use crate::{
     ApiClient,
     fs,
-    helpers::{get_active_theme, get_theme_config, get_themes},
-    icons::IconName,
+    theme::{get_active_theme, get_theme_config, get_themes},
+    ui::IconName,
 };
 use gpui_kit::component::{
     Icon, IndexPath, Side, Sizable, Size, Theme,

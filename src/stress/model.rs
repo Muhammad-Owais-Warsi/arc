@@ -1,8 +1,8 @@
 use crate::dock::tabs::Playground;
 use crate::fs;
 use crate::fs::request::RequestFileContent;
-use crate::helpers::render_method_tag;
-use crate::http_request::HttpRequest;
+use crate::ui::method_tag;
+use crate::http::HttpRequest;
 use crate::playground::RequestPlayground;
 use gpui_kit::base::dock::{Panel, PanelEvent};
 use gpui_kit::component::input::InputState;
@@ -278,7 +278,7 @@ impl Playground for StressTesting {
     }
 
     fn tab_prefix(&mut self, _window: &mut Window, _cx: &mut Context<Self>) -> Option<AnyElement> {
-        Some(render_method_tag("STRESS TEST").into_any_element())
+        Some(method_tag("STRESS TEST").into_any_element())
     }
 }
 

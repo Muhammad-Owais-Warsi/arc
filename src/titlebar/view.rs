@@ -10,7 +10,7 @@ use super::model::{TitleBarEvent, TitleBarView};
 use crate::actions;
 use crate::env::Environment;
 use crate::fs;
-use crate::icons::IconName;
+use crate::ui::IconName;
 
 impl Render for TitleBarView {
     fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {

@@ -11,8 +11,8 @@ use super::actions::{
 };
 use super::model::FilePanel;
 use crate::actions::CopyAsCode;
-use crate::helpers::render_method_tag;
-use crate::icons::IconName;
+use crate::ui::method_tag;
+use crate::ui::IconName;
 
 impl Render for FilePanel {
     fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
@@ -151,7 +151,7 @@ impl Render for FilePanel {
                                 .child(div().text_sm().child(node.name.clone()))
                                 .child(div().flex_1())
                                 .when(node.is_file, |t| {
-                                    t.child(render_method_tag(&node.method))
+                                    t.child(method_tag(&node.method))
                                 })
                                 .children(chevron.map(|icon| {
                                     div().flex_none().text_color(muted).child(

@@ -1,5 +1,5 @@
-use crate::http_request::HttpRequest;
-use crate::http_response::AuthPayload;
+use crate::http::HttpRequest;
+use crate::http::AuthPayload;
 
 use super::model::CodeScreen;
 

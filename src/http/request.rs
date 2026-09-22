@@ -1,5 +1,5 @@
+use super::response::AuthPayload;
 use crate::auth::AuthType;
-use crate::http_response::AuthPayload;
 use crate::fs::request::RequestFileContent;
 
 #[derive(Clone)]

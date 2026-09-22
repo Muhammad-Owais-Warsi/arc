@@ -1,6 +1,6 @@
 use crate::dock::tabs::Playground;
-use crate::helpers::render_method_tag;
-use crate::http_request::HttpRequest;
+use crate::ui::method_tag;
+use crate::http::HttpRequest;
 use crate::playground::RequestPlayground;
 use gpui_kit::base::dock::{Panel, PanelEvent};
 use gpui_kit::component::{
@@ -151,7 +151,7 @@ impl Playground for CodeScreen {
     }
 
     fn tab_prefix(&mut self, _window: &mut Window, _cx: &mut Context<Self>) -> Option<AnyElement> {
-        Some(render_method_tag("CODE").into_any_element())
+        Some(method_tag("CODE").into_any_element())
     }
 }
 

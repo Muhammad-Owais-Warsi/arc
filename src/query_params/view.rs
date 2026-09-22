@@ -1,4 +1,4 @@
-use crate::icons::IconName;
+use crate::ui::IconName;
 use gpui_kit::component::Sizable;
 use gpui_kit::component::button::{Button, ButtonVariants};
 use gpui_kit::component::checkbox::Checkbox;

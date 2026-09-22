@@ -13,7 +13,7 @@ use gpui_kit::component::tab::{Tab, TabBar, TabVariant};
 use gpui_kit::component::{ActiveTheme, Sizable, h_flex};
 use gpui_kit::*;
 
-use crate::icons::IconName;
+use crate::ui::IconName;
 
 use crate::dock::tabs::{KEEP_ALIVE_NAME, TabChromeRegistry};
 
