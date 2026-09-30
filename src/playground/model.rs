@@ -1,7 +1,7 @@
 use gpui_kit::base::dock::{Panel, PanelEvent};
 use gpui_kit::component::{
     IndexPath,
-    input::{InputEvent, InputState},
+    input::{InlineToken, InputEvent, InputState},
     select::{SelectEvent, SelectState},
 };
 use gpui_kit::*;
@@ -156,6 +156,29 @@ impl RequestPlayground {
                             ToastRoot::show(cx, ToastVariant::Error, "cURL import failed".into());
                         }
                     }
+                    return;
+                }
+                // URL-only: convert newly typed `{{var}}` into inline pills.
+                // Reverse order keeps earlier byte offsets valid.
+                let existing: Vec<std::ops::Range<usize>> = this
+                    .url
+                    .read(cx)
+                    .tokens()
+                    .iter()
+                    .map(|s| s.range())
+                    .collect();
+                for (start, end, name) in fs::env::variable_spans(&pasted_content).into_iter().rev()
+                {
+                    if existing.iter().any(|r| r.start == start && r.end == end) {
+                        continue;
+                    }
+                    let raw = &pasted_content[start..end];
+                    let token =
+                        InlineToken::new(name.clone(), raw.to_string()).with_label(name);
+                    this.url.update(cx, |s, cx| {
+                        let _ =
+                            s.replace_range_with_token(start..end, token, window, cx);
+                    });
                 }
                 this.evaluate_dirty(cx);
             }
@@ -390,7 +413,8 @@ impl RequestPlayground {
         content: &serde_json::Value,
     ) {
         if let Some(url) = content.get("url").and_then(|v| v.as_str()) {
-            self.url.update(cx, |s, cx| s.set_value(url, window, cx));
+            let tokenized = fs::env::tokenize(url);
+            self.url.update(cx, |s, cx| s.set_value(tokenized, window, cx));
         }
         if let Some(method) = content.get("method").and_then(|v| v.as_str()) {
             self.set_method(method, window, cx);

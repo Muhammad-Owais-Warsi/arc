@@ -421,8 +421,6 @@ impl ApiClient {
 
 impl Render for ApiClient {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
-        let dialog_layer = Root::render_dialog_layer(window, cx);
-        let notification_layer = Root::render_notification_layer(window, cx);
         div()
             .size_full()
             .flex()
@@ -449,8 +447,6 @@ impl Render for ApiClient {
             .child(self.render_footer(cx))
             .child(crate::toast::ToastRoot::overlay(cx))
             .child(crate::overlay::OverlayRoot::overlay(window, cx))
-            .children(dialog_layer)
-            .children(notification_layer)
     }
 }
 

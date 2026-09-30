@@ -3,6 +3,7 @@ use std::fs;
 use std::path::PathBuf;
 
 use crate::env::Environment;
+use gpui_kit::component::input::{InlineToken, InputContent};
 
 fn workspace_path() -> PathBuf {
     dirs::config_dir()
@@ -135,6 +136,94 @@ pub fn init_workspace(path: &str) {
             serde_json::to_string_pretty(&default_data()).unwrap_or_default(),
         );
     }
+}
+
+pub fn active_vars() -> std::collections::HashMap<String, String> {
+    let data = read_data();
+    let active = data
+        .get("active_environment")
+        .and_then(|v| v.as_str())
+        .unwrap_or("");
+    environments_from(&data)
+        .into_iter()
+        .find(|e| e.name == active)
+        .map(|e| {
+            e.variables
+                .iter()
+                .filter(|v| v.active)
+                .map(|v| (v.key.clone(), v.value.clone()))
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
+/// Byte ranges (`start..end`) of `{{name}}` occurrences in `text`,
+/// where `name` (trimmed) is a known active variable.
+/// Ranges point at the full `{{...}}` including braces.
+pub fn variable_spans(text: &str) -> Vec<(usize, usize, String)> {
+    let vars = active_vars();
+    if vars.is_empty() {
+        return vec![];
+    }
+    let bytes = text.as_bytes();
+    let mut out = Vec::new();
+    let mut i = 0;
+    while i + 1 < bytes.len() {
+        if bytes[i] == b'{' && bytes[i + 1] == b'{' {
+            let start = i;
+            let mut j = i + 2;
+            let mut found = None;
+            while j + 1 < bytes.len() {
+                if bytes[j] == b'}' && bytes[j + 1] == b'}' {
+                    found = Some(j + 2);
+                    break;
+                }
+                // Variables are single-line; stop at newline/control.
+                if bytes[j] == b'\n' || bytes[j] == b'\r' {
+                    break;
+                }
+                j += 1;
+            }
+            if let Some(end) = found {
+                let inner = &text[start + 2..end - 2];
+                let name = inner.trim().to_string();
+                if !name.is_empty()
+                    && !name.chars().any(|c| c.is_control())
+                    && vars.contains_key(&name)
+                {
+                    out.push((start, end, name));
+                }
+                i = end;
+                continue;
+            } else {
+                i += 2;
+                continue;
+            }
+        }
+        // Advance by one UTF-8 char to keep byte indices valid.
+        let ch_len = text[i..].chars().next().map(|c| c.len_utf8()).unwrap_or(1);
+        i += ch_len;
+    }
+    out
+}
+
+/// Build an `InputContent` where every known `{{var}}` carries an `InlineToken`.
+/// Unknown `{{...}}` stays plain text (signals unresolved).
+/// `id` = var name, `text` = `{{name}}` (so `value()`/save/interpolate keep
+/// working), `label` = var name (what the pill displays).
+pub fn tokenize(text: &str) -> InputContent {
+    let mut content = InputContent::new(text.to_string());
+    for (start, end, name) in variable_spans(text) {
+        let raw = &text[start..end];
+        let token = InlineToken::new(name.clone(), raw.to_string()).with_label(name);
+        // Ranges are produced by the scan above so they are valid;
+        // skip (don't fail) if a future validation rejects one.
+        // `with_token` consumes self, so clone for the attempt.
+        if let Ok(next) = content.clone().with_token(start..end, token) {
+            content = next;
+        }
+    }
+    content
 }
 
 pub fn interpolate(input: &str) -> String {

@@ -46,9 +46,51 @@ impl SearchableListItem for FontItem {
 }
 
 type FontSelect = ComboboxState<SearchableVec<FontItem>>;
+type ThemeSelect = ComboboxState<SearchableVec<ThemeItem>>;
+
+#[derive(Clone)]
+struct ThemeItem {
+    name: String,
+}
+
+impl SearchableListItem for ThemeItem {
+    type Value = String;
+
+    fn title(&self) -> SharedString {
+        self.name.clone().into()
+    }
+
+    fn value(&self) -> &Self::Value {
+        &self.name
+    }
+}
+
+fn apply_theme(name: &str, cx: &mut App) {
+    let key: SharedString = name.into();
+    if let Some(theme_config) = get_theme_config(cx, &key) {
+        let mode = theme_config.mode;
+        let t = Theme::global_mut(cx);
+        if mode.is_dark() {
+            t.dark_theme = theme_config.clone();
+        } else {
+            t.light_theme = theme_config.clone();
+        }
+        Theme::change(mode, None, cx);
+        let app_settings = AppSettings::global(cx).clone();
+        let t = Theme::global_mut(cx);
+
+        // theme change resets the font, re-applying it here
+        t.font_family = app_settings.font.family.clone().into();
+        t.font_size = px(app_settings.font.size);
+        AppSettings::global_mut(cx).theme.name = name.to_string();
+        AppSettings::global_mut(cx).save();
+        cx.refresh_windows();
+    }
+}
 
 pub struct SettingsPanel {
     font_state: Option<Entity<FontSelect>>,
+    theme_state: Option<Entity<ThemeSelect>>,
     client: Option<WeakEntity<ApiClient>>,
 }
 
@@ -56,6 +98,7 @@ impl SettingsPanel {
     pub fn new(_cx: &mut Context<Self>) -> Self {
         Self {
             font_state: None,
+            theme_state: None,
             client: None,
         }
     }
@@ -109,40 +152,63 @@ impl SettingsPanel {
         self.font_state = Some(entity);
     }
 
+    fn ensure_theme_state(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        if self.theme_state.is_some() {
+            return;
+        }
+
+        let themes: Vec<ThemeItem> = get_themes(cx)
+            .into_iter()
+            .map(|(_, label)| ThemeItem {
+                name: label.to_string(),
+            })
+            .collect();
+        let entity: Entity<ThemeSelect> = cx.new(|cx| {
+            ComboboxState::new(
+                SearchableVec::new(themes),
+                vec![IndexPath::default()],
+                window,
+                cx,
+            )
+            .searchable(true)
+        });
+
+        cx.subscribe_in(
+            &entity,
+            window,
+            |_this: &mut SettingsPanel,
+             _,
+             event: &ComboboxEvent<SearchableVec<ThemeItem>>,
+             _,
+             cx| {
+                if let ComboboxEvent::Confirm(selected) = event {
+                    if let Some(val) = selected.first() {
+                        apply_theme(val, cx);
+                    }
+                }
+            },
+        )
+        .detach();
+
+        self.theme_state = Some(entity);
+    }
+
     fn appearance_settings(
+        theme_state: Entity<ThemeSelect>,
         font_state: Entity<FontSelect>,
         cx: &Context<Self>,
     ) -> Vec<SettingGroup> {
+        let _ = cx;
         vec![
             SettingGroup::new().title("Appearance").items(vec![
                 SettingItem::new(
                     "Theme",
-                    SettingField::<SharedString>::dropdown(
-                        get_themes(cx),
-                        |cx: &App| get_active_theme(cx),
-                        |name: SharedString, cx: &mut App| {
-                            if let Some(theme_config) = get_theme_config(cx, &name) {
-                                let mode = theme_config.mode;
-                                let t = Theme::global_mut(cx);
-                                if mode.is_dark() {
-                                    t.dark_theme = theme_config.clone();
-                                } else {
-                                    t.light_theme = theme_config.clone();
-                                }
-                                Theme::change(mode, None, cx);
-                                let app_settings = AppSettings::global(cx).clone();
-                                let t = Theme::global_mut(cx);
-
-                                // theme change resets the font, re-applying it here
-                                t.font_family = app_settings.font.family.clone().into();
-                                t.font_size = px(app_settings.font.size);
-                                AppSettings::global_mut(cx).theme.name = name.to_string();
-                                AppSettings::global_mut(cx).save();
-                                cx.refresh_windows();
-                            }
-                        },
-                    )
-                    .default_value("One Dark"),
+                    SettingField::<SharedString>::render(move |_options, _window, _cx| {
+                        Combobox::new(&theme_state)
+                            .placeholder("Search and select a theme")
+                            .search_placeholder("Search themes...")
+                            .w(px(240.))
+                    }),
                 )
                 .description("Select the application theme.")
                 .disabled(false),
@@ -305,6 +371,7 @@ impl SettingsPanel {
 
     fn setting_pages(
         &self,
+        theme_state: &Entity<ThemeSelect>,
         font_state: &Entity<FontSelect>,
         cx: &Context<Self>,
     ) -> Vec<SettingPage> {
@@ -313,7 +380,7 @@ impl SettingsPanel {
                 .resettable(true)
                 .default_open(true)
                 .icon(Icon::new(IconName::SlidersHorizontal))
-                .groups(Self::appearance_settings(font_state.clone(), cx)),
+                .groups(Self::appearance_settings(theme_state.clone(), font_state.clone(), cx)),
             self.panels_settings(),
             Self::request_playground_settings(),
             SettingPage::new("About")
@@ -342,16 +409,22 @@ impl Render for SettingsPanel {
         header_style.flex_basis = Some(gpui::relative(0.).into());
 
         self.ensure_font_state(window, cx);
+        self.ensure_theme_state(window, cx);
         let font_state = self.font_state.as_ref().unwrap().clone();
+        let theme_state = self.theme_state.as_ref().unwrap().clone();
         let active_font = Theme::global(cx).font_family.to_string();
         font_state.update(cx, |s, cx| {
             s.set_selected_values(&[active_font], window, cx);
+        });
+        let active_theme = get_active_theme(cx).to_string();
+        theme_state.update(cx, |s, cx| {
+            s.set_selected_values(&[active_theme], window, cx);
         });
 
         Settings::new("arc-settings")
             .with_size(Size::default())
             .with_group_variant(GroupBoxVariant::Outline)
             .header_style(&header_style)
-            .pages(self.setting_pages(&font_state, cx))
+            .pages(self.setting_pages(&theme_state, &font_state, cx))
     }
 }

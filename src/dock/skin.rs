@@ -5,7 +5,7 @@ use std::sync::Arc;
 use gpui_kit::base::AxisExt as _;
 use gpui_kit::base::dock::{
     DockArea, DockAreaRenderer, DragPanel, DropIndicator, NodeId, PanelView, TabGroupContext,
-    TabGroupRenderer, TileContext, TilesRenderer,
+    TabGroupRenderer,
 };
 use gpui_kit::component::Selectable as _;
 use gpui_kit::component::button::{Button, ButtonVariants};
@@ -252,10 +252,6 @@ impl DockAreaRenderer for CleanSkin {
         Rc::new(self.clone())
     }
 
-    fn tiles_renderer(&self) -> Rc<dyn TilesRenderer> {
-        Rc::new(self.clone())
-    }
-
     fn render_split_handle(
         &self,
         handle: &gpui_kit::base::ResizeHandleContext,
@@ -272,17 +268,6 @@ impl DockAreaRenderer for CleanSkin {
             handle.is_active(),
             cx,
         ))
-    }
-}
-
-impl TilesRenderer for CleanSkin {
-    fn render_drag_bar(
-        &self,
-        _tile: &TileContext,
-        _window: &mut Window,
-        _cx: &mut App,
-    ) -> AnyElement {
-        div().h(px(28.)).w_full().into_any_element()
     }
 }
 

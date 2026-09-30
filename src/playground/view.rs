@@ -1,6 +1,6 @@
 use gpui_kit::component::button::{Button, ButtonVariants};
 use gpui_kit::component::clipboard::Clipboard;
-use gpui_kit::component::input::Input;
+use gpui_kit::component::input::{Input, InputToken};
 use gpui_kit::component::menu::ContextMenuExt;
 use gpui_kit::component::scroll::ScrollableElement;
 use gpui_kit::component::{
@@ -25,7 +25,9 @@ impl RequestPlayground {
             .child(div().w(px(110.)).child(Select::new(&self.method_input())))
             .child(
                 div().flex_1().child(
-                    Input::new(&self.url_input()).suffix(
+                    Input::new(&self.url_input())
+                        .token(|token, _, _| InputToken::new(token).icon(IconName::Variable))
+                        .suffix(
                         h_flex().gap_1().items_center().child(
                             div()
                                 .flex()
@@ -175,8 +177,10 @@ impl Render for RequestPlayground {
             .child(
                 div()
                     .flex_1()
+                    .min_h(px(0.))
                     .overflow_y_scrollbar()
                     .px(px(24.))
+                    .py(px(4.))
                     .child(self.render_config_content(cx)),
             )
     }
