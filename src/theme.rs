@@ -1,3 +1,4 @@
+use crate::settings::AppSettings;
 use gpui_kit::component::{Theme, ThemeConfig, ThemeRegistry};
 use gpui_kit::*;
 use std::rc::Rc;
@@ -42,4 +43,55 @@ pub fn get_active_theme(cx: &App) -> SharedString {
 
 pub fn get_theme_config(cx: &App, name: &SharedString) -> Option<Rc<ThemeConfig>> {
     ThemeRegistry::global(cx).themes().get(name).cloned()
+}
+
+/// The theme families offered on first run, in display order.
+pub const THEME_FAMILIES: &[&str] = &["One", "Ayu", "Gruvbox"];
+
+/// Pick each family's theme matching the current mode, falling back to any
+/// installed theme from that family. Returns `(family label, theme name)`.
+pub fn theme_families(cx: &App) -> Vec<(String, SharedString)> {
+    let mode = Theme::global(cx).mode;
+    let installed = get_themes(cx);
+
+    THEME_FAMILIES
+        .iter()
+        .filter_map(|family| {
+            let matches_mode = installed.iter().find(|(name, _)| {
+                name.starts_with(family)
+                    && get_theme_config(cx, name).is_some_and(|config| config.mode == mode)
+            });
+            matches_mode
+                .or_else(|| installed.iter().find(|(name, _)| name.starts_with(family)))
+                .map(|(name, _)| (family.to_string(), name.clone()))
+        })
+        .collect()
+}
+
+/// Apply a theme by name and persist it, re-applying the saved font because a
+/// theme change resets typography.
+pub fn apply_theme(name: &str, cx: &mut App) {
+    let key: SharedString = name.into();
+    let Some(theme_config) = get_theme_config(cx, &key) else {
+        return;
+    };
+
+    let mode = theme_config.mode;
+    let theme = Theme::global_mut(cx);
+    if mode.is_dark() {
+        theme.dark_theme = theme_config.clone();
+    } else {
+        theme.light_theme = theme_config.clone();
+    }
+    Theme::change(mode, None, cx);
+
+    let app_settings = AppSettings::global(cx).clone();
+    let theme = Theme::global_mut(cx);
+    theme.font_family = app_settings.font.family.clone().into();
+    theme.font_size = px(app_settings.font.size);
+
+    AppSettings::global_mut(cx).theme.name = name.to_string();
+    AppSettings::global_mut(cx).theme.mode = mode.name().to_string();
+    AppSettings::global_mut(cx).save();
+    cx.refresh_windows();
 }

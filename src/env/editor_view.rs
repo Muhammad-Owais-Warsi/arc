@@ -3,7 +3,7 @@ use gpui_kit::component::checkbox::Checkbox;
 use gpui_kit::component::input::Input;
 use gpui_kit::component::scroll::ScrollableElement;
 use gpui_kit::component::table::{Table, TableBody, TableCell, TableHead, TableHeader, TableRow};
-use gpui_kit::component::{ActiveTheme, Sizable, h_flex};
+use gpui_kit::component::{ActiveTheme, Sizable, StyledExt, h_flex};
 use gpui_kit::prelude::FluentBuilder;
 use gpui_kit::*;
 
@@ -15,6 +15,7 @@ impl Render for EnvPlayground {
         div()
             .size_full()
             .min_h(px(0.))
+            .v_flex()
             .gap(rems(0.75))
             .px(px(24.))
             .pt(rems(1.0))
@@ -78,6 +79,7 @@ impl Render for EnvPlayground {
                             ),
                     )
                     .child(div().flex_1())
+
                     .child(
                         Button::new("save-env")
                             .secondary()
@@ -155,6 +157,7 @@ impl Render for EnvPlayground {
                                                 .child(
                                                     Button::new(format!("del-var-{i}"))
                                                         .ghost()
+                                                        .small()
                                                         .icon(IconName::Trash)
                                                         .on_click(cx.listener(
                                                             move |this, _, _window, cx| {

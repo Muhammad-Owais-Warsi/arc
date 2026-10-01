@@ -183,5 +183,7 @@ impl Render for RequestPlayground {
                     .py(px(4.))
                     .child(self.render_config_content(cx)),
             )
+            // Demo only: read-only theme previews, no effect on the active theme.
+            .child(crate::ui::theme_preview_demo(cx))
     }
 }

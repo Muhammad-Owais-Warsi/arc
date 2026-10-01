@@ -359,32 +359,46 @@ impl Render for ResponsePanel {
                             .bottom_0()
                             .overflow_hidden()
                             .px(px(24.))
+                            .py(px(12.))
+                            .v_flex()
                             .when(self.selected_tab() != 0, |this| this.hidden())
-                            .child(if self.is_formatting() {
+                            .child(
                                 div()
-                                    .size_full()
-                                    .flex()
-                                    .items_center()
-                                    .justify_center()
-                                    .gap_2()
-                                    .child(
-                                        Spinner::new().large().color(cx.theme().muted_foreground),
-                                    )
-                                    .child(
-                                        div()
-                                            .text_sm()
-                                            .text_color(cx.theme().muted_foreground)
-                                            .child("Formatting…"),
-                                    )
-                                    .into_any_element()
-                            } else {
-                                Editor::new(&self.body_editor())
                                     .w_full()
-                                    .h_full()
-                                    .appearance(false)
-                                    .readonly(true)
-                                    .into_any_element()
-                            }),
+                                    .flex_1()
+                                    .min_h(px(0.))
+                                    .border_1()
+                                    .border_color(cx.theme().border)
+                                    .rounded_md()
+                                    .overflow_hidden()
+                                    .child(if self.is_formatting() {
+                                        div()
+                                            .size_full()
+                                            .flex()
+                                            .items_center()
+                                            .justify_center()
+                                            .gap_2()
+                                            .child(
+                                                Spinner::new()
+                                                    .large()
+                                                    .color(cx.theme().muted_foreground),
+                                            )
+                                            .child(
+                                                div()
+                                                    .text_sm()
+                                                    .text_color(cx.theme().muted_foreground)
+                                                    .child("Formatting…"),
+                                            )
+                                            .into_any_element()
+                                    } else {
+                                        Editor::new(&self.body_editor())
+                                            .w_full()
+                                            .h_full()
+                                            .appearance(false)
+                                            .readonly(true)
+                                            .into_any_element()
+                                    }),
+                            ),
                     )
                     // Headers tab
                     .child({
@@ -398,10 +412,22 @@ impl Render for ResponsePanel {
                             .left_0()
                             .right_0()
                             .bottom_0()
-                            .overflow_y_scrollbar()
+                            .overflow_hidden()
                             .px(px(24.))
+                            .py(px(12.))
+                            .v_flex()
                             .when(self.selected_tab() != 1, |this| this.hidden())
-                            .child(Self::render_headers_table(headers, cx))
+                            .child(
+                                div()
+                                    .w_full()
+                                    .flex_1()
+                                    .min_h(px(0.))
+                                    .border_1()
+                                    .border_color(cx.theme().border)
+                                    .rounded_md()
+                                    .overflow_hidden()
+                                    .child(Self::render_headers_table(headers, cx)),
+                            )
                     })
                     // Cookies tab
                     .child({
@@ -415,10 +441,22 @@ impl Render for ResponsePanel {
                             .left_0()
                             .right_0()
                             .bottom_0()
-                            .overflow_y_scrollbar()
+                            .overflow_hidden()
                             .px(px(24.))
+                            .py(px(12.))
+                            .v_flex()
                             .when(self.selected_tab() != 2, |this| this.hidden())
-                            .child(Self::render_cookies_table(cookies, cx))
+                            .child(
+                                div()
+                                    .w_full()
+                                    .flex_1()
+                                    .min_h(px(0.))
+                                    .border_1()
+                                    .border_color(cx.theme().border)
+                                    .rounded_md()
+                                    .overflow_hidden()
+                                    .child(Self::render_cookies_table(cookies, cx)),
+                            )
                     }),
             )
     }

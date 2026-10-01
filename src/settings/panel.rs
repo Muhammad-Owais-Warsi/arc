@@ -66,26 +66,7 @@ impl SearchableListItem for ThemeItem {
 }
 
 fn apply_theme(name: &str, cx: &mut App) {
-    let key: SharedString = name.into();
-    if let Some(theme_config) = get_theme_config(cx, &key) {
-        let mode = theme_config.mode;
-        let t = Theme::global_mut(cx);
-        if mode.is_dark() {
-            t.dark_theme = theme_config.clone();
-        } else {
-            t.light_theme = theme_config.clone();
-        }
-        Theme::change(mode, None, cx);
-        let app_settings = AppSettings::global(cx).clone();
-        let t = Theme::global_mut(cx);
-
-        // theme change resets the font, re-applying it here
-        t.font_family = app_settings.font.family.clone().into();
-        t.font_size = px(app_settings.font.size);
-        AppSettings::global_mut(cx).theme.name = name.to_string();
-        AppSettings::global_mut(cx).save();
-        cx.refresh_windows();
-    }
+    crate::theme::apply_theme(name, cx);
 }
 
 pub struct SettingsPanel {
