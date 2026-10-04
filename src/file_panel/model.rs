@@ -2,7 +2,7 @@ use super::actions::{
     CopyPath, CopyRelativePath, CreateFile, CreateFolder, DeleteItem, RenameItem,
     StressTestPlayground, TrashItem,
 };
-use crate::actions::CopyAsCode;
+use crate::actions::arc::CopyAsCode;
 use crate::fs;
 use crate::id::next_id;
 use gpui_kit::*;
@@ -149,12 +149,7 @@ impl FilePanel {
         self.context_target = Some(node_id);
     }
 
-    pub fn click_node(
-        &mut self,
-        node_id: usize,
-        window: &mut Window,
-        cx: &mut Context<Self>,
-    ) {
+    pub fn click_node(&mut self, node_id: usize, window: &mut Window, cx: &mut Context<Self>) {
         window.focus(&self.focus, cx);
         self.active_node_id = Some(node_id);
         if let Some(node) = self.nodes.get(&node_id) {
@@ -593,8 +588,7 @@ impl FilePanel {
 
                 if name.is_empty() {
                     self.pending_error = Some("Please enter a name.".to_string());
-                    self.pending_action =
-                        Some(PendingAction::CreateFile { parent_id, input });
+                    self.pending_action = Some(PendingAction::CreateFile { parent_id, input });
                     self.rebuild_tree(cx);
                     return cx.notify();
                 }
@@ -623,13 +617,16 @@ impl FilePanel {
                         cx.notify();
                     }
                     Err(err) => {
-                        self.pending_error = Some(if err.kind() == std::io::ErrorKind::AlreadyExists {
-                            format!("File or directory '{name}' already exists at location. Please choose a different name.")
-                        } else {
-                            format!("Failed to create '{name}': {err}")
-                        });
-                        self.pending_action =
-                            Some(PendingAction::CreateFile { parent_id, input });
+                        self.pending_error = Some(
+                            if err.kind() == std::io::ErrorKind::AlreadyExists {
+                                format!(
+                                    "File or directory '{name}' already exists at location. Please choose a different name."
+                                )
+                            } else {
+                                format!("Failed to create '{name}': {err}")
+                            },
+                        );
+                        self.pending_action = Some(PendingAction::CreateFile { parent_id, input });
                         cx.notify();
                     }
                 }
@@ -647,8 +644,7 @@ impl FilePanel {
 
                 if name.is_empty() {
                     self.pending_error = Some("Please enter a name.".to_string());
-                    self.pending_action =
-                        Some(PendingAction::CreateFolder { parent_id, input });
+                    self.pending_action = Some(PendingAction::CreateFolder { parent_id, input });
                     self.rebuild_tree(cx);
                     return cx.notify();
                 }
@@ -678,11 +674,15 @@ impl FilePanel {
                         cx.notify();
                     }
                     Err(err) => {
-                        self.pending_error = Some(if err.kind() == std::io::ErrorKind::AlreadyExists {
-                            format!("File or directory '{name}' already exists at location. Please choose a different name.")
-                        } else {
-                            format!("Failed to create '{name}': {err}")
-                        });
+                        self.pending_error = Some(
+                            if err.kind() == std::io::ErrorKind::AlreadyExists {
+                                format!(
+                                    "File or directory '{name}' already exists at location. Please choose a different name."
+                                )
+                            } else {
+                                format!("Failed to create '{name}': {err}")
+                            },
+                        );
                         self.pending_action =
                             Some(PendingAction::CreateFolder { parent_id, input });
                         cx.notify();
@@ -726,9 +726,10 @@ impl FilePanel {
                 // Never silently overwrite: a rename onto an existing path
                 // keeps the row open with an inline error instead.
                 if new_path != old_path && Path::new(&new_path).exists() {
-                    self.pending_error = Some(format!("File or directory '{display_name}' already exists at location. Please choose a different name."));
-                    self.pending_action =
-                        Some(PendingAction::Rename { node_id, input });
+                    self.pending_error = Some(format!(
+                        "File or directory '{display_name}' already exists at location. Please choose a different name."
+                    ));
+                    self.pending_action = Some(PendingAction::Rename { node_id, input });
                     self.rebuild_tree(cx);
                     return cx.notify();
                 }
@@ -748,10 +749,8 @@ impl FilePanel {
                         });
                     }
                     Err(err) => {
-                        self.pending_error =
-                            Some(format!("Failed to rename: {err}"));
-                        self.pending_action =
-                            Some(PendingAction::Rename { node_id, input });
+                        self.pending_error = Some(format!("Failed to rename: {err}"));
+                        self.pending_action = Some(PendingAction::Rename { node_id, input });
                         cx.notify();
                     }
                 }
@@ -854,4 +853,3 @@ impl FilePanel {
         }
     }
 }
-

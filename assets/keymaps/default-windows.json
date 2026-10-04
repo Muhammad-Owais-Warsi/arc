@@ -1,0 +1,78 @@
+[
+  {
+    "use_key_equivalents": true,
+    "bindings": {
+      "ctrl-n": "tabs::NewRequestTab",
+      "ctrl-w": "tabs::CloseTab",
+      "ctrl-shift-t": "tabs::ReopenClosedTab",
+      "ctrl-tab": "tabs::NextTab",
+      "ctrl-shift-tab": "tabs::PrevTab",
+      "ctrl-1": [
+        "tabs::ActivateTab",
+        0
+      ],
+      "ctrl-2": [
+        "tabs::ActivateTab",
+        1
+      ],
+      "ctrl-3": [
+        "tabs::ActivateTab",
+        2
+      ],
+      "ctrl-4": [
+        "tabs::ActivateTab",
+        3
+      ],
+      "ctrl-5": [
+        "tabs::ActivateTab",
+        4
+      ],
+      "ctrl-6": [
+        "tabs::ActivateTab",
+        5
+      ],
+      "ctrl-7": [
+        "tabs::ActivateTab",
+        6
+      ],
+      "ctrl-8": [
+        "tabs::ActivateTab",
+        7
+      ],
+      "ctrl-9": [
+        "tabs::ActivateTab",
+        8
+      ],
+      "ctrl-,": "arc::OpenSettings",
+      "ctrl-q": "arc::QuitArc",
+      "ctrl-shift-p": "arc::ToggleCommandPalette",
+      "ctrl-b": "arc::ToggleFilePanel",
+      "ctrl-alt-b": "arc::ToggleEnvPanel",
+      "ctrl-j": "arc::ToggleResponse"
+    }
+  },
+  {
+    "context": "RequestPlayground",
+    "use_key_equivalents": true,
+    "bindings": {
+      "ctrl-s": "request::SaveRequest",
+      "ctrl-enter": "request::SendRequest",
+      "ctrl-.": "request::CancelRequest",
+      "ctrl-l": "request::FocusUrl"
+    }
+  },
+  {
+    "context": "FilePanel",
+    "use_key_equivalents": true,
+    "bindings": {
+      "ctrl-n": "file_panel::CreateFile",
+      "ctrl-alt-n": "file_panel::CreateFolder",
+      "enter": "file_panel::RenameItem",
+      "f2": "file_panel::RenameItem",
+      "backspace": "file_panel::DeleteItem",
+      "delete": "file_panel::DeleteItem",
+      "ctrl-backspace": "file_panel::TrashItem",
+      "ctrl-alt-c": "file_panel::CopyPath"
+    }
+  }
+]

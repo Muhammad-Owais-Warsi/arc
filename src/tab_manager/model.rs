@@ -49,6 +49,12 @@ struct CodeTabMeta {
     view: Entity<CodeScreen>,
 }
 
+/// Enough to reopen a closed request tab.
+struct ClosedTab {
+    content: RequestFileContent,
+    path: Option<String>,
+}
+
 pub struct TabManager {
     // Shared handles — one underlying object, referenced from here and ApiClient.
     shell: Entity<DockShell>,
@@ -62,6 +68,9 @@ pub struct TabManager {
     request_tabs: HashMap<usize, RequestTabMeta>,
     env_tabs: Vec<EnvTabMeta>,
     welcome_panel: Option<PanelId>,
+    /// Recently closed request tabs, newest last. Powers ReopenClosedTab.
+    /// Request tabs only — env/code/welcome tabs rebuild from disk or state.
+    closed_tabs: Vec<ClosedTab>,
     // Browser-like nav history: every tab we open/activate is pushed;
     // back/forward walk the stack, skipping panels closed since.
     tab_nav: Vec<PanelId>,
@@ -86,6 +95,7 @@ impl TabManager {
             request_tabs: HashMap::new(),
             env_tabs: Vec::new(),
             welcome_panel: None,
+            closed_tabs: Vec::new(),
             tab_nav: Vec::new(),
             tab_nav_ix: 0,
         }
@@ -282,10 +292,11 @@ impl TabManager {
 
         self.nav_push(pid);
         self.activate_dock_panel(pid, window, cx);
+        playground.update(cx, |pg, cx| pg.focus_url(window, cx));
     }
 
-    pub fn open_untitled_request(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        self.open_untitled_request_in(None, window, cx);
+    pub fn open_untitled_request(&mut self, window: &mut Window, cx: &mut Context<Self>) -> usize {
+        self.open_untitled_request_in(None, window, cx)
     }
 
     pub fn open_untitled_request_in(
@@ -293,7 +304,7 @@ impl TabManager {
         target: Option<NodeId>,
         window: &mut Window,
         cx: &mut Context<Self>,
-    ) {
+    ) -> usize {
         let node_id = next_id();
         let playground = cx.new(|cx| RequestPlayground::new(window, cx));
         playground.update(cx, |pg, cx| {
@@ -322,6 +333,10 @@ impl TabManager {
         );
         self.nav_push(pid);
         self.activate_dock_panel(pid, window, cx);
+        if let Some(meta) = self.request_tabs.get(&node_id) {
+            meta.view.update(cx, |pg, cx| pg.focus_url(window, cx));
+        }
+        node_id
     }
 
     pub fn rename_request_tab(
@@ -355,8 +370,172 @@ impl TabManager {
         let method = meta.view.read(cx).stored_method(cx);
         self.file_panel
             .update(cx, |pp, _| pp.set_node_method(node_id, &method));
+        self.push_closed_tab(meta.view.read(cx).current_content(cx), meta.view.read(cx).path());
         self.drop_nav_panel(meta.panel);
         self.remove_center_panel(meta.view, window, cx);
+    }
+
+    /// Remember a closed request so ReopenClosedTab can restore it.
+    /// Blank untitled tabs carry nothing worth restoring.
+    fn push_closed_tab(&mut self, content: RequestFileContent, path: Option<String>) {
+        if path.is_none() && content.url.is_empty() {
+            return;
+        }
+        self.closed_tabs.push(ClosedTab { content, path });
+        if self.closed_tabs.len() > 25 {
+            self.closed_tabs.remove(0);
+        }
+    }
+
+    /// Reopen the most recently closed request tab, if any.
+    pub fn reopen_closed_tab(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let Some(closed) = self.closed_tabs.pop() else {
+            return;
+        };
+        let node_id = self.open_untitled_request(window, cx);
+        let Some(meta) = self.request_tabs.get(&node_id) else {
+            return;
+        };
+        let content = serde_json::to_value(&closed.content).unwrap_or_default();
+        let path = closed.path.clone();
+        let name = closed.content.name.clone();
+        meta.view.update(cx, |pg, cx| {
+            pg.load(window, cx, &content);
+            if let Some(path) = path {
+                pg.set_path(path);
+            }
+            if !name.is_empty() {
+                pg.set_tab_name(name, cx);
+            }
+        });
+    }
+
+    /// Center tabs in strip (visual) order, tracked panels only.
+    fn center_tabs_in_order(&self, cx: &App) -> Vec<PanelId> {
+        let tracked: std::collections::HashSet<PanelId> = self
+            .request_tabs
+            .values()
+            .map(|meta| meta.panel)
+            .chain(self.env_tabs.iter().map(|meta| meta.panel))
+            .chain(self.code_tabs.values().map(|meta| meta.panel))
+            .chain(self.welcome_panel)
+            .collect();
+        let area = self.dock_area(cx);
+        let area = area.read(cx);
+        let Some(tree) = area.layout(DockPlacement::Center) else {
+            return Vec::new();
+        };
+        let mut ordered = Vec::new();
+        tree.root().walk(&mut |node| {
+            if let gpui_kit::base::dock::PaneRef::Tabs { panels, .. } = node.kind() {
+                ordered.extend(panels.iter().filter(|p| tracked.contains(p)).copied());
+            }
+        });
+        ordered
+    }
+
+    /// The currently displayed center tab, if it is one we track.
+    fn active_center_panel(&self, cx: &App) -> Option<PanelId> {
+        let area = self.dock_area(cx);
+        let area = area.read(cx);
+        let tree = area.layout(DockPlacement::Center)?;
+        let mut active = None;
+        tree.root().walk(&mut |node| {
+            if active.is_some() {
+                return;
+            }
+            if let gpui_kit::base::dock::PaneRef::Tabs { panels, active_ix } = node.kind() {
+                active = panels.get(active_ix).copied();
+            }
+        });
+        active
+    }
+
+    /// Close the active center tab through the same registry route the strip
+    /// × button uses, so the close hook runs all TabManager bookkeeping.
+    pub fn close_active_tab(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let area = self.dock_area(cx);
+        let Some(panel) = self.active_center_panel(cx) else {
+            return;
+        };
+        let view = area.read(cx).panel(panel).cloned();
+        let Some(view) = view else { return };
+        let registry = self.shell.read(cx).tab_registry();
+        if registry.can_close(&view, cx) {
+            registry.close_panel(&view, &area, window, cx);
+            self.focus_active_tab(window, cx);
+        }
+    }
+
+    /// Activate the center tab at the given strip index, if there is one.
+    pub fn activate_tab(&mut self, index: usize, window: &mut Window, cx: &mut Context<Self>) {
+        if let Some(panel) = self.center_tabs_in_order(cx).get(index).copied() {
+            self.nav_push(panel);
+            self.activate_dock_panel(panel, window, cx);
+            self.focus_active_tab(window, cx);
+        }
+    }
+
+    /// Activate the tab after/before the current one, wrapping around.
+    fn activate_neighbor(&mut self, next: bool, window: &mut Window, cx: &mut Context<Self>) {
+        let ordered = self.center_tabs_in_order(cx);
+        if ordered.is_empty() {
+            return;
+        }
+        let current = self
+            .active_center_panel(cx)
+            .and_then(|panel| ordered.iter().position(|p| *p == panel))
+            .unwrap_or(0);
+        let neighbor = if next {
+            (current + 1) % ordered.len()
+        } else {
+            (current + ordered.len() - 1) % ordered.len()
+        };
+        let panel = ordered[neighbor];
+        self.nav_push(panel);
+        self.activate_dock_panel(panel, window, cx);
+        self.focus_active_tab(window, cx);
+    }
+
+    pub fn activate_next_tab(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        self.activate_neighbor(true, window, cx);
+    }
+
+    pub fn activate_prev_tab(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        self.activate_neighbor(false, window, cx);
+    }
+
+    /// Focus whatever the active center tab shows: the URL input for
+    /// requests, the view handle otherwise. Call after open/close/switch so
+    /// keyboard input keeps working without an extra click.
+    pub fn focus_active_tab(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let Some(panel) = self.active_center_panel(cx) else {
+            return;
+        };
+        if let Some(meta) = self.request_tabs.values().find(|meta| meta.panel == panel) {
+            meta.view.update(cx, |pg, cx| pg.focus_url(window, cx));
+            return;
+        }
+        if let Some(meta) = self.env_tabs.iter().find(|meta| meta.panel == panel) {
+            meta.view.update(cx, |view, cx| {
+                let handle = view.focus_handle(cx);
+                window.focus(&handle, cx);
+            });
+            return;
+        }
+        if let Some(meta) = self.code_tabs.values().find(|meta| meta.panel == panel) {
+            meta.view.update(cx, |view, cx| {
+                let handle = view.focus_handle(cx);
+                window.focus(&handle, cx);
+            });
+            return;
+        }
+        if self.welcome_panel == Some(panel) {
+            self.welcome.update(cx, |view, cx| {
+                let handle = view.focus_handle(cx);
+                window.focus(&handle, cx);
+            });
+        }
     }
 
     pub fn open_env_tab(&mut self, name: String, window: &mut Window, cx: &mut Context<Self>) {
@@ -555,6 +734,10 @@ impl TabManager {
                         fs::request::write(Path::new(&path), &content).ok();
                     }
                 }
+                self.push_closed_tab(
+                    meta.view.read(cx).current_content(cx),
+                    meta.view.read(cx).path(),
+                );
                 let method = meta.view.read(cx).stored_method(cx);
                 self.file_panel
                     .update(cx, |pp, _| pp.set_node_method(node_id, &method));

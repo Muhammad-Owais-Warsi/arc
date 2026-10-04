@@ -7,7 +7,7 @@ use gpui_kit::prelude::FluentBuilder;
 use gpui_kit::*;
 
 use super::model::{TitleBarEvent, TitleBarView};
-use crate::actions;
+use crate::actions::arc::{CopySettings, OpenSettings, QuitArc, ThemeChange};
 use crate::env::Environment;
 use crate::fs;
 use crate::ui::IconName;
@@ -55,12 +55,12 @@ impl Render for TitleBarView {
                                         "https://github.com/Muhammad-Owais-Warsi/arc",
                                     )
                                     .separator()
-                                    .menu("Open Settings", Box::new(actions::OpenSettings))
-                                    .menu("Copy Settings", Box::new(actions::CopySettings))
+                                    .menu("Open Settings", Box::new(OpenSettings))
+                                    .menu("Copy Settings", Box::new(CopySettings))
                                     .separator()
-                                    .menu("Select Theme...", Box::new(actions::ThemeChange))
+                                    .menu("Select Theme...", Box::new(ThemeChange))
                                     .separator()
-                                    .menu("Quit Arc", Box::new(actions::QuitArc))
+                                    .menu("Quit Arc", Box::new(QuitArc))
                             }),
                     )
                     .child({
@@ -150,9 +150,7 @@ impl Render for TitleBarView {
                                             let this = this.clone();
                                             move |index, window, cx| {
                                                 this.update(cx, |t, cx| {
-                                                    t.switch_workspace_to(
-                                                        index.row, window, cx,
-                                                    );
+                                                    t.switch_workspace_to(index.row, window, cx);
                                                     t.close_workspace_picker(cx);
                                                 });
                                             }

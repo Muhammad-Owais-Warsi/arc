@@ -10,9 +10,9 @@ use super::actions::{
     StressTestPlayground, TrashItem,
 };
 use super::model::FilePanel;
-use crate::actions::CopyAsCode;
-use crate::ui::method_tag;
+use crate::actions;
 use crate::ui::IconName;
+use crate::ui::method_tag;
 
 impl Render for FilePanel {
     fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
@@ -147,18 +147,17 @@ impl Render for FilePanel {
                                 .items_center()
                                 .gap_1()
                                 .pl(px(6. + entry.depth() as f32 * 14.))
-                                .children(folder_icon.map(|icon| div().flex_none().child(icon_el(icon))))
+                                .children(
+                                    folder_icon.map(|icon| div().flex_none().child(icon_el(icon))),
+                                )
                                 .child(div().text_sm().child(node.name.clone()))
                                 .child(div().flex_1())
-                                .when(node.is_file, |t| {
-                                    t.child(method_tag(&node.method))
-                                })
+                                .when(node.is_file, |t| t.child(method_tag(&node.method)))
                                 .children(chevron.map(|icon| {
-                                    div().flex_none().text_color(muted).child(
-                                        Icon::empty()
-                                            .path(icon.path())
-                                            .size(px(12.)),
-                                    )
+                                    div()
+                                        .flex_none()
+                                        .text_color(muted)
+                                        .child(Icon::empty().path(icon.path()).size(px(12.)))
                                 })),
                         )
                         .on_click(move |_, window, cx| {
@@ -177,10 +176,7 @@ impl Render for FilePanel {
                         p.set_context_target(node_id);
                     })
                     .ok();
-                let is_file = menu_nodes
-                    .get(&node_id)
-                    .map(|n| n.is_file)
-                    .unwrap_or(true);
+                let is_file = menu_nodes.get(&node_id).map(|n| n.is_file).unwrap_or(true);
                 let is_root = menu_roots.is_some_and(|id| id == node_id);
                 let menu = menu.min_w(px(200.)).action_context(menu_focus.clone());
                 let menu = if !is_file {
@@ -189,7 +185,7 @@ impl Render for FilePanel {
                         .separator()
                 } else {
                     menu.menu("Stress Test", Box::new(StressTestPlayground))
-                        .menu("Copy as Code", Box::new(CopyAsCode))
+                        .menu("Copy as Code", Box::new(actions::arc::CopyAsCode))
                         .separator()
                 };
                 let menu = menu
@@ -209,6 +205,7 @@ impl Render for FilePanel {
 
         div()
             .id("file-panel")
+            .key_context("FilePanel")
             .track_focus(&self.focus())
             .h_full()
             .w_full()

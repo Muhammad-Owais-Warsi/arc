@@ -1,7 +1,3 @@
-use gpui_kit::Action;
+use gpui_kit::actions;
 
-#[derive(Clone, PartialEq, Action)]
-pub struct CopyEnv;
-
-#[derive(Clone, PartialEq, Action)]
-pub struct DeleteEnv;
+actions!(env, [CopyEnv, DeleteEnv]);

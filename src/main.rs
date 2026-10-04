@@ -12,6 +12,7 @@ pub mod fs;
 mod headers;
 mod http;
 mod id;
+mod keymap;
 mod overlay;
 mod playground;
 mod query_params;
@@ -26,9 +27,13 @@ mod ui;
 mod welcome;
 use std::rc::Rc;
 
-use crate::actions::{
+use crate::actions::arc::{
     CopySettings, DockEnvPanelLeft, DockEnvPanelRight, DockSidebarLeft, DockSidebarRight,
-    OpenSettings, QuitArc, ThemeChange,
+    OpenSettings, QuitArc, ThemeChange, ToggleCommandPalette, ToggleEnvPanel, ToggleFilePanel,
+    ToggleResponse,
+};
+use crate::tab_manager::actions::{
+    ActivateTab, CloseTab, NewRequestTab, NextTab, PrevTab, ReopenClosedTab,
 };
 use crate::assets::Assets;
 use crate::dock::shell::{DockShell, DockShellEvent, FixedPanel, Side};
@@ -168,6 +173,8 @@ impl ApiClient {
             tabs.seed_empty_center(window, cx);
             tabs.install_close_hook(cx);
             tabs.subscribe_dock_events(window, cx);
+            // Focus the seeded tab so keyboard input works without a first click.
+            tabs.focus_active_tab(window, cx);
         });
         cx.subscribe_in(
             &self.titlebar,
@@ -377,8 +384,7 @@ impl ApiClient {
         _: &OpenSettings,
         _window: &mut Window,
         cx: &mut Context<Self>,
-    ) {
-        if let Some((sw, aw)) = self.settings_window.clone() {
+    ) {        if let Some((sw, aw)) = self.settings_window.clone() {
             if sw.upgrade().is_some()
                 && cx
                     .update_window(aw, |_, window, _cx| {
@@ -417,6 +423,109 @@ impl ApiClient {
         let state = self.theme.clone();
         crate::overlay::theme_picker::open(state, window, cx);
     }
+
+    fn handle_new_request_tab(
+        &mut self,
+        _: &NewRequestTab,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.tab_manager
+            .update(cx, |tabs, cx| tabs.open_untitled_request(window, cx));
+    }
+
+    fn handle_close_tab(
+        &mut self,
+        _: &CloseTab,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.tab_manager
+            .update(cx, |tabs, cx| tabs.close_active_tab(window, cx));
+    }
+
+    fn handle_reopen_closed_tab(
+        &mut self,
+        _: &ReopenClosedTab,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.tab_manager
+            .update(cx, |tabs, cx| tabs.reopen_closed_tab(window, cx));
+    }
+
+    fn handle_next_tab(
+        &mut self,
+        _: &NextTab,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.tab_manager
+            .update(cx, |tabs, cx| tabs.activate_next_tab(window, cx));
+    }
+
+    fn handle_prev_tab(
+        &mut self,
+        _: &PrevTab,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.tab_manager
+            .update(cx, |tabs, cx| tabs.activate_prev_tab(window, cx));
+    }
+
+    fn handle_activate_tab(
+        &mut self,
+        action: &ActivateTab,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let index = action.0;
+        self.tab_manager
+            .update(cx, |tabs, cx| tabs.activate_tab(index, window, cx));
+    }
+
+    fn handle_toggle_file_panel(
+        &mut self,
+        _: &ToggleFilePanel,
+        _window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.shell.update(cx, |shell, cx| {
+            shell.toggle_panel(FILE_PANEL_ID, cx);
+        });
+    }
+
+    fn handle_toggle_env_panel(
+        &mut self,
+        _: &ToggleEnvPanel,
+        _window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.shell.update(cx, |shell, cx| {
+            shell.toggle_panel(ENV_PANEL_ID, cx);
+        });
+    }
+
+    fn handle_toggle_response(
+        &mut self,
+        _: &ToggleResponse,
+        _window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.response.update(cx, |panel, cx| panel.toggle(cx));
+    }
+
+    fn handle_toggle_command_palette(
+        &mut self,
+        _: &ToggleCommandPalette,
+        _window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.titlebar.update(cx, |bar, cx| {
+            bar.set_workspace_picker_open(!bar.workspace_picker_open(), cx);
+        });
+    }
 }
 
 impl Render for ApiClient {
@@ -433,6 +542,16 @@ impl Render for ApiClient {
             .on_action(cx.listener(Self::handle_dock_env_panel_left))
             .on_action(cx.listener(Self::handle_dock_env_panel_right))
             .on_action(cx.listener(Self::handle_theme_change))
+            .on_action(cx.listener(Self::handle_new_request_tab))
+            .on_action(cx.listener(Self::handle_close_tab))
+            .on_action(cx.listener(Self::handle_reopen_closed_tab))
+            .on_action(cx.listener(Self::handle_next_tab))
+            .on_action(cx.listener(Self::handle_prev_tab))
+            .on_action(cx.listener(Self::handle_activate_tab))
+            .on_action(cx.listener(Self::handle_toggle_file_panel))
+            .on_action(cx.listener(Self::handle_toggle_env_panel))
+            .on_action(cx.listener(Self::handle_toggle_response))
+            .on_action(cx.listener(Self::handle_toggle_command_palette))
             .child(self.titlebar.clone())
             .child({
                 let shell = self.shell.clone();
@@ -481,6 +600,8 @@ fn main() {
 
     app.run(move |cx| {
         gpui_kit::init(cx);
+        crate::keymap::ensure_user_keymap();
+        crate::keymap::reload_keymaps(cx);
         let _ = fs::workspace::init();
 
         for font_file in [

@@ -13,6 +13,7 @@ use crate::ui::IconName;
 impl Render for EnvPlayground {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         div()
+            .key_context("EnvPlayground")
             .size_full()
             .min_h(px(0.))
             .v_flex()

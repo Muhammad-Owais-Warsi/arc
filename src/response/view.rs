@@ -292,6 +292,7 @@ impl Render for ResponsePanel {
     fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         div()
             .id("response-panel")
+            .key_context("ResponsePanel")
             .w_full()
             .min_w(px(0.))
             .h_full()

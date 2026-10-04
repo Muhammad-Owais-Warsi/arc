@@ -12,7 +12,7 @@ use gpui_kit::prelude::FluentBuilder;
 use gpui_kit::*;
 
 use super::actions::CopyURL;
-use crate::actions::CopyAsCode;
+use crate::actions::arc::CopyAsCode;
 use crate::ui::IconName;
 
 use super::model::RequestPlayground;
@@ -28,21 +28,21 @@ impl RequestPlayground {
                     Input::new(&self.url_input())
                         .token(|token, _, _| InputToken::new(token).icon(IconName::Variable))
                         .suffix(
-                        h_flex().gap_1().items_center().child(
-                            div()
-                                .flex()
-                                .items_center()
-                                .child(
-                                    Clipboard::new("url-clip")
-                                        .tooltip("Copy")
-                                        .value(self.url_input().read(cx).value()),
-                                )
-                                .context_menu(move |menu, _, _| {
-                                    menu.menu("Copy URL", Box::new(CopyURL))
-                                        .menu("Copy as Code", Box::new(CopyAsCode))
-                                }),
+                            h_flex().gap_1().items_center().child(
+                                div()
+                                    .flex()
+                                    .items_center()
+                                    .child(
+                                        Clipboard::new("url-clip")
+                                            .tooltip("Copy")
+                                            .value(self.url_input().read(cx).value()),
+                                    )
+                                    .context_menu(move |menu, _, _| {
+                                        menu.menu("Copy URL", Box::new(CopyURL))
+                                            .menu("Copy as Code", Box::new(CopyAsCode))
+                                    }),
+                            ),
                         ),
-                    ),
                 ),
             )
             .child(
@@ -65,11 +65,7 @@ impl RequestPlayground {
                     } else {
                         IconName::Send
                     })
-                    .label(if self.is_sending() {
-                        "Stop"
-                    } else {
-                        "Send"
-                    })
+                    .label(if self.is_sending() { "Stop" } else { "Send" })
                     .on_click(cx.listener(|this: &mut Self, _, window, cx| {
                         if this.is_sending() {
                             this.cancel_pending();
@@ -159,8 +155,13 @@ impl Render for RequestPlayground {
         // The response lives in the shell's bottom aux slot now; center tabs
         // render the editor only.
         div()
+            .key_context("RequestPlayground")
             .on_action((cx.listener(Self::handle_copy_url)))
             .on_action((cx.listener(Self::handle_copy_as_code)))
+            .on_action((cx.listener(Self::handle_save_request)))
+            .on_action((cx.listener(Self::handle_send_request)))
+            .on_action((cx.listener(Self::handle_cancel_request)))
+            .on_action((cx.listener(Self::handle_focus_url)))
             .size_full()
             .min_h(px(0.))
             .v_flex()
@@ -183,7 +184,5 @@ impl Render for RequestPlayground {
                     .py(px(4.))
                     .child(self.render_config_content(cx)),
             )
-            // Demo only: read-only theme previews, no effect on the active theme.
-            .child(crate::ui::theme_preview_demo(cx))
     }
 }

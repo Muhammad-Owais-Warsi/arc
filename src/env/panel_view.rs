@@ -66,6 +66,7 @@ impl Render for EnvPanel {
 
         div()
             .id("env-panel")
+            .key_context("EnvPanel")
             .track_focus(&self.focus())
             .h_full()
             .w_full()

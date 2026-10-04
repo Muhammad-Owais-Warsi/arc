@@ -8,6 +8,7 @@ use std::borrow::Cow;
 #[derive(RustEmbed)]
 #[folder = "./assets"]
 #[include = "icons/**/*.svg"]
+#[include = "keymaps/**/*.json"]
 #[include = "logo/*.svg"]
 #[include = "themes/**/*.json"]
 #[include = "fonts/**/*.ttf"]

@@ -203,6 +203,7 @@ dependencies = [
  "indexmap",
  "reqwest",
  "rust-embed",
+ "schemars",
  "serde",
  "serde_json",
  "strum 0.26.3",

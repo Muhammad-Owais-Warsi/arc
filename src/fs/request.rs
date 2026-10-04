@@ -15,7 +15,7 @@ pub struct KeyValue {
     pub active: bool,
 }
 
-#[derive(Serialize, Deserialize, Default, PartialEq)]
+#[derive(Serialize, Deserialize, Default, PartialEq, Clone)]
 pub struct Auth {
     pub auth_type: AuthType,
     pub username: String,
@@ -23,13 +23,13 @@ pub struct Auth {
     pub token: String,
 }
 
-#[derive(Serialize, Deserialize, Default, PartialEq)]
+#[derive(Serialize, Deserialize, Default, PartialEq, Clone)]
 pub struct Body {
     pub body_type: String,
     pub body: String,
 }
 
-#[derive(Serialize, Deserialize, Default, PartialEq)]
+#[derive(Serialize, Deserialize, Default, PartialEq, Clone)]
 pub struct RequestFileContent {
     pub name: String,
     pub url: String,

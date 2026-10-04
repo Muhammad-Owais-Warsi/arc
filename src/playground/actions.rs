@@ -1,4 +1,12 @@
-use gpui_kit::Action;
+use gpui_kit::actions;
 
-#[derive(Clone, PartialEq, Action)]
-pub struct CopyURL;
+actions!(
+    request,
+    [
+        CopyURL,
+        SaveRequest,
+        SendRequest,
+        CancelRequest,
+        FocusUrl,
+    ]
+);

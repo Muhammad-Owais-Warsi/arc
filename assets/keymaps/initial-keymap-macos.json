@@ -1,0 +1,21 @@
+[
+  // Your keybindings. This file is loaded over the built-in defaults,
+  // so anything here wins. See README.md in this folder for the schema.
+  //
+  // Examples (uncomment to use):
+  //
+  // { "bindings": {
+  //     "cmd-shift-enter": "request::SendRequest"
+  // } },
+  //
+  // Rebind only inside the request editor:
+  // { "context": "RequestPlayground", "bindings": {
+  //     "cmd-s": "request::SaveRequest"
+  // } },
+  //
+  // Disable a chord entirely:
+  // { "bindings": { "cmd-w": null } },
+  //
+  // Unbind one action on a chord other bindings keep:
+  // { "unbind": { "cmd-n": ["gpui::Unbind", "tabs::NewRequestTab"] } }
+]

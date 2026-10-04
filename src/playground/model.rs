@@ -6,8 +6,8 @@ use gpui_kit::component::{
 };
 use gpui_kit::*;
 
-use super::actions::CopyURL;
-use crate::actions::CopyAsCode;
+use super::actions::{CancelRequest, CopyURL, FocusUrl, SaveRequest, SendRequest};
+use crate::actions::arc::CopyAsCode;
 use crate::auth::{Auth, AuthEvent};
 use crate::body::{Body, BodyEvent};
 use crate::curl::curl::CurlRequest;
@@ -15,11 +15,11 @@ use crate::dock::tabs::Playground;
 use crate::fs;
 use crate::fs::request::{Auth as AuthContent, Body as BodyContent, KeyValue, RequestFileContent};
 use crate::headers::{Headers, HeadersEvent};
-use crate::ui::method_tag;
 use crate::query_params::{QueryParams, QueryParamsEvent};
 use crate::response::ResponsePanel;
 use crate::settings::AppSettings;
 use crate::toast::{ToastRoot, ToastVariant};
+use crate::ui::method_tag;
 
 pub struct RequestPlayground {
     path: Option<String>,
@@ -173,11 +173,9 @@ impl RequestPlayground {
                         continue;
                     }
                     let raw = &pasted_content[start..end];
-                    let token =
-                        InlineToken::new(name.clone(), raw.to_string()).with_label(name);
+                    let token = InlineToken::new(name.clone(), raw.to_string()).with_label(name);
                     this.url.update(cx, |s, cx| {
-                        let _ =
-                            s.replace_range_with_token(start..end, token, window, cx);
+                        let _ = s.replace_range_with_token(start..end, token, window, cx);
                     });
                 }
                 this.evaluate_dirty(cx);
@@ -414,7 +412,8 @@ impl RequestPlayground {
     ) {
         if let Some(url) = content.get("url").and_then(|v| v.as_str()) {
             let tokenized = fs::env::tokenize(url);
-            self.url.update(cx, |s, cx| s.set_value(tokenized, window, cx));
+            self.url
+                .update(cx, |s, cx| s.set_value(tokenized, window, cx));
         }
         if let Some(method) = content.get("method").and_then(|v| v.as_str()) {
             self.set_method(method, window, cx);
@@ -431,12 +430,7 @@ impl RequestPlayground {
         self.dirty = false;
     }
 
-    pub fn handle_copy_url(
-        &mut self,
-        _: &CopyURL,
-        _window: &mut Window,
-        cx: &mut Context<Self>,
-    ) {
+    pub fn handle_copy_url(&mut self, _: &CopyURL, _window: &mut Window, cx: &mut Context<Self>) {
         cx.write_to_clipboard(ClipboardItem::new_string(self.url.read(cx).value().into()));
     }
 
@@ -447,6 +441,56 @@ impl RequestPlayground {
         _cx: &mut Context<Self>,
     ) {
         _cx.emit(RequestPlaygroundEvent::CopyAsCode);
+    }
+
+    pub fn handle_save_request(
+        &mut self,
+        _: &SaveRequest,
+        _window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.save(cx);
+    }
+
+    pub fn handle_send_request(
+        &mut self,
+        _: &SendRequest,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        if self.is_sending() {
+            self.cancel_pending();
+        } else {
+            self.send_request(window, cx);
+        }
+        cx.notify();
+    }
+
+    pub fn handle_cancel_request(
+        &mut self,
+        _: &CancelRequest,
+        _window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.cancel_pending();
+        cx.notify();
+    }
+
+    pub fn handle_focus_url(
+        &mut self,
+        _: &FocusUrl,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.focus_url(window, cx);
+    }
+
+    /// Focus the URL input. Used on tab open/activate so keyboard input —
+    /// and request-scoped chords — work without an extra click.
+    pub fn focus_url(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        self.url.update(cx, |state, cx| {
+            state.focus(window, cx);
+        });
     }
 
     pub fn cancel_pending(&mut self) {
